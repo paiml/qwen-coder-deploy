@@ -1,0 +1,42 @@
+version: "1.0"
+name: qwen-coder-teardown
+description: "Stop and disable all Qwen inference services"
+
+params:
+  model_dir: "/home/noah/models/qwen-coder-1.5b"
+
+machines:
+  intel:
+    hostname: intel
+    addr: 192.168.50.100
+    user: noah
+    ssh_key: ~/.ssh/id_ed25519
+    arch: x86_64
+    transport: ssh
+
+resources:
+  realizar-serve:
+    type: service
+    machine: intel
+    name: qwen-realizar
+    enabled: false
+    state: stopped
+
+  ollama-serve:
+    type: service
+    machine: intel
+    name: qwen-ollama
+    enabled: false
+    state: stopped
+
+  llamacpp-serve:
+    type: service
+    machine: intel
+    name: qwen-llamacpp
+    enabled: false
+    state: stopped
+
+policy:
+  failure: continue
+  tripwire: false
+  lock_file: false

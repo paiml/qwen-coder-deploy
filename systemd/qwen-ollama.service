@@ -1,0 +1,18 @@
+[Unit]
+Description=Qwen Coder 1.5B - Ollama Inference Server
+After=network.target
+
+[Service]
+Type=simple
+User=noah
+Environment=OLLAMA_HOST=0.0.0.0:8082
+Environment=OLLAMA_MODELS=/home/noah/models/ollama
+ExecStartPre=/usr/local/bin/ollama pull qwen2.5-coder:1.5b-instruct
+ExecStart=/usr/local/bin/ollama serve
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

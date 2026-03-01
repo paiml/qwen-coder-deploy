@@ -1,0 +1,15 @@
+name: Nightly Benchmark
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # 4am UTC daily
+  workflow_dispatch: {}
+
+jobs:
+  benchmark:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy and benchmark
+        run: bash scripts/nightly.sh

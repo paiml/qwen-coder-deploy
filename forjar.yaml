@@ -1,0 +1,100 @@
+version: "1.0"
+name: qwen-coder-deploy
+description: "Deploy Qwen2.5-Coder-1.5B-Instruct across realizar, ollama, llama.cpp"
+
+params:
+  model_id: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+  model_dir: "/home/noah/models/qwen-coder-1.5b"
+  realizar_port: "8081"
+  ollama_port: "8082"
+  llamacpp_port: "8083"
+
+machines:
+  intel:
+    hostname: intel
+    addr: 192.168.50.100
+    user: noah
+    ssh_key: ~/.ssh/id_ed25519
+    arch: x86_64
+    transport: ssh
+
+resources:
+  # 1. Create model directory
+  model-dir:
+    type: file
+    machine: intel
+    path: "{{params.model_dir}}"
+    state: directory
+    owner: noah
+
+  # 2. Download model (SafeTensors from HuggingFace)
+  model-safetensors:
+    type: model
+    machine: intel
+    name: qwen-coder-1.5b-instruct
+    source: "{{params.model_id}}"
+    path: "{{params.model_dir}}/safetensors/"
+    format: safetensors
+    depends_on: [model-dir]
+
+  # 3. Convert to GGUF (via llama.cpp convert script)
+  model-gguf:
+    type: file
+    machine: intel
+    path: "{{params.model_dir}}/qwen-coder-1.5b-q4_k_m.gguf"
+    source: "scripts/convert-gguf.sh"
+    depends_on: [model-safetensors]
+
+  # 4. Convert to APR (via aprender)
+  model-apr:
+    type: file
+    machine: intel
+    path: "{{params.model_dir}}/qwen-coder-1.5b.apr"
+    source: "scripts/convert-apr.sh"
+    depends_on: [model-safetensors]
+
+  # 5. Install/update ollama
+  ollama-install:
+    type: package
+    machine: intel
+    packages: [ollama]
+    provider: script
+
+  # 6. Install/update llama.cpp (llama-server)
+  llamacpp-install:
+    type: package
+    machine: intel
+    packages: [llama-cpp]
+    provider: cargo
+
+  # 7. Systemd service: realizar serve
+  realizar-serve:
+    type: service
+    machine: intel
+    name: qwen-realizar
+    enabled: true
+    state: running
+    depends_on: [model-gguf, model-apr, model-safetensors]
+
+  # 8. Systemd service: ollama serve
+  ollama-serve:
+    type: service
+    machine: intel
+    name: qwen-ollama
+    enabled: true
+    state: running
+    depends_on: [ollama-install, model-gguf]
+
+  # 9. Systemd service: llama-server
+  llamacpp-serve:
+    type: service
+    machine: intel
+    name: qwen-llamacpp
+    enabled: true
+    state: running
+    depends_on: [llamacpp-install, model-gguf]
+
+policy:
+  failure: stop_on_first
+  tripwire: true
+  lock_file: true

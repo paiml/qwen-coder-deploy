@@ -1,0 +1,50 @@
+tests:
+  - name: basic_math
+    messages:
+      - role: user
+        content: "What is 7 * 8? Reply with just the number."
+    expect_contains: "56"
+    max_tokens: 32
+    temperature: 0.0
+
+  - name: python_fibonacci
+    messages:
+      - role: user
+        content: "Write a Python function that returns the nth Fibonacci number. Just the function, no explanation."
+    expect_contains: "def fib"
+    max_tokens: 256
+    temperature: 0.0
+
+  - name: rust_hello
+    messages:
+      - role: user
+        content: "Write a Rust hello world program. Just the code."
+    expect_contains: "fn main"
+    max_tokens: 128
+    temperature: 0.0
+
+  - name: explain_code
+    messages:
+      - role: system
+        content: "You are a helpful coding assistant."
+      - role: user
+        content: "What does `vec![1,2,3].iter().map(|x| x * 2).collect::<Vec<_>>()` do in Rust? One sentence."
+    expect_pattern: "(?i)(double|multiply|2)"
+    max_tokens: 128
+    temperature: 0.0
+
+  - name: json_output
+    messages:
+      - role: user
+        content: "Output a JSON object with keys 'name' and 'age'. Values: Alice, 30. Just the JSON."
+    expect_contains: "\"name\""
+    max_tokens: 64
+    temperature: 0.0
+
+  - name: sql_query
+    messages:
+      - role: user
+        content: "Write a SQL query to select all users older than 18. Just the query."
+    expect_pattern: "(?i)SELECT.*FROM.*WHERE"
+    max_tokens: 128
+    temperature: 0.0

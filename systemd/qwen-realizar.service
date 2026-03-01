@@ -1,0 +1,19 @@
+[Unit]
+Description=Qwen Coder 1.5B - Realizar Inference Server
+After=network.target
+
+[Service]
+Type=simple
+User=noah
+Environment=RUST_LOG=info
+ExecStart=/home/noah/.cargo/bin/realizar serve \
+    --model /home/noah/models/qwen-coder-1.5b/safetensors/ \
+    --port 8081 \
+    --threads 4
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
