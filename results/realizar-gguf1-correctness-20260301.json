@@ -1,0 +1,51 @@
+{
+  "runtime_name": "realizar-gguf-1",
+  "timestamp": "2026-03-01T17:40:17.014954577+00:00",
+  "results": [
+    {
+      "name": "basic_math",
+      "passed": true,
+      "latency_ms": 4347.680633000001,
+      "output": "56",
+      "failures": []
+    },
+    {
+      "name": "python_fibonacci",
+      "passed": true,
+      "latency_ms": 3859.7997040000005,
+      "output": "```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n```",
+      "failures": []
+    },
+    {
+      "name": "rust_hello",
+      "passed": true,
+      "latency_ms": 2177.447991,
+      "output": "```rust\nfn main() {\n    println!(\"Hello, world!\");\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "explain_code",
+      "passed": true,
+      "latency_ms": 4851.101633,
+      "output": "This Rust code snippet creates a vector of integers, doubles each element, and then collects the results into a new vector.",
+      "failures": []
+    },
+    {
+      "name": "json_output",
+      "passed": true,
+      "latency_ms": 3388.8674220000003,
+      "output": "```json\n{\n  \"name\": \"Alice\",\n  \"age\": 30\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "sql_query",
+      "passed": true,
+      "latency_ms": 2800.738142,
+      "output": "```sql\nSELECT * FROM users WHERE age > 18;\n```",
+      "failures": []
+    }
+  ],
+  "passed": 6,
+  "failed": 0,
+  "total": 6
+}
