@@ -1,5 +1,9 @@
 # qwen-coder-deploy
 
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="Architecture" width="720"/>
+</p>
+
 Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across realizar, ollama, and llama.cpp.
 
 ## Quick Start

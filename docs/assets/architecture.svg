@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1e293b"/>
+      <stop offset="100%" style="stop-color:#334155"/>
+    </linearGradient>
+    <linearGradient id="realizarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#7c3aed"/>
+      <stop offset="100%" style="stop-color:#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="ollamaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#059669"/>
+      <stop offset="100%" style="stop-color:#047857"/>
+    </linearGradient>
+    <linearGradient id="llamaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#d97706"/>
+      <stop offset="100%" style="stop-color:#b45309"/>
+    </linearGradient>
+    <linearGradient id="probarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2563eb"/>
+      <stop offset="100%" style="stop-color:#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="116%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="480" rx="12" fill="#f8fafc"/>
+
+  <!-- Header -->
+  <rect x="0" y="0" width="800" height="56" rx="12" fill="url(#headerGrad)"/>
+  <rect x="0" y="12" width="800" height="44" fill="url(#headerGrad)"/>
+  <text x="400" y="36" text-anchor="middle" fill="white" font-size="18" font-weight="700">Qwen2.5-Coder-1.5B-Instruct — Multi-Runtime Deployment</text>
+
+  <!-- Model box -->
+  <rect x="280" y="76" width="240" height="52" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="400" y="100" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="600">Qwen/Qwen2.5-Coder-1.5B-Instruct</text>
+  <text x="400" y="118" text-anchor="middle" fill="#64748b" font-size="11">SafeTensors + GGUF Q4_K_M + APR v2</text>
+
+  <!-- Arrows from model to runtimes -->
+  <line x1="320" y1="128" x2="140" y2="170" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="400" y1="128" x2="400" y2="170" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="480" y1="128" x2="660" y2="170" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Runtime: realizar -->
+  <rect x="40" y="170" width="200" height="100" rx="10" fill="url(#realizarGrad)" filter="url(#shadow)"/>
+  <text x="140" y="198" text-anchor="middle" fill="white" font-size="15" font-weight="700">realizar</text>
+  <text x="140" y="218" text-anchor="middle" fill="#e0d4fc" font-size="11">Sovereign AI Stack</text>
+  <rect x="60" y="232" width="160" height="24" rx="4" fill="rgba(255,255,255,0.15)"/>
+  <text x="140" y="248" text-anchor="middle" fill="white" font-size="11" font-family="monospace">:8081 / SafeTensors</text>
+
+  <!-- Runtime: ollama -->
+  <rect x="300" y="170" width="200" height="100" rx="10" fill="url(#ollamaGrad)" filter="url(#shadow)"/>
+  <text x="400" y="198" text-anchor="middle" fill="white" font-size="15" font-weight="700">ollama</text>
+  <text x="400" y="218" text-anchor="middle" fill="#a7f3d0" font-size="11">Go Runtime</text>
+  <rect x="320" y="232" width="160" height="24" rx="4" fill="rgba(255,255,255,0.15)"/>
+  <text x="400" y="248" text-anchor="middle" fill="white" font-size="11" font-family="monospace">:8082 / GGUF Q4_K_M</text>
+
+  <!-- Runtime: llama.cpp -->
+  <rect x="560" y="170" width="200" height="100" rx="10" fill="url(#llamaGrad)" filter="url(#shadow)"/>
+  <text x="660" y="198" text-anchor="middle" fill="white" font-size="15" font-weight="700">llama.cpp</text>
+  <text x="660" y="218" text-anchor="middle" fill="#fde68a" font-size="11">C++ Runtime</text>
+  <rect x="580" y="232" width="160" height="24" rx="4" fill="rgba(255,255,255,0.15)"/>
+  <text x="660" y="248" text-anchor="middle" fill="white" font-size="11" font-family="monospace">:8083 / GGUF Q4_K_M</text>
+
+  <!-- Arrows from runtimes to probador -->
+  <line x1="140" y1="270" x2="140" y2="310" stroke="#94a3b8" stroke-width="1.5"/>
+  <line x1="400" y1="270" x2="400" y2="310" stroke="#94a3b8" stroke-width="1.5"/>
+  <line x1="660" y1="270" x2="660" y2="310" stroke="#94a3b8" stroke-width="1.5"/>
+  <polygon points="140,310 136,302 144,302" fill="#94a3b8"/>
+  <polygon points="400,310 396,302 404,302" fill="#94a3b8"/>
+  <polygon points="660,310 656,302 664,302" fill="#94a3b8"/>
+
+  <!-- Probador testing bar -->
+  <rect x="40" y="310" width="720" height="68" rx="10" fill="url(#probarGrad)" filter="url(#shadow)"/>
+  <text x="400" y="336" text-anchor="middle" fill="white" font-size="15" font-weight="700">probador llm</text>
+  <text x="400" y="356" text-anchor="middle" fill="#bfdbfe" font-size="11">Correctness Tests  |  Load Testing (P50/P95/P99)  |  Tokens/sec  |  TTFT</text>
+  <text x="400" y="370" text-anchor="middle" fill="#93c5fd" font-size="10">OpenAI-compatible /v1/chat/completions</text>
+
+  <!-- Output boxes -->
+  <rect x="80" y="400" width="180" height="56" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="170" y="424" text-anchor="middle" fill="#1e293b" font-size="12" font-weight="600">results/*.json</text>
+  <text x="170" y="442" text-anchor="middle" fill="#64748b" font-size="10">Historical benchmarks</text>
+
+  <rect x="310" y="400" width="180" height="56" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="400" y="424" text-anchor="middle" fill="#1e293b" font-size="12" font-weight="600">performance.md</text>
+  <text x="400" y="442" text-anchor="middle" fill="#64748b" font-size="10">Markdown comparison table</text>
+
+  <rect x="540" y="400" width="180" height="56" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="630" y="424" text-anchor="middle" fill="#1e293b" font-size="12" font-weight="600">nightly CI</text>
+  <text x="630" y="442" text-anchor="middle" fill="#64748b" font-size="10">GitHub Actions @ 4am UTC</text>
+
+  <!-- Arrows from probador to outputs -->
+  <line x1="250" y1="378" x2="170" y2="400" stroke="#94a3b8" stroke-width="1"/>
+  <line x1="400" y1="378" x2="400" y2="400" stroke="#94a3b8" stroke-width="1"/>
+  <line x1="550" y1="378" x2="630" y2="400" stroke="#94a3b8" stroke-width="1"/>
+
+  <!-- Intel label -->
+  <rect x="678" y="76" width="100" height="24" rx="4" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="728" y="92" text-anchor="middle" fill="#475569" font-size="10" font-weight="600">intel x86_64</text>
+</svg>
