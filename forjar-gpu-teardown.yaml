@@ -1,0 +1,35 @@
+version: "1.0"
+name: qwen-coder-teardown-gpu
+description: "Stop all GPU Qwen inference processes"
+
+machines:
+  gpu:
+    hostname: noah-Lambda-Vector
+    addr: 127.0.0.1
+    user: noah
+    arch: x86_64
+    transport: local
+
+resources:
+  realizar-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'realizar serve.*8081' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
+
+  ollama-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'ollama serve' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8082/api/tags >/dev/null 2>&1"
+
+  llamacpp-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'llama-server.*8083' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
+
+policy:
+  failure: continue
+  tripwire: false
+  lock_file: false

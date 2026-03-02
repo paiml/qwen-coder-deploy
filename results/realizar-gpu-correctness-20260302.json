@@ -1,0 +1,51 @@
+{
+  "runtime_name": "realizar-gpu",
+  "timestamp": "2026-03-02T08:20:40.388734574+00:00",
+  "results": [
+    {
+      "name": "basic_math",
+      "passed": true,
+      "latency_ms": 110.65697300000001,
+      "output": "56",
+      "failures": []
+    },
+    {
+      "name": "python_fibonacci",
+      "passed": true,
+      "latency_ms": 234.399003,
+      "output": "```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n```",
+      "failures": []
+    },
+    {
+      "name": "rust_hello",
+      "passed": true,
+      "latency_ms": 137.257306,
+      "output": "```rust\nfn main() {\n    println!(\"Hello, world!\");\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "explain_code",
+      "passed": true,
+      "latency_ms": 314.815584,
+      "output": "This code creates a vector of integers, iterates over it, doubles each element, and collects the results into a new vector.",
+      "failures": []
+    },
+    {
+      "name": "json_output",
+      "passed": true,
+      "latency_ms": 204.338484,
+      "output": "```json\n{\n  \"name\": \"Alice\",\n  \"age\": 30\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "sql_query",
+      "passed": true,
+      "latency_ms": 155.056676,
+      "output": "```sql\nSELECT * FROM users WHERE age > 18;\n```",
+      "failures": []
+    }
+  ],
+  "passed": 6,
+  "failed": 0,
+  "total": 6
+}

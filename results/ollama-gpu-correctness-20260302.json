@@ -1,0 +1,51 @@
+{
+  "runtime_name": "ollama-gpu",
+  "timestamp": "2026-03-02T08:21:01.281022878+00:00",
+  "results": [
+    {
+      "name": "basic_math",
+      "passed": true,
+      "latency_ms": 1966.169579,
+      "output": "56",
+      "failures": []
+    },
+    {
+      "name": "python_fibonacci",
+      "passed": true,
+      "latency_ms": 403.10625300000004,
+      "output": "```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n```\n\nThis function uses recursion to calculate the nth Fibonacci number. The base cases are when `n` is 0 or 1, in which case it simply returns `n`. For all other values of `n`, it calls itself with `n-1` and `n-2`, adding the results together to get the nth Fibonacci number.",
+      "failures": []
+    },
+    {
+      "name": "rust_hello",
+      "passed": true,
+      "latency_ms": 254.573487,
+      "output": "```rust\nfn main() {\n    println!(\"Hello, World!\");\n}\n```\n\nThis is a simple Rust program that prints \"Hello, World!\" to the console when executed. The `main` function is the entry point of the program, and `println!` is used to print text to the console.",
+      "failures": []
+    },
+    {
+      "name": "explain_code",
+      "passed": true,
+      "latency_ms": 143.18661,
+      "output": "This code snippet creates a vector of integers from 1 to 3, doubles each element using the map function, and then collects the results into a new vector.",
+      "failures": []
+    },
+    {
+      "name": "json_output",
+      "passed": true,
+      "latency_ms": 101.045976,
+      "output": "```json\n{\n  \"name\": \"Alice\",\n  \"age\": 30\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "sql_query",
+      "passed": true,
+      "latency_ms": 72.64039199999999,
+      "output": "```sql\nSELECT * FROM users WHERE age > 18;\n```",
+      "failures": []
+    }
+  ],
+  "passed": 6,
+  "failed": 0,
+  "total": 6
+}

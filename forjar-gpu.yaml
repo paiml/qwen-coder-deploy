@@ -1,0 +1,84 @@
+version: "1.0"
+name: qwen-coder-deploy-gpu
+description: "Deploy Qwen2.5-Coder-1.5B-Instruct across realizar, ollama, llama.cpp — GPU (RTX 4090)"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+  apr_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4k.apr"
+
+machines:
+  gpu:
+    hostname: noah-Lambda-Vector
+    addr: 127.0.0.1
+    user: noah
+    arch: x86_64
+    transport: local
+
+resources:
+  # 1. Build llama-server with CUDA support
+  llamacpp-build:
+    type: task
+    machine: gpu
+    command: "cmake --build /home/noah/src/llama.cpp/build --target llama-server -j$(nproc)"
+    completion_check: "test -x /home/noah/src/llama.cpp/build/bin/llama-server"
+    output_artifacts:
+      - "/home/noah/src/llama.cpp/build/bin/llama-server"
+    timeout: 600
+
+  # 2. Verify GGUF model exists
+  model-gguf:
+    type: task
+    machine: gpu
+    command: "test -f /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf || { echo 'Missing GGUF'; exit 1; }"
+    completion_check: "test -f /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+  # 3. Verify APR model exists
+  model-apr:
+    type: task
+    machine: gpu
+    command: "test -f /home/noah/models/qwen2.5-coder-1.5b-instruct-q4k.apr || { echo 'Missing APR'; exit 1; }"
+    completion_check: "test -f /home/noah/models/qwen2.5-coder-1.5b-instruct-q4k.apr"
+
+  # 4. Verify ollama has the model pulled
+  ollama-model:
+    type: task
+    machine: gpu
+    command: "ollama pull qwen2.5-coder:1.5b-instruct"
+    completion_check: "ollama list 2>/dev/null | grep -q 'qwen2.5-coder:1.5b-instruct'"
+
+  # 5. Stop default ollama service
+  ollama-default-stop:
+    type: task
+    machine: gpu
+    command: "sudo systemctl stop ollama.service 2>/dev/null || true"
+    completion_check: "! systemctl is-active --quiet ollama.service"
+    depends_on: [ollama-model]
+
+  # 6. Start realizar serve (GPU, background)
+  realizar-start:
+    type: task
+    machine: gpu
+    command: "pkill -f 'realizar serve.*8081' 2>/dev/null || true; sleep 2; nohup /home/noah/.cargo/bin/realizar serve --model {{params.gguf_model}} --port 8081 --gpu --openai-api > /tmp/realizar-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
+    depends_on: [model-gguf]
+
+  # 7. Start ollama serve (GPU, custom port, background)
+  ollama-start:
+    type: task
+    machine: gpu
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sleep 1; OLLAMA_HOST=0.0.0.0:8082 nohup /usr/local/bin/ollama serve > /tmp/ollama-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8082/api/tags >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8082/api/tags >/dev/null 2>&1"
+    depends_on: [ollama-model, ollama-default-stop]
+
+  # 8. Start llama.cpp server (GPU, full offload, background)
+  llamacpp-start:
+    type: task
+    machine: gpu
+    command: "pkill -f 'llama-server.*8083' 2>/dev/null || true; sleep 1; LD_LIBRARY_PATH=/home/noah/src/llama.cpp/build/bin nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
+    depends_on: [llamacpp-build, model-gguf]
+
+policy:
+  failure: stop_on_first
+  tripwire: false
+  lock_file: true
