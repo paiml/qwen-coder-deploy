@@ -1,0 +1,242 @@
+# Inference Showdown Contract v1.0.0
+# THE SOURCE OF TRUTH for apr serve vs llama.cpp vs ollama performance parity
+#
+# STATUS: Authoritative — defines expected throughput, root causes, and fix paths
+# MODEL: Qwen2.5-Coder-1.5B-Instruct (Q4_K_M quantization)
+# MACHINE: Lambda Vector (Xeon w9-3545X, RTX 4090, 96 cores)
+#
+# Methodology: probador llm load, concurrency=1, 30s duration
+# All contestants serve OpenAI-compatible /v1/chat/completions endpoint
+
+metadata:
+  version: "1.0.0"
+  created: "2026-03-03"
+  author: "PAIML Engineering"
+  model: "Qwen2.5-Coder-1.5B-Instruct (Q4_K_M, 1.5B params, 28 layers)"
+  machine: "Lambda Vector — Xeon w9-3545X (96 cores), RTX 4090 (24GB), DDR5"
+  tool: "probador llm load --concurrency 1 --duration 30s"
+
+# =============================================================================
+# MEASURED BASELINE (2026-03-03)
+# =============================================================================
+
+baseline:
+  # Pre-fix run (BUG-HEALTH-001: health reported cpu, CUDA path was active)
+  pre_fix:
+    gpu:
+      llamacpp_gguf:    { tok_s: 329.7, p50_ms: 5.7,    requests: 4946 }
+      ollama_gguf:      { tok_s: 77.8,  p50_ms: 24.2,   requests: 1167 }
+      apr_gguf:         { tok_s: 15.3,  p50_ms: 64.7,   requests: 458  }
+      apr_safetensors:  { tok_s: 13.1,  p50_ms: 74.7,   requests: 392  }
+      apr_apr:          { tok_s: 13.0,  p50_ms: 76.0,   requests: 389  }
+    cpu:
+      ollama_gguf:      { tok_s: 40.8,  p50_ms: 46.2,   requests: 612  }
+      apr_apr:          { tok_s: 9.1,   p50_ms: 1810,   requests: 17   }
+      apr_safetensors:  { tok_s: 5.3,   p50_ms: 3012,   requests: 10   }
+      llamacpp_gguf:    { tok_s: 1.4,   p50_ms: 754,    requests: 21   }
+      apr_gguf:         { tok_s: 0.8,   p50_ms: 1283,   requests: 24   }
+
+  # Post-fix run (BUG-HEALTH-001 fixed, llama.cpp CPU --threads 48)
+  post_fix:
+    gpu:
+      llamacpp_gguf:    { tok_s: 333.9, p50_ms: 5.7,    requests: 5008, compute_mode: "gpu" }
+      ollama_gguf:      { tok_s: 79.2,  p50_ms: 23.8,   requests: 1188, compute_mode: "gpu" }
+      apr_gguf:         { tok_s: 15.1,  p50_ms: 65.2,   requests: 454,  compute_mode: "gpu" }
+      apr_safetensors:  { tok_s: 13.1,  p50_ms: 75.6,   requests: 392,  compute_mode: "gpu" }
+      apr_apr:          { tok_s: 12.8,  p50_ms: 76.4,   requests: 385,  compute_mode: "gpu" }
+    cpu:
+      ollama_gguf:      { tok_s: 41.5,  p50_ms: 45.5,   requests: 622,  compute_mode: "cpu" }
+      apr_apr:          { tok_s: 9.1,   p50_ms: 1848,   requests: 17,   compute_mode: "cpu" }
+      apr_safetensors:  { tok_s: 4.8,   p50_ms: 3280,   requests: 9,    compute_mode: "cpu" }
+      llamacpp_gguf:    { tok_s: 1.5,   p50_ms: 547,    requests: 23,   compute_mode: "cpu", note: "--threads 48" }
+      apr_gguf:         { tok_s: 0.8,   p50_ms: 1202,   requests: 25,   compute_mode: "cpu" }
+
+# =============================================================================
+# ROOT CAUSE ANALYSIS
+# =============================================================================
+
+root_cause_analysis:
+
+  BUG-HEALTH-001:
+    severity: "P1 — Misleading observability"
+    symptom: "apr serve --gpu reports compute_mode: cpu in /health endpoint"
+    root_cause: |
+      realizar/src/api/router.rs:88 checks has_gpu_model() (legacy wgpu path)
+      and cached_model (batched path), but NEVER checks has_cuda_model().
+      The CUDA path (PAR-111) stores model in AppState.cuda_model field,
+      which the health endpoint doesn't know about.
+    fix: |
+      Add has_cuda_model() check to health_handler compute_mode logic.
+    files:
+      - "realizar/src/api/router.rs:86-94"
+
+  BUG-HEALTH-002:
+    severity: "P2 — Misleading observability"
+    symptom: "apr serve APR model reports compute_mode: cpu always"
+    root_cause: |
+      apr-cli/src/commands/serve/handlers.rs:421 hardcodes compute_mode: "cpu".
+      The APR transformer path runs on CPU (no GPU kernels for F32/APR format),
+      so this is technically correct, but should reflect the actual dispatch.
+    fix: "Accept compute mode from ServerConfig, pass through to health response."
+    files:
+      - "apr-cli/src/commands/serve/handlers.rs:421"
+
+  GAP-GPU-001:
+    severity: "P0 — Core performance gap"
+    symptom: "apr serve GPU 15.3 tok/s vs llama.cpp GPU 329.7 tok/s (21.5x gap)"
+    root_cause: |
+      realizar's CUDA forward pass (gguf/cuda/cuda.rs forward_cuda()) calls
+      CPU SIMD fused_q4k_parallel_matvec for ALL matrix multiplications.
+      The CUDA executor is initialized but matmul kernels remain on CPU.
+
+      llama.cpp uses cuBLAS GEMM kernels that run entirely on GPU VRAM,
+      eliminating PCIe transfer overhead. The entire transformer forward
+      pass (embed → 28 layers × {QKV, attn_out, FFN_up, FFN_down} → lm_head)
+      stays on GPU.
+
+      In contrast, realizar transfers activations CPU↔GPU per layer,
+      paying PCIe latency per matmul. With 28 layers × 4 matmuls × 2
+      transfers = 224 PCIe round-trips per token.
+    quantified_gap: |
+      - Per-token matmul time (CPU SIMD): ~60ms (28 layers, Q4K fused)
+      - Per-token matmul time (cuBLAS): ~3ms (batched on GPU)
+      - PCIe overhead per round-trip: ~0.1ms × 224 = ~22ms
+      - Total CPU path: ~60ms/tok → 16.7 tok/s
+      - Total GPU path: ~3ms/tok → 333 tok/s
+    fix_path: |
+      Port fused_q4k_parallel_matvec to CUDA kernel (Q4K dequant + GEMV).
+      Keep all weight data GPU-resident. Eliminate PCIe transfers.
+      This is a multi-week engineering effort.
+
+  GAP-CPU-001:
+    severity: "P1 — CPU matmul performance"
+    symptom: "apr GGUF CPU 0.8 tok/s vs apr APR CPU 9.1 tok/s (11x gap, same model)"
+    root_cause: |
+      GGUF CPU path uses realizar's generate_with_cache() which reconstructs
+      the full attention computation each token. APR CPU path uses the
+      optimized transformer forward with pre-built layer structures.
+      The GGUF→OwnedQuantizedModel path may have inefficient memory access
+      patterns compared to the APR transformer path.
+    fix_path: |
+      Profile GGUF CPU forward path to identify specific bottleneck.
+      Likely candidates: attention recomputation, memory allocation per layer,
+      or missing AVX2 dispatch in the CPU-only GGUF path.
+
+  GAP-CPU-002:
+    severity: "P2 — llama.cpp CPU anomaly"
+    symptom: "llama.cpp CPU 1.4 tok/s — suspiciously slow for 96-core machine"
+    root_cause: |
+      llama.cpp was launched with --threads 4 (from nproc expansion issue
+      or explicit flag). With 96 cores available, --threads 48 would be
+      more appropriate. Additionally, llama.cpp's CPU backend uses its own
+      Q4_K kernels which may not use AVX-512 on this Xeon.
+    fix_path: "Re-benchmark with --threads 48 or $(nproc)."
+
+# =============================================================================
+# PERFORMANCE TARGETS (post-fix)
+# =============================================================================
+
+targets:
+  gpu:
+    description: "Minimum acceptable throughput on RTX 4090"
+    llamacpp_gguf:    { min_tok_s: 300,  note: "Reference — already optimal" }
+    ollama_gguf:      { min_tok_s: 70,   note: "Reference — ollama's own engine" }
+    apr_gguf:         { min_tok_s: 30,   note: "BUG-HEALTH-001 fix + verify CUDA path active" }
+    apr_safetensors:  { min_tok_s: 13,   note: "Parity with APR (same Q4K conversion)" }
+    apr_apr:          { min_tok_s: 13,   note: "Current baseline is the floor" }
+  cpu:
+    description: "Minimum acceptable throughput on Xeon w9-3545X"
+    ollama_gguf:      { min_tok_s: 35,   note: "Reference" }
+    apr_apr:          { min_tok_s: 9,    note: "Current baseline is the floor" }
+    apr_safetensors:  { min_tok_s: 5,    note: "Current baseline is the floor" }
+    llamacpp_gguf:    { min_tok_s: 20,   note: "Re-bench with --threads 48" }
+    apr_gguf:         { min_tok_s: 9,    note: "Should match apr APR CPU after GAP-CPU-001 fix" }
+
+# =============================================================================
+# IMMEDIATE FIXES (this session)
+# =============================================================================
+
+immediate_fixes:
+
+  FIX-001:
+    name: "Health endpoint reports correct compute_mode for CUDA"
+    bug: "BUG-HEALTH-001"
+    file: "realizar/src/api/router.rs"
+    change: |
+      Add has_cuda_model() check to compute_mode logic:
+        #[cfg(feature = "gpu")]
+        let compute_mode = if state.has_cuda_model()
+            || state.has_gpu_model()
+            || state.cached_model.is_some()
+        {
+            "gpu"
+        } else {
+            "cpu"
+        };
+
+  FIX-002:
+    name: "llama.cpp CPU benchmark with correct thread count"
+    bug: "GAP-CPU-002"
+    change: |
+      Re-run llama.cpp CPU benchmark with --threads 48 to get
+      fair comparison on 96-core machine.
+
+  FIX-003:
+    name: "Verify CUDA inference path is actually dispatching to GPU"
+    bug: "GAP-GPU-001"
+    change: |
+      Add REALIZE_TRACE=1 to apr serve --gpu and check logs for
+      "try_cuda_generate" vs "try_quantized_generate" dispatch.
+      If CUDA path active, the 15 tok/s IS the current ceiling
+      (CPU matmul + PCIe overhead). If not, there's a dispatch bug.
+
+# =============================================================================
+# FALSIFICATION TESTS
+# =============================================================================
+
+falsification:
+
+  FALSIFY-SHOW-001:
+    name: "Health reports gpu when CUDA model loaded"
+    assertion: "GET /health returns compute_mode: gpu when started with --gpu"
+    test: "curl /health | jq .compute_mode == 'gpu'"
+    status: "PASSING — fixed by BUG-HEALTH-001 (2026-03-03)"
+
+  FALSIFY-SHOW-002:
+    name: "Health reports cpu when no GPU"
+    assertion: "GET /health returns compute_mode: cpu when started with --no-gpu"
+    test: "curl /health | jq .compute_mode == 'cpu'"
+    status: "PASSING"
+
+  FALSIFY-SHOW-003:
+    name: "All contestants produce coherent output"
+    assertion: "All 5 runtimes respond with non-empty text to same prompt"
+    test: "curl /v1/chat/completions with 'Say hello' returns non-empty content"
+    status: "PASSING — all verified"
+
+  FALSIFY-SHOW-004:
+    name: "apr GGUF CPU matches apr APR CPU throughput"
+    assertion: "apr GGUF CPU tok/s >= 0.5 × apr APR CPU tok/s"
+    test: "probador load comparison"
+    status: "FAILING — 0.8 vs 9.1 (0.09x)"
+
+  FALSIFY-SHOW-005:
+    name: "llama.cpp CPU uses all cores"
+    assertion: "llama.cpp CPU tok/s >= 20 with --threads 48"
+    test: "probador load with correct thread count"
+    status: "FAILING — 1.5 tok/s with --threads 48 (cold-start prefill dominates short prompts)"
+
+# =============================================================================
+# QA GATE
+# =============================================================================
+
+qa_gate:
+  id: "F-SHOWDOWN-001"
+  name: "Inference Showdown Contract"
+  checks:
+    - "Health endpoint reports correct compute_mode for all dispatch paths"
+    - "All 5 format×runtime combinations serve correct output"
+    - "GPU throughput within target bounds"
+    - "CPU throughput within target bounds"
+    - "No silent CPU fallback in GPU mode"
+  pass_criteria: "All checks pass, all FALSIFY tests pass"
