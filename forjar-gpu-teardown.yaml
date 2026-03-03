@@ -1,6 +1,6 @@
 version: "1.0"
 name: qwen-coder-teardown-gpu
-description: "Stop all GPU Qwen inference processes"
+description: "Stop all GPU and CPU Qwen inference processes"
 
 machines:
   gpu:
@@ -11,10 +11,10 @@ machines:
     transport: local
 
 resources:
-  realizar-stop:
+  apr-gguf-gpu-stop:
     type: task
     machine: gpu
-    command: "pkill -f 'realizar serve.*8081' 2>/dev/null || true"
+    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true"
     completion_check: "! curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
 
   ollama-stop:
@@ -29,7 +29,49 @@ resources:
     command: "pkill -f 'llama-server.*8083' 2>/dev/null || true"
     completion_check: "! curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
 
+  apr-safetensors-gpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'apr serve.*8084' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8084/health >/dev/null 2>&1"
+
+  apr-apr-gpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'apr serve.*8085' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8085/health >/dev/null 2>&1"
+
+  apr-gguf-cpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'apr serve.*8091' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8091/health >/dev/null 2>&1"
+
+  ollama-cpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'ollama.*8092' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8092/health >/dev/null 2>&1"
+
+  llamacpp-cpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'llama-server.*8093' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8093/health >/dev/null 2>&1"
+
+  apr-safetensors-cpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'apr serve.*8094' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8094/health >/dev/null 2>&1"
+
+  apr-apr-cpu-stop:
+    type: task
+    machine: gpu
+    command: "pkill -f 'apr serve.*8095' 2>/dev/null || true"
+    completion_check: "! curl -sf http://127.0.0.1:8095/health >/dev/null 2>&1"
+
 policy:
-  failure: continue
+  failure: continue_independent
   tripwire: false
   lock_file: false
