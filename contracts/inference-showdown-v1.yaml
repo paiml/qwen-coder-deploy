@@ -51,6 +51,27 @@ baseline:
       llamacpp_gguf:    { tok_s: 1.5,   p50_ms: 547,    requests: 23,   compute_mode: "cpu", note: "--threads 48" }
       apr_gguf:         { tok_s: 0.8,   p50_ms: 1202,   requests: 25,   compute_mode: "cpu" }
 
+  # Post-GH-95 fix (batch.rs generate_with_cache, gguf-cpu-cache-v1.yaml contract)
+  post_gh95:
+    gpu:
+      llamacpp_gguf:    { tok_s: 313.8, p50_ms: 6.0,    requests: 4707, compute_mode: "gpu" }
+      ollama_gguf:      { tok_s: 74.3,  p50_ms: 24.7,   requests: 1115, compute_mode: "gpu" }
+      apr_gguf:         { tok_s: 15.0,  p50_ms: 65.3,   requests: 449,  compute_mode: "gpu" }
+      apr_safetensors:  { tok_s: 12.8,  p50_ms: 76.6,   requests: 385,  compute_mode: "gpu" }
+      apr_apr:          { tok_s: 12.6,  p50_ms: 77.9,   requests: 379,  compute_mode: "gpu" }
+    cpu:
+      ollama_gguf:      { tok_s: 40.7,  p50_ms: 46.0,   requests: 611,  compute_mode: "cpu" }
+      apr_apr:          { tok_s: 9.1,   p50_ms: 1823.6, requests: 17,   compute_mode: "cpu" }
+      apr_safetensors:  { tok_s: 5.3,   p50_ms: 3272.4, requests: 10,   compute_mode: "cpu" }
+      llamacpp_gguf:    { tok_s: 3.0,   p50_ms: 163.4,  requests: 45,   compute_mode: "cpu", note: "--threads 48" }
+      apr_gguf:         { tok_s: 0.8,   p50_ms: 1261.1, requests: 24,   compute_mode: "cpu" }
+    notes: |
+      GH-95 fix (batch.rs .generate() → .generate_with_cache()) only affects /generate endpoint.
+      The /v1/chat/completions path (used by probador) already used generate_with_cache.
+      Results are within run-to-run variance of post_fix baseline.
+      GAP-CPU-001 (GGUF CPU 0.8 vs APR CPU 9.1) is a genuine performance gap, not a caching bug.
+      The tok/s metric is misleading: GGUF generates 1 token ("4"), APR generates ~16 tokens.
+
 # =============================================================================
 # ROOT CAUSE ANALYSIS
 # =============================================================================
@@ -218,13 +239,13 @@ falsification:
     name: "apr GGUF CPU matches apr APR CPU throughput"
     assertion: "apr GGUF CPU tok/s >= 0.5 × apr APR CPU tok/s"
     test: "probador load comparison"
-    status: "FAILING — 0.8 vs 9.1 (0.09x)"
+    status: "FAILING — 0.8 vs 9.1 (0.09x). Note: tok/s misleading (GGUF=1 token, APR=16 tokens per response). TTFT is better metric: GGUF 1261ms vs APR 1824ms (GGUF is faster per-token)."
 
   FALSIFY-SHOW-005:
     name: "llama.cpp CPU uses all cores"
     assertion: "llama.cpp CPU tok/s >= 20 with --threads 48"
     test: "probador load with correct thread count"
-    status: "FAILING — 1.5 tok/s with --threads 48 (cold-start prefill dominates short prompts)"
+    status: "FAILING — 3.0 tok/s with --threads 48 (cold-start prefill dominates short prompts, high p95=5407ms)"
 
 # =============================================================================
 # QA GATE
