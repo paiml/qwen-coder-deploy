@@ -1,20 +1,23 @@
-# Inference Showdown Contract v1.0.0
+# Inference Showdown Contract v2.0.0
 # THE SOURCE OF TRUTH for apr serve vs llama.cpp vs ollama performance parity
 #
 # STATUS: Authoritative — defines expected throughput, root causes, and fix paths
 # MODEL: Qwen2.5-Coder-1.5B-Instruct (Q4_K_M quantization)
 # MACHINE: Lambda Vector (Xeon w9-3545X, RTX 4090, 96 cores)
 #
-# Methodology: probador llm load, concurrency=1, 30s duration
+# Methodology v1: probador llm load, concurrency=1, 30s duration (single run)
+# Methodology v2: probador llm load, concurrency=4, 60s duration, 3 runs with CI
 # All contestants serve OpenAI-compatible /v1/chat/completions endpoint
 
 metadata:
-  version: "1.0.0"
+  version: "2.0.0"
   created: "2026-03-03"
+  updated: "2026-03-03"
   author: "PAIML Engineering"
   model: "Qwen2.5-Coder-1.5B-Instruct (Q4_K_M, 1.5B params, 28 layers)"
   machine: "Lambda Vector — Xeon w9-3545X (96 cores), RTX 4090 (24GB), DDR5"
-  tool: "probador llm load --concurrency 1 --duration 30s"
+  tool_v1: "probador llm load --concurrency 1 --duration 30s"
+  tool_v2: "probador llm load --concurrency 4 --duration 60s (×3 runs)"
 
 # =============================================================================
 # MEASURED BASELINE (2026-03-03)
@@ -71,6 +74,32 @@ baseline:
       Results are within run-to-run variance of post_fix baseline.
       GAP-CPU-001 (GGUF CPU 0.8 vs APR CPU 9.1) is a genuine performance gap, not a caching bug.
       The tok/s metric is misleading: GGUF generates 1 token ("4"), APR generates ~16 tokens.
+
+  # V2.0 methodology: concurrency=4, duration=60s, 3 runs with CI (2026-03-03)
+  # Data: bench-results-v2/*.json
+  v2_benchmark:
+    methodology: "concurrency=4, duration=60s, 3 runs, 95% CI"
+    gpu:
+      llamacpp_gguf:    { tok_s: 224.8, ci: [220.7, 228.6], p50_ms: 448.1,  requests_avg: 54 }
+      ollama_gguf:      { tok_s: 148.1, ci: [145.8, 149.4], p50_ms: 860.8,  requests_avg: 35 }
+      apr_safetensors:  { tok_s: 117.9, ci: [116.5, 118.8], p50_ms: 1129.3, requests_avg: 28 }
+      apr_gguf:         { tok_s: 107.7, ci: [105.2, 109.7], p50_ms: 1179.0, requests_avg: 27 }
+      apr_apr:          { tok_s: 106.1, ci: [105.0, 107.0], p50_ms: 1240.4, requests_avg: 26 }
+    cpu:
+      llamacpp_gguf:    { tok_s: 73.9,  ci: [73.5, 74.4],   p50_ms: 1721.7, requests_avg: 18 }
+      ollama_gguf:      { tok_s: 65.6,  ci: [65.3, 65.8],   p50_ms: 1953.1, requests_avg: 16 }
+      apr_apr:          { tok_s: 9.5,   ci: [9.5, 9.6],     p50_ms: 13463,  requests_avg: 3  }
+      apr_gguf:         { tok_s: 9.4,   ci: [9.4, 9.4],     p50_ms: 13593,  requests_avg: 3  }
+      apr_safetensors:  { tok_s: 6.0,   ci: [6.0, 6.0],     p50_ms: 21527,  requests_avg: 2  }
+    notes: |
+      V2.0 methodology resolves several v1 issues:
+      - 3-run CI eliminates single-run noise (tight CI bands confirm reproducibility)
+      - Concurrency=4 tests realistic multi-request behavior
+      - GGUF CPU now matches APR CPU (9.4 vs 9.5) — GAP-CPU-001 was a tok/s metric artifact
+      - SafeTensors CPU still 36% slower (6.0 vs 9.4) — genuine gap (realizar#99)
+      - GPU gap: apr ~108 vs llama.cpp ~225 (2.1x) — VRAM residency issue (realizar#97)
+      - CPU gap: apr ~9.5 vs llama.cpp ~73.9 (7.8x) — activation quantization (realizar#96)
+      - tok/s metric conflates response length (probar#23) — ITL/TPOT needed (probar#24)
 
 # =============================================================================
 # ROOT CAUSE ANALYSIS
@@ -130,86 +159,176 @@ root_cause_analysis:
       This is a multi-week engineering effort.
 
   GAP-CPU-001:
-    severity: "P1 — CPU matmul performance"
+    severity: "P1 — CPU matmul performance (RESOLVED as metric artifact)"
     symptom: "apr GGUF CPU 0.8 tok/s vs apr APR CPU 9.1 tok/s (11x gap, same model)"
     root_cause: |
-      GGUF CPU path uses realizar's generate_with_cache() which reconstructs
-      the full attention computation each token. APR CPU path uses the
-      optimized transformer forward with pre-built layer structures.
-      The GGUF→OwnedQuantizedModel path may have inefficient memory access
-      patterns compared to the APR transformer path.
-    fix_path: |
-      Profile GGUF CPU forward path to identify specific bottleneck.
-      Likely candidates: attention recomputation, memory allocation per layer,
-      or missing AVX2 dispatch in the CPU-only GGUF path.
+      V2.0 benchmarks with concurrency=4 show GGUF CPU (9.4) and APR CPU (9.5)
+      at parity. The v1 11x gap was a tok/s measurement artifact:
+      GGUF correctly generated 1 token ("4"), APR generated ~16 tokens.
+      The tok/s = total_tokens/wall_time metric rewarded verbose output.
+    status: "RESOLVED — not a performance bug, metric artifact (probar#23)"
+
+  GAP-CPU-003:
+    severity: "P0 — CPU kernel performance (7.8x gap vs llama.cpp)"
+    symptom: "apr CPU 9.5 tok/s vs llama.cpp CPU 73.9 tok/s (7.8x gap)"
+    root_cause: |
+      Five-why analysis (realizar#96):
+      1. Q4K matvec kernel produces fewer tok/s on identical hardware
+      2. Inner loop operates on f32 activations — dequant Q4K→f32, then FMA
+         llama.cpp uses Q8_K integer inner loop (maddubs_epi16, 1-cycle throughput)
+      3. fused_k.rs:177 says "Future optimization: pre-quantize activations to Q8_0"
+      4. CPU was a fallback path; GPU was optimization priority
+      5. Root cause: Missing two-phase compute (quantize activations → integer-only dot)
+    fix_path: "realizar#96 — Q8K activation pre-quantization"
+    target: "apr CPU >= 60 tok/s (within 15% of llama.cpp)"
+    github_issues: ["realizar#96", "realizar#98"]
+
+  GAP-CPU-004:
+    severity: "P2 — SafeTensors CPU 36% slower than GGUF"
+    symptom: "apr SafeTensors CPU 6.0 tok/s vs apr GGUF CPU 9.4 tok/s"
+    root_cause: |
+      SafeTensors stores F32/F16, runtime Q4K conversion at startup.
+      Post-conversion tensors likely dispatch to F32 matmul instead of
+      fused_q4k_parallel_matvec. Tensor QuantType not set correctly after conversion.
+    fix_path: "realizar#99 — fix F32 fallback dispatch after Q4K conversion"
+    target: "SafeTensors CPU within 10% of GGUF CPU"
+    github_issue: "realizar#99"
+
+  GAP-GPU-002:
+    severity: "P1 — GPU VRAM residency (2.1x gap vs llama.cpp)"
+    symptom: "apr GPU 108 tok/s vs llama.cpp GPU 225 tok/s (2.1x gap)"
+    root_cause: |
+      Five-why analysis (realizar#97):
+      1. Lower token throughput despite same GPU
+      2. Log: "Pre-uploaded 0 MB weights to GPU" — weights not VRAM-resident
+      3. CUDA path uses on-demand dispatch — per-matmul PCIe transfers
+      4. CUDA integration is new; no persistent GPU weight store
+      5. Root cause: Missing persistent VRAM weight residency
+    fix_path: "realizar#97 — cudaMalloc all Q4K weights at model load"
+    target: "apr GPU >= 180 tok/s (80% of llama.cpp)"
+    github_issue: "realizar#97"
 
   GAP-CPU-002:
-    severity: "P2 — llama.cpp CPU anomaly"
+    severity: "RESOLVED — llama.cpp CPU anomaly"
     symptom: "llama.cpp CPU 1.4 tok/s — suspiciously slow for 96-core machine"
     root_cause: |
-      llama.cpp was launched with --threads 4 (from nproc expansion issue
-      or explicit flag). With 96 cores available, --threads 48 would be
-      more appropriate. Additionally, llama.cpp's CPU backend uses its own
-      Q4_K kernels which may not use AVX-512 on this Xeon.
-    fix_path: "Re-benchmark with --threads 48 or $(nproc)."
+      llama.cpp was launched with --threads 4. V2.0 benchmarks with proper
+      thread count show 73.9 tok/s — now the reference target for apr CPU.
+    status: "RESOLVED — proper --threads 48 in v2.0 benchmarks"
 
 # =============================================================================
 # PERFORMANCE TARGETS (post-fix)
 # =============================================================================
 
 targets:
+  # V2.0 targets based on measured baselines and identified fix paths
   gpu:
-    description: "Minimum acceptable throughput on RTX 4090"
-    llamacpp_gguf:    { min_tok_s: 300,  note: "Reference — already optimal" }
-    ollama_gguf:      { min_tok_s: 70,   note: "Reference — ollama's own engine" }
-    apr_gguf:         { min_tok_s: 30,   note: "BUG-HEALTH-001 fix + verify CUDA path active" }
-    apr_safetensors:  { min_tok_s: 13,   note: "Parity with APR (same Q4K conversion)" }
-    apr_apr:          { min_tok_s: 13,   note: "Current baseline is the floor" }
+    description: "RTX 4090 targets (v2.0 methodology)"
+    llamacpp_gguf:    { current: 224.8, min_tok_s: 200, note: "Reference — already optimal" }
+    ollama_gguf:      { current: 148.1, min_tok_s: 140, note: "Reference — ollama's own engine" }
+    apr_gguf:         { current: 107.7, min_tok_s: 180, note: "After realizar#97 (VRAM residency)" }
+    apr_safetensors:  { current: 117.9, min_tok_s: 180, note: "After realizar#97 (VRAM residency)" }
+    apr_apr:          { current: 106.1, min_tok_s: 180, note: "After realizar#97 (VRAM residency)" }
   cpu:
-    description: "Minimum acceptable throughput on Xeon w9-3545X"
-    ollama_gguf:      { min_tok_s: 35,   note: "Reference" }
-    apr_apr:          { min_tok_s: 9,    note: "Current baseline is the floor" }
-    apr_safetensors:  { min_tok_s: 5,    note: "Current baseline is the floor" }
-    llamacpp_gguf:    { min_tok_s: 20,   note: "Re-bench with --threads 48" }
-    apr_gguf:         { min_tok_s: 9,    note: "Should match apr APR CPU after GAP-CPU-001 fix" }
+    description: "Xeon w9-3545X targets (v2.0 methodology)"
+    llamacpp_gguf:    { current: 73.9,  min_tok_s: 70,  note: "Reference" }
+    ollama_gguf:      { current: 65.6,  min_tok_s: 60,  note: "Reference" }
+    apr_gguf:         { current: 9.4,   min_tok_s: 60,  note: "After realizar#96 (Q8K quant)" }
+    apr_apr:          { current: 9.5,   min_tok_s: 60,  note: "After realizar#96 (Q8K quant)" }
+    apr_safetensors:  { current: 6.0,   min_tok_s: 55,  note: "After realizar#99 + #96" }
 
 # =============================================================================
-# IMMEDIATE FIXES (this session)
+# COMPLETED FIXES
 # =============================================================================
 
-immediate_fixes:
+completed_fixes:
 
   FIX-001:
     name: "Health endpoint reports correct compute_mode for CUDA"
     bug: "BUG-HEALTH-001"
-    file: "realizar/src/api/router.rs"
-    change: |
-      Add has_cuda_model() check to compute_mode logic:
-        #[cfg(feature = "gpu")]
-        let compute_mode = if state.has_cuda_model()
-            || state.has_gpu_model()
-            || state.cached_model.is_some()
-        {
-            "gpu"
-        } else {
-            "cpu"
-        };
+    status: "DONE"
 
   FIX-002:
     name: "llama.cpp CPU benchmark with correct thread count"
     bug: "GAP-CPU-002"
-    change: |
-      Re-run llama.cpp CPU benchmark with --threads 48 to get
-      fair comparison on 96-core machine.
+    status: "DONE — v2.0 benchmarks use --threads 48, shows 73.9 tok/s"
 
   FIX-003:
     name: "Verify CUDA inference path is actually dispatching to GPU"
     bug: "GAP-GPU-001"
-    change: |
-      Add REALIZE_TRACE=1 to apr serve --gpu and check logs for
-      "try_cuda_generate" vs "try_quantized_generate" dispatch.
-      If CUDA path active, the 15 tok/s IS the current ceiling
-      (CPU matmul + PCIe overhead). If not, there's a dispatch bug.
+    status: "DONE — CUDA path confirmed active, 108 tok/s is real (PCIe-limited)"
+
+# =============================================================================
+# IMPLEMENTATION ROADMAP (priority order)
+# =============================================================================
+
+roadmap:
+
+  PHASE-1:
+    name: "Fix measurement tooling (probar)"
+    priority: "P0 — must fix before optimizing"
+    issues:
+      - id: "probar#23"
+        title: "tok/s metric misleading for cross-backend comparison"
+        deliverables:
+          - "avg_tok_per_req in LoadTestResult"
+          - "itl_ms (inter-token latency) = (latency - ttft) / (tokens - 1)"
+          - "decode_tok_per_sec = 1000 / itl_ms"
+          - "Console and markdown output include new columns"
+        verify: "Re-run benchmarks, confirm apr GGUF and APR show comparable decode_tok_per_sec"
+      - id: "probar#24"
+        title: "SSE streaming for TPOT measurement"
+        deliverables:
+          - "stream: true in ChatRequest"
+          - "SSE parser for data: {...}\\n\\n events"
+          - "Per-token timestamps for TPOT P50/P90/P95/P99"
+        verify: "TPOT > 0ms when server supports streaming"
+
+  PHASE-2:
+    name: "CPU kernel optimization (realizar)"
+    priority: "P0 — 7.8x gap is the largest"
+    issues:
+      - id: "realizar#96"
+        title: "Pre-quantize activations to Q8K for 8x throughput"
+        deliverables:
+          - "quantize_row_q8_k() — one-time per matmul"
+          - "fused_q4k_q8k_dot_avx2() — integer-only inner loop"
+          - "Wire up AVX-512 VNNI path (already exists as V2)"
+          - "Amortize quantization in generic_matvec.rs"
+        verify: "apr CPU >= 60 tok/s (probador llm load --concurrency 1 --duration 30s)"
+        target: "Within 15% of llama.cpp (73.9 tok/s)"
+      - id: "realizar#98"
+        title: "Replace Rayon with atomic work-stealing + L1 tiling"
+        blocked_by: "realizar#96"
+        deliverables:
+          - "AtomicUsize work-stealing dispatch (10-50ns vs 1-5us)"
+          - "16-row tile size (13KB, fits L1)"
+          - "Pre-allocated thread pool at model load"
+        verify: "Dispatch overhead < 1% of matmul compute time"
+
+  PHASE-3:
+    name: "GPU optimization (realizar)"
+    priority: "P1 — 2.1x gap"
+    issues:
+      - id: "realizar#97"
+        title: "Persistent VRAM weight residency for 2x throughput"
+        deliverables:
+          - "cudaMalloc + cudaMemcpy all Q4K weights at model load"
+          - "Forward pass reads from VRAM pointers (zero PCIe)"
+          - "cudaFree on server shutdown"
+        verify: "apr GPU >= 180 tok/s, nvidia-smi shows ~1.1GB allocated"
+        target: "Within 20% of llama.cpp (224.8 tok/s)"
+
+  PHASE-4:
+    name: "SafeTensors CPU dispatch fix (realizar)"
+    priority: "P2 — 36% gap"
+    issues:
+      - id: "realizar#99"
+        title: "Fix F32 fallback after Q4K conversion"
+        deliverables:
+          - "Verify tensor QuantType after SafeTensors→Q4K conversion"
+          - "Fix dispatch to use fused_q4k_parallel_matvec"
+        verify: "SafeTensors CPU within 10% of GGUF CPU"
 
 # =============================================================================
 # FALSIFICATION TESTS
@@ -217,11 +336,12 @@ immediate_fixes:
 
 falsification:
 
+  # --- PASSING ---
   FALSIFY-SHOW-001:
     name: "Health reports gpu when CUDA model loaded"
     assertion: "GET /health returns compute_mode: gpu when started with --gpu"
     test: "curl /health | jq .compute_mode == 'gpu'"
-    status: "PASSING — fixed by BUG-HEALTH-001 (2026-03-03)"
+    status: "PASSING — fixed by BUG-HEALTH-001"
 
   FALSIFY-SHOW-002:
     name: "Health reports cpu when no GPU"
@@ -231,33 +351,84 @@ falsification:
 
   FALSIFY-SHOW-003:
     name: "All contestants produce coherent output"
-    assertion: "All 5 runtimes respond with non-empty text to same prompt"
+    assertion: "All 10 contestants (5 formats × 2 compute modes) respond with non-empty text"
     test: "curl /v1/chat/completions with 'Say hello' returns non-empty content"
-    status: "PASSING — all verified"
+    status: "PASSING — all 10 verified in v2.0 benchmarks"
 
   FALSIFY-SHOW-004:
     name: "apr GGUF CPU matches apr APR CPU throughput"
     assertion: "apr GGUF CPU tok/s >= 0.5 × apr APR CPU tok/s"
     test: "probador load comparison"
-    status: "FAILING — 0.8 vs 9.1 (0.09x). Note: tok/s misleading (GGUF=1 token, APR=16 tokens per response). TTFT is better metric: GGUF 1261ms vs APR 1824ms (GGUF is faster per-token)."
+    status: "PASSING — v2.0 shows 9.4 vs 9.5 (parity). v1 gap was metric artifact."
 
   FALSIFY-SHOW-005:
     name: "llama.cpp CPU uses all cores"
     assertion: "llama.cpp CPU tok/s >= 20 with --threads 48"
     test: "probador load with correct thread count"
-    status: "FAILING — 3.0 tok/s with --threads 48 (cold-start prefill dominates short prompts, high p95=5407ms)"
+    status: "PASSING — v2.0 shows 73.9 tok/s with --threads 48"
+
+  # --- FAILING (open issues) ---
+  FALSIFY-SHOW-006:
+    name: "apr CPU within 2x of llama.cpp CPU"
+    assertion: "apr CPU tok/s >= 0.5 × llama.cpp CPU tok/s"
+    test: "probador load comparison"
+    status: "FAILING — 9.5 vs 73.9 (0.13x, 7.8x gap). Blocked on realizar#96."
+
+  FALSIFY-SHOW-007:
+    name: "apr GPU within 1.5x of llama.cpp GPU"
+    assertion: "apr GPU tok/s >= 0.67 × llama.cpp GPU tok/s"
+    test: "probador load comparison"
+    status: "FAILING — 108 vs 225 (0.48x, 2.1x gap). Blocked on realizar#97."
+
+  FALSIFY-SHOW-008:
+    name: "SafeTensors CPU within 10% of GGUF CPU"
+    assertion: "apr SafeTensors CPU tok/s >= 0.9 × apr GGUF CPU tok/s"
+    test: "probador load comparison"
+    status: "FAILING — 6.0 vs 9.4 (0.64x, 36% gap). Blocked on realizar#99."
+
+  FALSIFY-SHOW-009:
+    name: "probador reports TPOT > 0ms"
+    assertion: "TPOT P50 > 0ms in load test results"
+    test: "probador llm load output includes tpot_p50_ms > 0"
+    status: "FAILING — TPOT always 0.0ms (no SSE streaming). Blocked on probar#24."
+
+  FALSIFY-SHOW-010:
+    name: "probador reports decode_tok_per_sec (normalized metric)"
+    assertion: "decode_tok_per_sec present and > 0 in load test results"
+    test: "probador llm load output includes decode_tok_per_sec > 0"
+    status: "FAILING — metric not implemented. Blocked on probar#23."
 
 # =============================================================================
 # QA GATE
 # =============================================================================
 
 qa_gate:
-  id: "F-SHOWDOWN-001"
-  name: "Inference Showdown Contract"
+  id: "F-SHOWDOWN-002"
+  name: "Inference Showdown Contract v2.0"
   checks:
     - "Health endpoint reports correct compute_mode for all dispatch paths"
-    - "All 5 format×runtime combinations serve correct output"
-    - "GPU throughput within target bounds"
-    - "CPU throughput within target bounds"
+    - "All 10 contestants (5 formats × 2 compute modes) serve correct output"
+    - "GPU: apr >= 180 tok/s (after realizar#97)"
+    - "CPU: apr >= 60 tok/s (after realizar#96)"
+    - "SafeTensors CPU within 10% of GGUF CPU (after realizar#99)"
+    - "probador reports TPOT > 0ms (after probar#24)"
+    - "probador reports decode_tok_per_sec (after probar#23)"
     - "No silent CPU fallback in GPU mode"
-  pass_criteria: "All checks pass, all FALSIFY tests pass"
+    - "3-run CI coefficient of variation < 0.05 for all metrics"
+  pass_criteria: "All FALSIFY-SHOW-001 through FALSIFY-SHOW-010 pass"
+  current_status: "5/10 passing (SHOW-001 through SHOW-005)"
+
+# =============================================================================
+# GITHUB ISSUE TRACKER
+# =============================================================================
+
+github_issues:
+  probar:
+    - { id: 23, title: "tok/s metric misleading", priority: "P0", phase: 1 }
+    - { id: 24, title: "SSE streaming for TPOT", priority: "P0", phase: 1 }
+  realizar:
+    - { id: 95, title: "GGUF CPU 11x slower than APR", status: "RESOLVED (metric artifact)" }
+    - { id: 96, title: "CPU Q4K: pre-quantize activations to Q8K", priority: "P0", phase: 2 }
+    - { id: 97, title: "GPU: persistent VRAM weight residency", priority: "P1", phase: 3 }
+    - { id: 98, title: "CPU: replace Rayon with atomic work-stealing", priority: "P1", phase: 2, blocked_by: 96 }
+    - { id: 99, title: "SafeTensors CPU: fix F32 fallback", priority: "P2", phase: 4 }
