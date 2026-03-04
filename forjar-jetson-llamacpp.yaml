@@ -1,0 +1,38 @@
+version: "1.0"
+name: qwen-coder-deploy-jetson-llamacpp
+description: "Isolated llama.cpp benchmark — stops ALL other servers first (serial testing)"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+machines:
+  jetson:
+    hostname: jetson
+    addr: 192.168.50.53
+    user: noah
+    arch: aarch64
+    transport: ssh
+
+resources:
+  stop-apr:
+    type: task
+    machine: jetson
+    command: "pkill -f 'apr serve' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'apr serve' >/dev/null 2>&1"
+
+  stop-ollama:
+    type: task
+    machine: jetson
+    command: "pkill -f 'ollama serve' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'ollama serve' >/dev/null 2>&1"
+
+  llamacpp-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'llama-server.*8083' 2>/dev/null || true; sleep 1; nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
+    depends_on: [stop-apr, stop-ollama]
+
+policy:
+  failure: abort
+  lock_file: true

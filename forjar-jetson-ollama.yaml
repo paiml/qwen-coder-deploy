@@ -1,0 +1,41 @@
+version: "1.0"
+name: qwen-coder-deploy-jetson-ollama
+description: "Isolated ollama benchmark — stops ALL other servers first (serial testing)"
+
+machines:
+  jetson:
+    hostname: jetson
+    addr: 192.168.50.53
+    user: noah
+    arch: aarch64
+    transport: ssh
+
+resources:
+  stop-apr:
+    type: task
+    machine: jetson
+    command: "pkill -f 'apr serve' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'apr serve' >/dev/null 2>&1"
+
+  stop-llamacpp:
+    type: task
+    machine: jetson
+    command: "pkill -f 'llama-server' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
+
+  ollama-default-stop:
+    type: task
+    machine: jetson
+    command: "sudo systemctl stop ollama.service 2>/dev/null || true"
+    completion_check: "! systemctl is-active --quiet ollama.service"
+
+  ollama-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sleep 1; OLLAMA_HOST=0.0.0.0:8082 nohup ollama serve > /tmp/ollama-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8082/api/tags >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8082/api/tags >/dev/null 2>&1"
+    depends_on: [stop-apr, stop-llamacpp, ollama-default-stop]
+
+policy:
+  failure: abort
+  lock_file: true

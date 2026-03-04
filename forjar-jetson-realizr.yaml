@@ -1,0 +1,38 @@
+version: "1.0"
+name: qwen-coder-deploy-jetson-realizr
+description: "Isolated realizr benchmark — stops ALL other servers first (serial testing)"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+machines:
+  jetson:
+    hostname: jetson
+    addr: 192.168.50.53
+    user: noah
+    arch: aarch64
+    transport: ssh
+
+resources:
+  stop-ollama:
+    type: task
+    machine: jetson
+    command: "pkill -f 'ollama serve' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'ollama serve' >/dev/null 2>&1"
+
+  stop-llamacpp:
+    type: task
+    machine: jetson
+    command: "pkill -f 'llama-server' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
+
+  apr-gguf-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
+    depends_on: [stop-ollama, stop-llamacpp]
+
+policy:
+  failure: abort
+  lock_file: true

@@ -288,9 +288,12 @@ For implementation details, PTX generation, and memory savings analysis, see [ke
 
 **Load Testing (Jetson Orin — dedicated):**
 - All `probador llm load` benchmarks run on Jetson Orin (aarch64, CUDA 12.6, 7.4 GB unified)
-- Forjar config: `forjar-jetson.yaml` deploys apr, ollama, llama.cpp
-- `make deploy-jetson / load-jetson / test-jetson` targets
-- Services on ports 8081-8085 (same as former 4090 GPU layout)
+- **Serial (isolated) mode required:** Jetson's 7.4 GB unified memory is shared between CPU and GPU. Running multiple servers simultaneously causes memory contention and invalidates results.
+- Per-runtime forjar configs: `forjar-jetson-realizr.yaml`, `forjar-jetson-ollama.yaml`, `forjar-jetson-llamacpp.yaml` — each stops ALL other servers before starting the target runtime
+- `make bench-jetson-serial` runs all 3 runtimes in isolation (c=1 + c=4 per runtime)
+- `make bench-jetson-realizr` / `bench-jetson-ollama` / `bench-jetson-llamacpp` for individual runtimes
+- Teardown between tests: `forjar-jetson-teardown.yaml` stops all inference processes
+- Parallel deploy (`forjar-jetson.yaml`) available for smoke tests but NOT for benchmarking
 
 **Deep Profiling (4090 — occasional):**
 - nsys/ncu kernel profiling requires 4090 SM count and PCIe topology

@@ -2,7 +2,8 @@
 # qwen-coder-deploy — Benchmark realizar vs ollama vs llama.cpp
 # ============================================================================
 # Targets:
-#   Jetson (dedicated):  make deploy-jetson / make test-jetson / make load-jetson
+#   Jetson (serial):     make bench-jetson-serial (isolated, one runtime at a time)
+#   Jetson (parallel):   make deploy-jetson / make load-jetson (smoke tests only)
 #   GPU (4090, profiling only): make deploy-gpu / make nsys-gpu / make profile-gpu
 #   CPU (intel host):    make deploy / make test / make load
 #
@@ -58,6 +59,7 @@ GGUF_MODEL := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 .PHONY: deploy teardown test load report nightly health \
         deploy-gpu teardown-gpu test-gpu load-gpu health-gpu nightly-gpu \
         deploy-jetson teardown-jetson test-jetson load-jetson health-jetson nightly-jetson \
+        bench-jetson-serial bench-jetson-realizr bench-jetson-ollama bench-jetson-llamacpp \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp
@@ -157,6 +159,74 @@ load-jetson:
 	probador llm load --url $(JETSON_APR_NATIVE) --concurrency 4 --duration 60s --warmup 5s --runtime-name apr-native-jetson --output results/apr-native-jetson-load-$(DATE).json
 
 nightly-jetson: deploy-jetson health-jetson test-jetson load-jetson report
+
+# ============================================================================
+# Jetson serial benchmarks (isolated — one runtime at a time, full GPU/memory)
+# ============================================================================
+# Jetson Orin has 7.4 GB UNIFIED memory shared between CPU and GPU.
+# Running multiple servers simultaneously causes memory contention and
+# invalidates benchmark results. Serial mode: stop all → start one → bench → stop.
+#
+# Usage:
+#   make bench-jetson-serial                  # All 3 runtimes, c=1 and c=4
+#   make bench-jetson-realizr                 # realizr only (isolated)
+#   make bench-jetson-ollama                  # ollama only (isolated)
+#   make bench-jetson-llamacpp                # llama.cpp only (isolated)
+
+BENCH_DURATION := 60s
+BENCH_WARMUP   := 5s
+BENCH_PROFILE  := short
+
+bench-jetson-realizr:
+	@echo "=== realizr (isolated) ==="
+	forjar apply -f forjar-jetson-realizr.yaml --yes
+	@echo "--- c=1 ---"
+	probador llm load --url $(JETSON_REALIZAR) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--runtime-name realizr-jetson-isolated-c1 \
+		--output results/jetson-serial-realizr-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(JETSON_REALIZAR) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--runtime-name realizr-jetson-isolated-c4 \
+		--output results/jetson-serial-realizr-c4-$(DATE).json
+	forjar apply -f forjar-jetson-teardown.yaml --yes
+
+bench-jetson-ollama:
+	@echo "=== ollama (isolated) ==="
+	forjar apply -f forjar-jetson-ollama.yaml --yes
+	@echo "--- c=1 ---"
+	probador llm load --url $(JETSON_OLLAMA) --model $(OLLAMA_MODEL) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--runtime-name ollama-jetson-isolated-c1 \
+		--output results/jetson-serial-ollama-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(JETSON_OLLAMA) --model $(OLLAMA_MODEL) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--runtime-name ollama-jetson-isolated-c4 \
+		--output results/jetson-serial-ollama-c4-$(DATE).json
+	forjar apply -f forjar-jetson-teardown.yaml --yes
+
+bench-jetson-llamacpp:
+	@echo "=== llama.cpp (isolated) ==="
+	forjar apply -f forjar-jetson-llamacpp.yaml --yes
+	@echo "--- c=1 ---"
+	probador llm load --url $(JETSON_LLAMACPP) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--runtime-name llamacpp-jetson-isolated-c1 \
+		--output results/jetson-serial-llamacpp-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(JETSON_LLAMACPP) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--runtime-name llamacpp-jetson-isolated-c4 \
+		--output results/jetson-serial-llamacpp-c4-$(DATE).json
+	forjar apply -f forjar-jetson-teardown.yaml --yes
+
+bench-jetson-serial: bench-jetson-realizr bench-jetson-ollama bench-jetson-llamacpp
+	@echo ""
+	@echo "=== Serial Benchmark Complete ==="
+	@echo "Results in results/jetson-serial-*-$(DATE).json"
+	@echo "Compare: jq '{runtime: .runtime_name, tok_s: .tokens_per_sec, decode: .decode_tok_per_sec, p50: .latency_p50_ms}' results/jetson-serial-*-c1-$(DATE).json"
 
 # ============================================================================
 # Deep profiling (apr + realizar tools, 4090 only)
