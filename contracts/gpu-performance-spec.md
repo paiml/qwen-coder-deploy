@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.1.0
+**Version:** 2.2.0
 **Status:** ACTIVE
 **Date:** 2026-03-04
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -41,7 +41,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 2026):** Under standardized load testing, realizar achieves **96.5 tok/s** (safetensors, best format) vs llama.cpp **1,013.6 tok/s** and ollama **607.9 tok/s** — a **6.3x gap** to Ollama parity. APR native format is broken (100% error rate on GPU).
+**Competition Reality (Mar 4, 2026):** Under standardized load testing (c=4, 60s, 5s warmup), realizar achieves **167.1 tok/s** (safetensors, best format) vs llama.cpp **948.2 tok/s** and ollama **568.9 tok/s** — a **3.4x gap** to Ollama parity. All three APR formats now functional (143-167 tok/s), with common decode bottleneck at 39-43 tok/s. APR native GPU regression fixed (was 100% errors on Mar 3).
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -467,6 +467,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2.0 | 2026-03-04 | v3 benchmarks: gap narrowed from 6.3x to 3.4x. APR native regression fixed (PMAT-018, --skip-contract). All formats 143-167 tok/s. GitHub issues #1-#5 filed. forjar hardened (continue_independent, SafeTensors timeout). |
 | 2.1.0 | 2026-03-04 | Competition baselines (v3/20260303), Nsight profiling integration, kernel launch overhead RCA (52.5%), APR native GPU regression (100% errors), PMAT-013 through PMAT-018 added. |
 | 2.0.0 | 2026-03-04 | Consolidated from 3 specs (SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput v1.3.0). Added component sub-specs. pmat work roadmap with 12 tickets. |
 | 1.3.0 | 2025-12-29 | Decoder Throughput Spec: Popperian review, updated baselines (predecessor) |

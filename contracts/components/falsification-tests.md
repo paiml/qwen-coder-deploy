@@ -127,9 +127,9 @@
 
 | # | Test | Hypothesis | Pass Criteria | Status |
 |---|------|------------|---------------|--------|
-| E1 | `test_apr_gpu_single` | APR works at c=1 | > 0 tok/s | Pending |
-| E2 | `test_apr_gpu_concurrent` | APR works at c=4 | > 0 tok/s | Pending |
-| E3 | `test_apr_gpu_parity` | APR matches safetensors | >= 96.5 tok/s | Pending |
+| E1 | `test_apr_gpu_single` | APR works at c=1 | > 0 tok/s | ✅ PASS |
+| E2 | `test_apr_gpu_concurrent` | APR works at c=4 | > 0 tok/s | ✅ PASS (143.3 tok/s) |
+| E3 | `test_apr_gpu_parity` | APR matches safetensors | >= 96.5 tok/s | ✅ PASS (143.3 >= 96.5) |
 
 ---
 

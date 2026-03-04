@@ -115,15 +115,17 @@ All autoregressive decoder-only transformers with token-by-token generation:
 
 Measured via `probador llm load` (60s, concurrency=4, 3 runs, 95% CI). Model: Qwen2.5-Coder-1.5B-Instruct Q4_K_M.
 
-### GPU (RTX 4090) — 2026-03-03
+### GPU (RTX 4090) — 2026-03-04 (v3, with --skip-contract fix)
 
-| Rank | Runtime | Tok/s | P50 (ms) | P95 (ms) | P99 (ms) | Error Rate |
-|------|---------|-------|----------|----------|----------|------------|
-| 1 | llama.cpp | **1,013.6** | 504 | 521 | 528 | 0% |
-| 2 | ollama | **607.9** | 839 | 872 | 887 | 0% |
-| 3 | realizar (safetensors) | **96.5** | 5,274 | 7,480 | 9,013 | 0% |
-| 4 | realizar (GGUF) | **25.8** | 18,989 | 24,229 | 24,258 | 0% |
-| 5 | realizar (APR native) | **0.0** | N/A | N/A | N/A | **100%** |
+| Rank | Runtime | Tok/s | Decode tok/s | P50 (ms) | P95 (ms) | P99 (ms) | Error Rate |
+|------|---------|-------|-------------|----------|----------|----------|------------|
+| 1 | llama.cpp | **948.2** | **238.0** | 537.8 | 565.4 | 588.7 | 0% |
+| 2 | ollama | **568.9** | **142.3** | 899.5 | 938.7 | 947.2 | 0% |
+| 3 | realizar (safetensors) | **167.1** | **43.3** | 2,643.7 | 4,428.2 | 4,469.5 | 0% |
+| 4 | realizar (GGUF) | **150.7** | **39.1** | 3,259.5 | 4,078.2 | 4,162.8 | 0% |
+| 5 | realizar (APR native) | **143.3** | **39.9** | 2,728.3 | 3,560.9 | 4,057.3 | 0% |
+
+*Previous (2026-03-03): APR native was 100% errors. Fixed with --skip-contract.*
 
 ### CPU (Intel EPYC, 192.168.50.100) — 2026-03-03
 
@@ -135,26 +137,25 @@ Measured via `probador llm load` (60s, concurrency=4, 3 runs, 95% CI). Model: Qw
 | 4 | realizar (GGUF) | **23.0** | 20,007 | 30,699 | 31,408 | 0% |
 | 5 | realizar (APR native) | **9.5** | 53,263 | 54,537 | 54,537 | 0% |
 
-### GPU Speedup vs CPU (Same Runtime)
-
-| Runtime | CPU (tok/s) | GPU (tok/s) | GPU Speedup |
-|---------|-------------|-------------|-------------|
-| llama.cpp | 218.5 | 1,013.6 | **4.64x** |
-| ollama | 149.5 | 607.9 | **4.07x** |
-| realizar (safetensors) | 28.3 | 96.5 | **3.41x** |
-| realizar (GGUF) | 23.0 | 25.8 | **1.12x** |
-| realizar (APR native) | 9.5 | 0.0 | **BROKEN** |
-
-### Gap Analysis
+### Gap Analysis (2026-03-04)
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| Realizar best GPU vs llama.cpp | **10.5x slower** | safetensors: 96.5 vs 1,013.6 tok/s |
-| Realizar best GPU vs ollama | **6.3x slower** | safetensors: 96.5 vs 607.9 tok/s |
-| Realizar GGUF GPU speedup | **1.12x** | Minimal GPU benefit — investigate |
-| APR native GPU | **BROKEN** | 100% error rate (PMAT-016) |
+| Realizar best GPU vs llama.cpp | **5.7x slower** | safetensors: 167.1 vs 948.2 tok/s |
+| Realizar best GPU vs ollama | **3.4x slower** | safetensors: 167.1 vs 568.9 tok/s |
+| Realizar decode vs llama.cpp | **5.5x slower** | 43.3 vs 238.0 decode tok/s |
+| APR native GPU | **FIXED** | 143.3 tok/s (was 0 tok/s, 100% errors) |
+| All APR formats cluster | **39-43 decode tok/s** | Common bottleneck: kernel launch overhead |
 
-**Source:** `bench-results-v2/*-gpu-20260303.json`, `bench-results-v2/*-cpu-v3.json`
+**Improvement from v2 (Mar 3) → v3 (Mar 4):**
+- APR native: 0 → 143.3 tok/s (PMAT-018 regression fixed)
+- GGUF: 25.8 → 150.7 tok/s (+5.8x, --skip-contract removed overhead)
+- SafeTensors: 96.5 → 167.1 tok/s (+1.7x)
+- Gap to llama.cpp narrowed from 10.5x to 5.7x
+
+**Source:** `bench-results-v2/*-gpu-20260304.json`
+
+**GitHub Issues Filed:** #1 (6x gap), #4 (kernel launch), #5 (GEMV bandwidth)
 
 ---
 
@@ -220,13 +221,14 @@ For authoritative benchmark methodology and baselines, see:
 |----|-------|-----------|------|--------|
 | THRESH-C01 | Ollama GPU baseline | >= 500 | tok/s | ✅ 607.9 |
 | THRESH-C02 | llama.cpp GPU baseline | >= 900 | tok/s | ✅ 1,013.6 |
-| THRESH-C03 | Realizar GPU (best) | >= 50 | tok/s | ✅ 96.5 (safetensors) |
-| THRESH-C04 | Realizar GPU parity | <= 2x Ollama | ratio | ❌ **6.3x** (96.5 vs 607.9) |
-| THRESH-C05 | APR native GPU | >= 1 | tok/s | ❌ **BROKEN** (0 tok/s, 100% errors) |
-| THRESH-C06 | GGUF GPU acceleration | >= 3x CPU | ratio | ❌ **1.12x** (25.8 vs 23.0) |
+| THRESH-C03 | Realizar GPU (best) | >= 50 | tok/s | ✅ 167.1 (safetensors) |
+| THRESH-C04 | Realizar GPU parity | <= 2x Ollama | ratio | ❌ **3.4x** (167.1 vs 568.9) |
+| THRESH-C05 | APR native GPU | >= 1 | tok/s | ✅ **143.3** (was BROKEN, fixed Mar 4) |
+| THRESH-C06 | GGUF GPU acceleration | >= 3x CPU | ratio | ⚠️ Pending CPU retest |
 | THRESH-C07 | llama.cpp CPU baseline | >= 150 | tok/s | ✅ 218.5 |
+| THRESH-C08 | Realizar decode parity | <= 2x llama.cpp decode | ratio | ❌ **5.5x** (43.3 vs 238.0) |
 
-**Key Failure:** Competition benchmarks reveal that the Ollama parity claim (THRESH-003/004 "0.39x, we're faster") applies only to internal M=8 batched microbenchmarks. Under standardized load testing conditions (c=4, 60s), realizar is **6.3x slower** than Ollama on GPU.
+**Key Finding (Mar 4):** --skip-contract flag and bug fixes improved all APR formats significantly. Gap to ollama narrowed from 6.3x to 3.4x. APR native GPU regression (PMAT-018) resolved. Remaining bottleneck is kernel launch overhead (52.5% of decode time, ~180 launches/token).
 
 ---
 

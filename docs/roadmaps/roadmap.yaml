@@ -457,11 +457,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: Fix APR native GPU regression — 100% error rate under load (QWEN-015)
-  status: planned
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-04T15:55:47Z
-  updated: 2026-03-04T15:55:47Z
+  updated: 2026-03-04T16:23:15Z
   spec: null
   acceptance_criteria:
   - 'APR native format returns 100% errors on GPU (0 tok/s) under concurrent load (c=4). Works on CPU (9.5 tok/s). Investigation needed: GPU memory allocation, queue dispatch, concurrency bugs, model loading races. AC1: APR native GPU returns >0% success rate. AC2: APR native GPU throughput >= safetensors (96.5 tok/s). AC3: Zero errors under standard load test. Source: bench-results-v2/apr-apr-gpu-20260303.json.'
