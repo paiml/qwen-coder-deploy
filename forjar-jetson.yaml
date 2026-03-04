@@ -80,7 +80,7 @@ resources:
   apr-gguf-gpu:
     type: task
     machine: jetson
-    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.gguf_model}} --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
     depends_on: [model-gguf, apr-check]
 

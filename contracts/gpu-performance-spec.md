@@ -115,17 +115,19 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 | ollama | **561.6** | **139.9** | 915 |
 | realizar (GGUF) | 151.4 | 40.8 | 2,530 |
 
-**Gap to parity:** realizar decode (40.8 tok/s) is **3.4x slower** than ollama decode (139.9 tok/s) and **5.7x slower** than llama.cpp (233.5 tok/s) at c=4. Raw per-token decode is ~270 tok/s (DECODE_TIMING), suggesting concurrency lock contention and prefill overhead dominate under load.
+**Gap to parity (4090):** realizar decode (40.8 tok/s) is **3.4x slower** than ollama decode (139.9 tok/s) and **5.7x slower** than llama.cpp (233.5 tok/s) at c=4. Raw per-token decode is ~270 tok/s (DECODE_TIMING), suggesting concurrency lock contention and prefill overhead dominate under load.
 
-**Jetson Orin (Mar 4 2026 — initial baselines, realizr CPU-only):**
+**Gap to parity (Jetson Orin):** realizr (7.8 tok/s) is **4.1x slower** than llama.cpp (32.1 tok/s) and **1.4x slower** than ollama (11.3 tok/s) at c=1. Same concurrency lock contention pattern — zero throughput scaling at c=4.
+
+**Jetson Orin (Mar 4 2026 — all runtimes GPU, native CUDA build):**
 
 | Runtime | c=1 tok/s | c=1 decode | c=4 tok/s | c=4 decode | c=4 P50 (ms) |
 |---------|-----------|------------|-----------|------------|------------|
 | llama.cpp | **32.1** | **32.1** | **68.5** | **17.1** | 7,484 |
 | ollama | 11.3 | 11.3 | 12.3 | 3.1 | 41,579 |
-| realizr (GGUF, CPU) | 1.0 | 1.0 | 0.4 | 0.3 | 119,793 |
+| realizr (GGUF, GPU) | 7.8 | 7.8 | 7.8 | 1.9 | 16,435 |
 
-**Key findings:** llama.cpp is **32x** faster than realizr CPU at c=1. Both llama.cpp and ollama use Jetson GPU (CUDA sm_87); realizr is CPU-only (aarch64 cross-compile without CUDA feature). The 32x gap is entirely explained by GPU vs CPU execution. CUDA cross-compile requires native build on Jetson or CUDA toolkit for aarch64 cross-compilation. Ollama barely scales with concurrency (12.3 vs 11.3). llama.cpp shows 2.1x throughput scaling at c=4.
+**Key findings:** realizr GPU (7.8 tok/s) is **4.1x slower** than llama.cpp (32.1) and **1.4x slower** than ollama (11.3) at c=1. Concurrency scaling is flat — 7.8 tok/s at c=1 and c=4, with decode degrading from 7.8 to 1.9 tok/s (same RwLock contention as 4090). Native CUDA build on Jetson (45 min, no cross-compile) was 7.8x faster than CPU-only (1.0 tok/s). llama.cpp shows 2.1x throughput scaling at c=4. Ollama barely scales (12.3 vs 11.3).
 
 ### Hardware Reference
 
