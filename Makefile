@@ -13,6 +13,12 @@
 #   make trace-gpu      — Per-request brick/layer tracing
 #   make realize-bench  — realizar internal benchmark suites
 #   make gpu-util       — nvidia-smi GPU utilization snapshot
+#
+# NVIDIA Nsight profiling (kernel-level):
+#   make install        — Install nsight-systems + nsight-compute via forjar
+#   make nsys-gpu       — nsys timeline of GPU decode (per-kernel breakdown)
+#   make ncu-gpu        — ncu roofline per GEMV kernel (bandwidth/compute)
+#   make nsys-ollama    — nsys timeline of Ollama for A/B comparison
 # ============================================================================
 
 # Benchmarks MUST run sequentially — parallel execution causes GPU contention
@@ -41,7 +47,8 @@ GGUF_MODEL := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 .PHONY: deploy teardown test load report nightly health \
         deploy-gpu teardown-gpu test-gpu load-gpu health-gpu nightly-gpu \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
-        gpu-util full-gpu
+        gpu-util full-gpu install \
+        nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp
 
 # ============================================================================
 # Intel (CPU) targets
@@ -165,6 +172,116 @@ gpu-util:
 
 # Full profiling pipeline: deploy, load test, then deep profile
 full-gpu: deploy-gpu health-gpu load-gpu profile-gpu bench-gpu cbtop-gpu qa-gpu report
+
+# ============================================================================
+# Install (forjar-managed tooling)
+# ============================================================================
+
+install:
+	forjar apply -f forjar-gpu.yaml --resource nsight-tools
+
+# ============================================================================
+# NVIDIA Nsight profiling (kernel-level GPU analysis)
+# ============================================================================
+# Requires: make install (nsight-systems + nsight-compute)
+# These profile the apr serve process directly — NOT via HTTP.
+# Start server first with make deploy-gpu, then attach.
+
+NSYS_OPTS := --trace=cuda,nvtx --cuda-graph-trace=node --force-overwrite=true --export=sqlite
+NCU_OPTS  := --set=full --force-overwrite
+
+# nsys timeline: captures ALL CUDA kernels in a 5-second window during decode.
+# Shows per-kernel duration, gaps between kernels, H2D/D2H transfers, graph replay.
+# Output: results/nsys-apr-gpu-YYYYMMDD.nsys-rep (open with nsys-ui or nsys stats)
+nsys-gpu:
+	@echo "=== nsys: Profiling apr serve (GPU) for 5s ==="
+	@echo "Sending warmup request..."
+	@curl -sf -X POST $(GPU_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"default","messages":[{"role":"user","content":"Hello"}],"max_tokens":32}' > /dev/null
+	@APR_PID=$$(pgrep -f 'apr serve.*8081' | head -1); \
+	if [ -z "$$APR_PID" ]; then echo "ERROR: apr serve not running on 8081"; exit 1; fi; \
+	echo "Attaching nsys to PID $$APR_PID..."; \
+	nsys profile $(NSYS_OPTS) --duration=5 --output=results/nsys-apr-gpu-$(DATE) \
+		--attach-to=$$APR_PID &; \
+	sleep 1; \
+	echo "Sending inference request during capture..."; \
+	curl -sf -X POST $(GPU_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"default","messages":[{"role":"user","content":"Write a Rust function that checks if a number is prime."}],"max_tokens":128}' > /dev/null; \
+	wait; \
+	echo "=== nsys stats ===" ; \
+	nsys stats --report cuda_gpu_kern_sum results/nsys-apr-gpu-$(DATE).nsys-rep 2>&1 | tee results/nsys-apr-gpu-kernels-$(DATE).txt
+
+# ncu roofline: profiles individual GEMV kernel launches with full metrics.
+# CANNOT profile inside CUDA graphs — must disable graph capture.
+# Use CUDA_GRAPH=0 env var on the apr serve process.
+# Output: results/ncu-apr-gpu-YYYYMMDD.ncu-rep (open with ncu-ui)
+ncu-gpu:
+	@echo "=== ncu: Per-kernel roofline (CUDA graph DISABLED) ==="
+	@echo "NOTE: Restart apr serve with CUDA_GRAPH=0 for ncu profiling:"
+	@echo "  CUDA_GRAPH=0 apr serve run $(GGUF_MODEL) --port 8081 --gpu"
+	@APR_PID=$$(pgrep -f 'apr serve.*8081' | head -1); \
+	if [ -z "$$APR_PID" ]; then echo "ERROR: apr serve not running on 8081"; exit 1; fi; \
+	echo "Profiling 1 inference request (this is slow ~60s)..."; \
+	ncu $(NCU_OPTS) --output=results/ncu-apr-gpu-$(DATE) \
+		--target-processes=all --replay-mode=kernel \
+		--launch-count=420 \
+		-- curl -sf -X POST $(GPU_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"default","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":16}' > /dev/null; \
+	echo "=== ncu summary ===" ; \
+	ncu --import results/ncu-apr-gpu-$(DATE).ncu-rep --csv 2>&1 | head -50
+
+# nsys timeline for Ollama (A/B comparison against apr)
+nsys-ollama:
+	@echo "=== nsys: Profiling Ollama (GPU) for 5s ==="
+	@curl -sf -X POST $(GPU_OLLAMA)/api/generate \
+		-d '{"model":"$(OLLAMA_MODEL)","prompt":"Hello","stream":false}' > /dev/null
+	@OLLAMA_PID=$$(pgrep -f 'ollama.*serve' | head -1); \
+	if [ -z "$$OLLAMA_PID" ]; then echo "ERROR: ollama not running"; exit 1; fi; \
+	echo "Attaching nsys to PID $$OLLAMA_PID..."; \
+	nsys profile $(NSYS_OPTS) --duration=5 --output=results/nsys-ollama-gpu-$(DATE) \
+		--attach-to=$$OLLAMA_PID &; \
+	sleep 1; \
+	curl -sf -X POST $(GPU_OLLAMA)/api/generate \
+		-d '{"model":"$(OLLAMA_MODEL)","prompt":"Write a Rust function that checks if a number is prime.","stream":false}' > /dev/null; \
+	wait; \
+	echo "=== nsys stats ===" ; \
+	nsys stats --report cuda_gpu_kern_sum results/nsys-ollama-gpu-$(DATE).nsys-rep 2>&1 | tee results/nsys-ollama-gpu-kernels-$(DATE).txt
+
+# nsys timeline for llama.cpp (A/B comparison)
+nsys-llamacpp:
+	@echo "=== nsys: Profiling llama.cpp (GPU) for 5s ==="
+	@curl -sf -X POST $(GPU_LLAMACPP)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"default","messages":[{"role":"user","content":"Hello"}],"max_tokens":32}' > /dev/null
+	@LCPP_PID=$$(pgrep -f 'llama-server.*8083' | head -1); \
+	if [ -z "$$LCPP_PID" ]; then echo "ERROR: llama-server not running on 8083"; exit 1; fi; \
+	echo "Attaching nsys to PID $$LCPP_PID..."; \
+	nsys profile $(NSYS_OPTS) --duration=5 --output=results/nsys-llamacpp-gpu-$(DATE) \
+		--attach-to=$$LCPP_PID &; \
+	sleep 1; \
+	curl -sf -X POST $(GPU_LLAMACPP)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"default","messages":[{"role":"user","content":"Write a Rust function that checks if a number is prime."}],"max_tokens":128}' > /dev/null; \
+	wait; \
+	echo "=== nsys stats ===" ; \
+	nsys stats --report cuda_gpu_kern_sum results/nsys-llamacpp-gpu-$(DATE).nsys-rep 2>&1 | tee results/nsys-llamacpp-gpu-kernels-$(DATE).txt
+
+# BrickProfiler + nsys combined: run both for cross-validation
+# BrickProfiler gives per-operation CPU-side timing (via --trace)
+# nsys gives actual GPU kernel execution time (async, more accurate)
+profile-kernels-gpu: nsys-gpu
+	@echo ""
+	@echo "=== BrickProfiler trace (CPU-side timing) ==="
+	curl -sf -X POST $(GPU_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-H "X-Trace-Level: brick" \
+		-d '{"model":"default","messages":[{"role":"user","content":"Write a Rust function that checks if a number is prime."}],"max_tokens":128}' | python3 -m json.tool
+	@echo ""
+	@echo "Compare: results/nsys-apr-gpu-kernels-$(DATE).txt (GPU kernel time)"
+	@echo "     vs: BrickProfiler output above (CPU-side time including launch overhead)"
 
 # ============================================================================
 # Shared targets

@@ -1,6 +1,6 @@
 version: "1.0"
 name: qwen-coder-deploy-gpu
-description: "Deploy Qwen2.5-Coder-1.5B-Instruct across apr serve (GGUF/SafeTensors/APR), ollama, llama.cpp — GPU (RTX 4090)"
+description: "Deploy Qwen2.5-Coder-1.5B-Instruct across apr serve (GGUF/SafeTensors/APR), ollama, llama.cpp - GPU (RTX 4090)"
 
 params:
   gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
@@ -16,7 +16,32 @@ machines:
     transport: local
 
 resources:
-  # ── Prerequisites ──────────────────────────────────────────────────────────
+  # -- Prerequisites ----------------------------------------------------------
+
+  # CUDA profiling tools (nsys for timeline, ncu for per-kernel metrics)
+  # Lambda's nsight-systems bundles libSshClient compiled against libssh 0.10,
+  # but Ubuntu 22.04 ships libssh 0.9.6 (missing LIBSSH_4_9_0 symbol).
+  # Fix: build libssh 0.10 from source and symlink nsight's libssh.so to it.
+  nsight-tools:
+    type: task
+    machine: gpu
+    command: |
+      sudo apt-get install -y nsight-systems nsight-compute &&
+      if /usr/lib/nsight-systems/host-linux-x64/QdstrmImporter --version 2>&1 | grep -q 'LIBSSH_4_9_0'; then
+        echo "Fixing nsight libssh version mismatch..."
+        cd /tmp &&
+        rm -rf libssh-0.10 &&
+        git clone --depth 1 --branch libssh-0.10.6 https://git.libssh.org/projects/libssh.git libssh-0.10 &&
+        mkdir -p libssh-0.10/build && cd libssh-0.10/build &&
+        cmake .. -DWITH_EXAMPLES=OFF -DBUILD_SHARED_LIBS=ON &&
+        make -j$(nproc) &&
+        sudo cp lib/libssh.so.4.9.6 /usr/local/lib/ &&
+        sudo ln -sf libssh.so.4.9.6 /usr/local/lib/libssh.so.4 &&
+        sudo ldconfig &&
+        sudo bash -c 'cd /usr/lib/nsight-systems/host-linux-x64 && rm -f libssh.so && ln -sf /usr/local/lib/libssh.so.4 libssh.so'
+      fi
+    completion_check: "which nsys && which ncu && /usr/lib/nsight-systems/host-linux-x64/QdstrmImporter --version 2>&1 | grep -q 'NVIDIA'"
+    timeout: 600
 
   llamacpp-build:
     type: task
@@ -30,19 +55,19 @@ resources:
   model-gguf:
     type: task
     machine: gpu
-    command: "test -f {{params.gguf_model}} || { echo 'Missing GGUF — run: apr pull hf://Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf'; exit 1; }"
+    command: "test -f {{params.gguf_model}} || { echo 'Missing GGUF - run: apr pull hf://Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf'; exit 1; }"
     completion_check: "test -f {{params.gguf_model}}"
 
   model-safetensors:
     type: task
     machine: gpu
-    command: "test -f {{params.safetensors_model}} || { echo 'Missing SafeTensors — run: apr pull hf://Qwen/Qwen2.5-Coder-1.5B-Instruct'; exit 1; }"
+    command: "test -f {{params.safetensors_model}} || { echo 'Missing SafeTensors - run: apr pull hf://Qwen/Qwen2.5-Coder-1.5B-Instruct'; exit 1; }"
     completion_check: "test -f {{params.safetensors_model}}"
 
   model-apr:
     type: task
     machine: gpu
-    command: "test -f {{params.apr_model}} || { echo 'Missing APR — run: apr import {{params.gguf_model}} --preserve-q4k'; exit 1; }"
+    command: "test -f {{params.apr_model}} || { echo 'Missing APR - run: apr import {{params.gguf_model}} --preserve-q4k'; exit 1; }"
     completion_check: "test -f {{params.apr_model}}"
 
   ollama-model:
@@ -58,7 +83,7 @@ resources:
     completion_check: "! systemctl is-active --quiet ollama.service"
     depends_on: [ollama-model]
 
-  # ── GPU Services ───────────────────────────────────────────────────────────
+  # -- GPU Services -----------------------------------------------------------
   # Ports: 8081 apr/GGUF, 8082 ollama, 8083 llama.cpp, 8084 apr/APR, 8085 apr/SafeTensors
 
   apr-gguf-gpu:
@@ -96,7 +121,7 @@ resources:
     completion_check: "curl -sf http://127.0.0.1:8085/health >/dev/null 2>&1"
     depends_on: [model-safetensors]
 
-  # ── CPU Services ───────────────────────────────────────────────────────────
+  # -- CPU Services -----------------------------------------------------------
   # Ports: 8091 apr/GGUF, 8092 ollama, 8093 llama.cpp, 8094 apr/APR, 8095 apr/SafeTensors
 
   apr-gguf-cpu:
