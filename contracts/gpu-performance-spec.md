@@ -117,7 +117,15 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 
 **Gap to parity:** realizar decode (40.8 tok/s) is **3.4x slower** than ollama decode (139.9 tok/s) and **5.7x slower** than llama.cpp (233.5 tok/s) at c=4. Raw per-token decode is ~270 tok/s (DECODE_TIMING), suggesting concurrency lock contention and prefill overhead dominate under load.
 
-**Jetson Orin baselines:** Pending — first benchmark run after `make deploy-jetson`.
+**Jetson Orin (Mar 4 2026 — initial baselines, no realizr yet):**
+
+| Runtime | c=1 tok/s | c=1 decode | c=4 tok/s | c=4 decode | c=4 P50 (ms) |
+|---------|-----------|------------|-----------|------------|------------|
+| llama.cpp | **32.1** | **32.1** | **68.5** | **17.1** | 7,484 |
+| ollama | 11.3 | 11.3 | 12.3 | 3.1 | 41,579 |
+| realizr (GGUF) | — | — | — | — | — |
+
+**Key findings:** llama.cpp is **2.8x** faster than ollama at c=1 and **5.5x** at c=4 on Jetson. Ollama barely scales with concurrency (12.3 vs 11.3 tok/s). llama.cpp shows 2.1x throughput scaling at c=4. realizr blocked by aarch64 cross-compile issues (trueno#157, realizr#119).
 
 ### Hardware Reference
 

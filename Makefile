@@ -44,7 +44,7 @@ GPU_OLLAMA   := http://$(GPU_HOST):8082
 GPU_LLAMACPP := http://$(GPU_HOST):8083
 
 # --- Jetson Orin (dedicated load testing) ---
-JETSON_HOST := jetson
+JETSON_HOST := 192.168.50.53
 JETSON_REALIZAR   := http://$(JETSON_HOST):8081
 JETSON_OLLAMA     := http://$(JETSON_HOST):8082
 JETSON_LLAMACPP   := http://$(JETSON_HOST):8083
