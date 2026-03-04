@@ -182,20 +182,53 @@ See main spec §4 for summary. These are production-deployed optimizations.
 
 ## Priority Matrix
 
-| ID | Optimization | Speedup | Effort | Priority | Status |
-|----|--------------|---------|--------|----------|--------|
-| QWEN-002 | GQA broadcasting | 2-3x | Low | P0 | ✅ VERIFIED |
-| QWEN-003 | SwiGLU GPU fusion | 1.5-2x | Low | P0 | ✅ DONE |
-| QWEN-011 | GELU GPU fusion | 1.2x | Low | P0 | ✅ DONE |
-| QWEN-013 | GPU RMSNorm+Residual | 1.3x | Low | P0 | ✅ DONE |
-| QWEN-001 | SageAttention INT8 | 2-3x | Medium | P1 | Planned |
-| QWEN-004 | EAGLE speculative | 2-3x | High | P1 | Planned |
-| QWEN-005 | Marlin-style kernels | 2.6x | High | P2 | Planned |
-| QWEN-006 | DCA long context | N/A | Medium | P2 | Planned |
-| QWEN-007 | KV cache quantization | 4x mem | Medium | P2 | ✅ DONE |
-| QWEN-008 | MInference sparse | 3-6x | High | P3 | Planned |
-| QWEN-009 | 3-way kernel fusion | 1.2x | Medium | P3 | ✅ Kernel |
-| QWEN-010 | RTX 4090 tuning | 1.1x | Low | P3 | ✅ DONE |
+| ID | PMAT | Optimization | Speedup | Effort | Priority | Status |
+|----|------|--------------|---------|--------|----------|--------|
+| QWEN-015 | PMAT-018 | **APR native GPU fix** | **N/A** | Medium | **P0** | ❌ **REGRESSION** |
+| QWEN-014 | PMAT-017 | **Kernel launch overhead** | **2-5x** | High | **P0** | **Planned** |
+| QWEN-002 | PMAT-001 | GQA broadcasting | 2-3x | Low | P0 | ✅ VERIFIED |
+| QWEN-003 | PMAT-002 | SwiGLU GPU fusion | 1.5-2x | Low | P0 | ✅ DONE |
+| QWEN-011 | PMAT-003 | GELU GPU fusion | 1.2x | Low | P0 | ✅ DONE |
+| QWEN-013 | PMAT-004 | GPU RMSNorm+Residual | 1.3x | Low | P0 | ✅ DONE |
+| QWEN-001 | PMAT-008 | SageAttention INT8 | 2-3x | Medium | P1 | Planned |
+| QWEN-004 | PMAT-009 | EAGLE speculative | 2-3x | High | P1 | Planned |
+| QWEN-005 | PMAT-010 | Marlin-style kernels | 2.6x | High | P2 | Planned |
+| QWEN-006 | PMAT-011 | DCA long context | N/A | Medium | P2 | Planned |
+| QWEN-007 | PMAT-005 | KV cache quantization | 4x mem | Medium | P2 | ✅ DONE |
+| QWEN-008 | PMAT-012 | MInference sparse | 3-6x | High | P3 | Planned |
+| QWEN-009 | PMAT-006 | 3-way kernel fusion | 1.2x | Medium | P3 | ✅ Kernel |
+| QWEN-010 | PMAT-007 | RTX 4090 tuning | 1.1x | Low | P3 | ✅ DONE |
+
+---
+
+## Tier 0a: Regressions (Must Fix)
+
+### QWEN-015: APR Native GPU Regression (PMAT-018)
+
+**Problem:** APR native format returns 100% error rate on GPU under concurrent load (c=4). 0 successful requests out of ~11,738 total across 3 runs.
+
+**Status:** Works on CPU (9.5 tok/s), broken on GPU.
+
+**Acceptance Criteria:**
+- AC1: APR native GPU returns > 0% success rate
+- AC2: APR native GPU throughput >= safetensors (96.5 tok/s)
+- AC3: Zero errors under standard load test (60s, c=4)
+
+### QWEN-014: Kernel Launch Overhead (PMAT-017)
+
+**Problem:** 52.5% of decode time (128,484µs) is kernel launch overhead from ~180 kernel launches per token.
+
+**Evidence:** `results/profile-gpu-20260302.txt` (F-PROFILE-009)
+
+**Mitigation Paths:**
+1. CUDA graph capture for decode forward pass
+2. Aggressive kernel fusion (180 → ~28 launches/token)
+3. Multi-stream pipelining
+
+**Acceptance Criteria:**
+- AC1: CUDA graph capture working for decode
+- AC2: < 50 kernel launches per token
+- AC3: > 300 tok/s under competition load (c=4)
 
 ---
 

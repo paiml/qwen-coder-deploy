@@ -113,6 +113,26 @@
 
 ---
 
+## 5a. Kernel Launch Overhead Verification (PMAT-015)
+
+| # | Test | Hypothesis | Pass Criteria | Status |
+|---|------|------------|---------------|--------|
+| D1 | `test_cuda_graph_decode` | CUDA graph eliminates launch overhead | overhead < 10% | Pending |
+| D2 | `test_kernel_count` | Fusion reduces launches | < 50 launches/token | Pending |
+| D3 | `test_competition_throughput` | Reduced overhead → higher throughput | > 300 tok/s (c=4) | Pending |
+
+---
+
+## 5b. APR Native GPU Regression (PMAT-016)
+
+| # | Test | Hypothesis | Pass Criteria | Status |
+|---|------|------------|---------------|--------|
+| E1 | `test_apr_gpu_single` | APR works at c=1 | > 0 tok/s | Pending |
+| E2 | `test_apr_gpu_concurrent` | APR works at c=4 | > 0 tok/s | Pending |
+| E3 | `test_apr_gpu_parity` | APR matches safetensors | >= 96.5 tok/s | Pending |
+
+---
+
 ## 6. PMAT Compliance Hypothesis
 
 **Hypothesis (H-PMAT):** All optimization work can be completed while maintaining quality gates.

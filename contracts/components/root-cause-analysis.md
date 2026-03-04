@@ -106,7 +106,58 @@ The fact that GGUF CPU (3.0 tok/s) outperformed APR GPU (0.9 tok/s) falsified th
 
 ---
 
-## 7. Catastrophic Failure Protocol
+## 7. Kernel Launch Overhead (PMAT-015, Discovered 2026-03-02)
+
+**Observation:** Host-side profiling shows **52.5% of decode time** (128,484µs) is kernel launch overhead, not actual computation.
+
+**Evidence:**
+- Nsight Systems shows individual kernels are fast (e.g., `fused_swiglu` 0.9µs, `residual_add` 1.0µs)
+- Host-side telemetry shows AttentionScore at 88,390µs (76% of decode)
+- The gap is kernel dispatch/synchronization overhead from ~180 individual kernel launches per token
+
+**5 Whys:**
+1. **Why is decode 130.7 tok/s (not 1000+)?** Kernel launch overhead consumes 52.5% of time
+2. **Why is launch overhead so high?** ~180 separate kernel launches per token (28 layers × ~6 ops/layer + overhead)
+3. **Why so many launches?** Each operation (GEMV, RMSNorm, residual, SwiGLU, RoPE, attention) is a separate kernel
+4. **Why aren't they fused?** Only SwiGLU is fused so far; the 3-way fusion (QWEN-009) is kernel-complete but not integrated into the serving path
+5. **Why not CUDA graphs?** CUDA graph capture (`SKIP_CUDA_GRAPH=1` visible in profile) is disabled during profiling; unclear if enabled in production
+
+**Root Cause Statement:**
+> Excessive kernel launch count (~180/token) causes 52.5% overhead. The gap between kernel compute time (fast) and end-to-end latency (slow) is dominated by CUDA driver dispatch and synchronization.
+
+**Mitigation:**
+1. **CUDA Graphs** — capture the full decode forward pass as a single graph (eliminates per-launch overhead)
+2. **Aggressive kernel fusion** — reduce kernel count from ~180 to ~28 (one per layer) via fused attention + fused FFN
+3. **Stream-based pipelining** — overlap kernel launches with compute on multiple CUDA streams
+
+---
+
+## 8. APR Native GPU Regression (PMAT-016, Discovered 2026-03-03)
+
+**Observation:** APR native format shows **100% error rate** on GPU (0 tok/s) across all 3 runs of competition benchmarks. ~3,913 requests failed per 60s run.
+
+**Evidence:** `bench-results-v2/apr-apr-gpu-20260303.json`:
+- Run 1: 3,909 failed / 0 successful
+- Run 2: 3,914 failed / 0 successful
+- Run 3: 3,915 failed / 0 successful
+
+**Context:**
+- APR native works on CPU (9.5 tok/s, 0% errors)
+- Previous internal microbenchmarks showed 740.5 tok/s (M=8) — this may have been a different code path or build
+- SafeTensors GPU path works (96.5 tok/s)
+- GGUF GPU path works but slow (25.8 tok/s)
+
+**Hypothesis:** The APR native GPU inference endpoint crashes or returns errors under concurrent load (c=4). Possible causes:
+1. GPU memory allocation failure under concurrent requests
+2. Queue-based dispatch (Fix 5) rejecting requests under load
+3. APR format-specific GPU code path has a concurrency bug
+4. Model loading race condition for APR format
+
+**Status:** P0 regression, investigation required.
+
+---
+
+## 9. Catastrophic Failure Protocol
 
 If all hypotheses are falsified (throughput remains < 5 tok/s after fixes):
 

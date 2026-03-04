@@ -170,9 +170,15 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 ### Secondary Root Causes
 
-- **GPU↔CPU transfers:** 252+ PCIe round-trips per token for activation functions
-- **Async blocking:** Sync GPU inference starved tokio executor
-- **APR format corruption:** Force-validated tensor mappings caused inefficient broadcasting
+- **GPU↔CPU transfers:** 252+ PCIe round-trips per token for activation functions (fixed)
+- **Async blocking:** Sync GPU inference starved tokio executor (fixed)
+- **APR format corruption:** Force-validated tensor mappings caused inefficient broadcasting (fixed)
+
+### New Root Causes (Mar 2026)
+
+- **Kernel launch overhead:** 52.5% of decode time from ~180 kernel launches/token (PMAT-015/017)
+- **APR native GPU regression:** 100% error rate under concurrent GPU load (PMAT-016/018)
+- **GGUF GPU underutilization:** Only 1.12x GPU speedup vs CPU for GGUF format
 
 For full analysis including the "impossible observation" (CPU outperforming GPU), see [root-cause-analysis.md](./components/root-cause-analysis.md).
 
@@ -185,25 +191,28 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 | Tier | Speedup Range | Items | Status |
 |------|---------------|-------|--------|
 | T0: Completed | Shipped | 6 fixes | ✅ Production |
-| T1: Critical | 2-5x | SageAttention, EAGLE | Planned |
+| T0a: Regressions | P0 | APR native GPU fix | ❌ Broken |
+| T1: Critical | 2-5x | SageAttention, EAGLE, CUDA graphs | Planned |
 | T2: High Impact | 1.5-2x | Marlin, DCA, KV quant, MInference | Mixed |
 | T3: Incremental | 1.1-1.5x | 3-way fusion, tile tuning | ✅ Mostly done |
 
 ### Priority Matrix
 
-| ID | Optimization | Speedup | Status |
-|----|--------------|---------|--------|
-| QWEN-003 | SwiGLU GPU fusion | 1.5-2x | ✅ DONE |
-| QWEN-011 | GELU GPU fusion | 1.2x | ✅ DONE |
-| QWEN-013 | GPU RMSNorm+Residual | 1.3x | ✅ DONE |
-| QWEN-007 | KV cache quantization | 4x memory | ✅ DONE |
-| QWEN-010 | RTX 4090 tile tuning | 1.1x | ✅ DONE |
-| QWEN-009 | 3-way kernel fusion | 1.2x | ✅ Kernel done |
-| QWEN-001 | SageAttention INT8 | 2-3x | Planned |
-| QWEN-004 | EAGLE speculative | 2-3x | Planned |
-| QWEN-005 | Marlin-style GPTQ | 2.6x | Planned |
-| QWEN-006 | DCA long context | N/A | Planned |
-| QWEN-008 | MInference sparse | 3-6x prefill | Planned |
+| ID | PMAT | Optimization | Speedup | Status |
+|----|------|--------------|---------|--------|
+| QWEN-015 | PMAT-018 | **APR native GPU fix** | **N/A** | ❌ **P0 REGRESSION** |
+| QWEN-014 | PMAT-017 | **Kernel launch overhead** | **2-5x** | **Planned (52.5% overhead)** |
+| QWEN-003 | PMAT-002 | SwiGLU GPU fusion | 1.5-2x | ✅ DONE |
+| QWEN-011 | PMAT-003 | GELU GPU fusion | 1.2x | ✅ DONE |
+| QWEN-013 | PMAT-004 | GPU RMSNorm+Residual | 1.3x | ✅ DONE |
+| QWEN-007 | PMAT-005 | KV cache quantization | 4x memory | ✅ DONE |
+| QWEN-010 | PMAT-007 | RTX 4090 tile tuning | 1.1x | ✅ DONE |
+| QWEN-009 | PMAT-006 | 3-way kernel fusion | 1.2x | ✅ Kernel done |
+| QWEN-001 | PMAT-008 | SageAttention INT8 | 2-3x | Planned |
+| QWEN-004 | PMAT-009 | EAGLE speculative | 2-3x | Planned |
+| QWEN-005 | PMAT-010 | Marlin-style GPTQ | 2.6x | Planned |
+| QWEN-006 | PMAT-011 | DCA long context | N/A | Planned |
+| QWEN-008 | PMAT-012 | MInference sparse | 3-6x prefill | Planned |
 
 For full tier descriptions with acceptance criteria and citations, see [optimization-tiers.md](./components/optimization-tiers.md).
 
@@ -328,6 +337,8 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | A: GQA Fix | 3 | ✅ 3/3 |
 | B: SwiGLU Fusion | 3 | ✅ 3/3 |
 | C: Attention Quant | 3 | Pending |
+| D: Launch Overhead | 3 | Pending |
+| E: APR GPU Regression | 3 | Pending |
 
 For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist, see [falsification-tests.md](./components/falsification-tests.md).
 
@@ -353,18 +364,24 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 
 | PMAT ID | QWEN Ticket | Title | Status |
 |---------|-------------|-------|--------|
-| PMAT-001 | QWEN-PMAT-001 | GQA Broadcasting Fix | ✅ Completed |
-| PMAT-002 | QWEN-PMAT-002 | SwiGLU GPU Fusion | ✅ Completed |
-| PMAT-003 | QWEN-PMAT-011 | GELU GPU Fusion | ✅ Completed |
-| PMAT-004 | QWEN-PMAT-013 | GPU RMSNorm+Residual | ✅ Completed |
-| PMAT-005 | QWEN-PMAT-007 | KV Cache Quantization | ✅ Completed |
+| PMAT-001 | QWEN-002 | GQA Broadcasting Fix | ✅ Completed |
+| PMAT-002 | QWEN-003 | SwiGLU GPU Fusion | ✅ Completed |
+| PMAT-003 | QWEN-011 | GELU GPU Fusion | ✅ Completed |
+| PMAT-004 | QWEN-013 | GPU RMSNorm+Residual | ✅ Completed |
+| PMAT-005 | QWEN-007 | KV Cache Quantization | ✅ Completed |
 | PMAT-006 | QWEN-009 | 3-Way FFN Fusion | ✅ Completed |
 | PMAT-007 | QWEN-010 | RTX 4090 Tile Tuning | ✅ Completed |
-| PMAT-008 | QWEN-PMAT-003 | SageAttention INT8 | Planned |
-| PMAT-009 | QWEN-PMAT-004 | EAGLE Speculative | Planned |
-| PMAT-010 | QWEN-PMAT-005 | Marlin-Style Kernel | Planned |
-| PMAT-011 | QWEN-PMAT-006 | DCA Long Context | Planned |
+| PMAT-008 | QWEN-001 | SageAttention INT8 | Planned |
+| PMAT-009 | QWEN-004 | EAGLE Speculative | Planned |
+| PMAT-010 | QWEN-005 | Marlin-Style Kernel | Planned |
+| PMAT-011 | QWEN-006 | DCA Long Context | Planned |
 | PMAT-012 | QWEN-008 | MInference Sparse | Planned |
+| PMAT-013 | — | Nsight Profiling Integration | ✅ Completed |
+| PMAT-014 | — | Competition Baseline Update | ✅ Completed |
+| PMAT-015 | — | Kernel Launch Overhead RCA | ✅ Completed |
+| PMAT-016 | — | APR Native GPU Regression RCA | ✅ Completed |
+| PMAT-017 | QWEN-014 | CUDA Graphs / Fusion (launch overhead) | Planned |
+| PMAT-018 | QWEN-015 | APR Native GPU Fix | ❌ P0 Regression |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
