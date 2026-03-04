@@ -1,0 +1,299 @@
+roadmap_version: '1.0'
+github_enabled: false
+github_repo: null
+roadmap:
+# ═══════════════════════════════════════════════════════════════════════
+# Tier 0: Completed Fixes (Production) — REALIZAR-GPU-PERF-001
+# ═══════════════════════════════════════════════════════════════════════
+
+- id: PMAT-001
+  github_issue: null
+  item_type: task
+  title: "Fix GQA naive KV head broadcasting in attention (QWEN-002)"
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-04T15:42:02Z
+  updated: 2026-03-04T15:43:24Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: No .clone() in GQA attention hot path"
+    - "AC2: Memory bandwidth reduced by GQA ratio (7x for Qwen2-7B)"
+    - "AC3: Throughput >= 10 tok/s — ACTUAL: 12.5-17.3 tok/s"
+  phases: []
+  subtasks: []
+  estimated_effort: 2d
+  labels: [gqa, broadcasting, tier0]
+  notes: "Already correctly implemented. 3.0 tok/s was outdated data. Q4K dequantization routing to CPU fixed (Fix 1)."
+
+- id: PMAT-002
+  github_issue: null
+  item_type: task
+  title: "Wire fused SwiGLU kernel into APR Q4 adapter (QWEN-003)"
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-04T15:42:09Z
+  updated: 2026-03-04T15:43:24Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: Zero GPU↔CPU transfers during FFN forward pass"
+    - "AC2: Fused kernel from cuda/executor/activations.rs used in apr_q4.rs"
+    - "AC3: APR Q4 throughput >= 50 tok/s — ACTUAL: 740.5 tok/s"
+  phases: []
+  subtasks: []
+  estimated_effort: 3d
+  labels: [swiglu, gpu-fusion, tier0]
+  notes: "Eliminates 84 PCIe transfers for Qwen2-7B (3/layer × 28 layers). [Shazeer20] GLU Variants."
+
+- id: PMAT-003
+  github_issue: null
+  item_type: task
+  title: "Wire GELU GPU kernel into standard FFN (QWEN-011)"
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-04T15:42:11Z
+  updated: 2026-03-04T15:43:24Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: Zero GPU↔CPU transfers during standard FFN forward pass"
+    - "AC2: In-place gelu_gpu kernel used instead of CPU roundtrip"
+  phases: []
+  subtasks: []
+  estimated_effort: 1d
+  labels: [gelu, gpu-fusion, tier0]
+  notes: "Eliminates 2 transfers per FFN layer for Phi/GPT-style models."
+
+- id: PMAT-004
+  github_issue: null
+  item_type: task
+  title: "Wire GPU RMSNorm and fused residual kernels into APR Q4 adapter (QWEN-013)"
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-04T15:42:15Z
+  updated: 2026-03-04T15:43:24Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: Zero GPU↔CPU transfers for RMSNorm"
+    - "AC2: Zero GPU↔CPU transfers for residual connections"
+    - "AC3: All existing tests pass (45/45)"
+    - "AC4: Throughput >= 500 tok/s — ACTUAL: 740.5 tok/s (M=8), 583.6 tok/s (M=16)"
+  phases: []
+  subtasks: []
+  estimated_effort: 3d
+  labels: [rmsnorm, residual, gpu-fusion, tier0]
+  notes: "M=8: 2.54x Ollama, M=16: 2.01x Ollama. Eliminates 112+ PCIe transfers for 28-layer Qwen2."
+
+- id: PMAT-005
+  github_issue: null
+  item_type: task
+  title: "Implement INT8 KV cache quantization (QWEN-007)"
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-04T15:42:22Z
+  updated: 2026-03-04T15:43:25Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: Q8 KV cache infrastructure in CudaExecutor"
+    - "AC2: CPU-side quantization/dequantization (< 2% error)"
+    - "AC3: GPU-side Q8Dequant PTX kernel"
+    - "AC4: Q8 incremental attention integration (5 tests passing)"
+    - "AC5: Perplexity validation within 0.5% of FP32 baseline — PENDING"
+  phases: []
+  subtasks: []
+  estimated_effort: 4d
+  labels: [kv-cache, quantization, tier2]
+  notes: "3.56x memory reduction verified. AC5 (perplexity) remaining. [KIVI arXiv:2402.02750]"
+
+- id: PMAT-006
+  github_issue: null
+  item_type: task
+  title: "Implement RMSNorm+Linear+Activation 3-way FFN fusion (QWEN-009)"
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-04T15:42:27Z
+  updated: 2026-03-04T15:43:25Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: FusedRmsNormGateUpSwigluQ4KKernel in trueno-gpu"
+    - "AC2: 1.2x speedup on FFN forward pass — PENDING BENCHMARK"
+    - "AC3: 3 unit tests passing"
+  phases: []
+  subtasks: []
+  estimated_effort: 3d
+  labels: [kernel-fusion, tier3]
+  notes: "4 phases, 256 threads, shared memory K*4+96 bytes. Memory: 4 launches→1, K+3N writes→N."
+
+- id: PMAT-007
+  github_issue: null
+  item_type: task
+  title: "RTX 4090 block size tuning (QWEN-010)"
+  status: completed
+  priority: low
+  assigned_to: null
+  created: 2026-03-04T15:42:29Z
+  updated: 2026-03-04T15:43:25Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+    - "AC1: optimal_tile_size field in CudaExecutor"
+    - "AC2: detect_optimal_tile_size() auto-detects GPU architecture"
+    - "AC3: Ada Lovelace → 64×64, others → 32×32"
+  phases: []
+  subtasks: []
+  estimated_effort: 1d
+  labels: [tile-tuning, rtx4090, tier3]
+  notes: "RTX 4090: L2 72MB, shared 100KB/SM, 4th gen tensor cores."
+
+# ═══════════════════════════════════════════════════════════════════════
+# Tier 1: Critical Gaps (2-5x Potential Speedup)
+# ═══════════════════════════════════════════════════════════════════════
+
+- id: PMAT-008
+  github_issue: null
+  item_type: task
+  title: "Implement SageAttention INT8 quantized attention kernels (QWEN-001)"
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-04T15:42:42Z
+  updated: 2026-03-04T15:42:42Z
+  spec: contracts/components/optimization-tiers.md
+  acceptance_criteria:
+    - "AC1: INT8 Q@K^T kernel implemented in trueno-gpu"
+    - "AC2: 2x speedup vs current FlashAttention on RTX 4090"
+    - "AC3: End-to-end perplexity within 0.1% of FP16 baseline"
+  phases:
+    - name: "Extend trueno-gpu QuantizeKernel with INT8 Q/K matmul"
+      status: planned
+    - name: "Add smooth-K preprocessing per SageAttention paper"
+      status: planned
+    - name: "Implement per-thread quantization for memory efficiency"
+      status: planned
+    - name: "Benchmark vs FlashAttention FP16 baseline (IMP-111)"
+      status: planned
+  subtasks: []
+  estimated_effort: 5d
+  labels: [sage-attention, quantization, trueno-gpu, tier1]
+  notes: "Current: FlashAttention FP32/FP16 (IMP-111). Papers: SageAttention ICLR2025, SageAttention2 ICML2025, SageAttention3 NeurIPS2025."
+
+- id: PMAT-009
+  github_issue: null
+  item_type: task
+  title: "Complete EAGLE speculative decoding for Qwen models (QWEN-004)"
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-04T15:42:48Z
+  updated: 2026-03-04T15:42:48Z
+  spec: contracts/components/optimization-tiers.md
+  acceptance_criteria:
+    - "AC1: Draft head architecture (1-layer transformer + LM head reuse)"
+    - "AC2: bf16 precision enforced for Qwen2 target models"
+    - "AC3: Acceptance rate >= 70%"
+    - "AC4: End-to-end speedup >= 2x"
+  phases:
+    - name: "Complete src/speculative.rs and gguf/cuda/speculative.rs"
+      status: planned
+    - name: "Implement EAGLE draft head (0.24B params for 7B target)"
+      status: planned
+    - name: "Force bf16 dtype for Qwen2 (PITFALL-003)"
+      status: planned
+    - name: "Fix acceptance rate from 25% to >= 70%"
+      status: planned
+  subtasks: []
+  estimated_effort: 7d
+  labels: [speculative-decoding, eagle, tier1]
+  notes: "Known issue: 25% acceptance rate due to draft model mismatch. EAGLE-3 NeurIPS2025 target: 2.8x on Qwen2."
+
+# ═══════════════════════════════════════════════════════════════════════
+# Tier 2: High Impact (1.5-2x Speedup)
+# ═══════════════════════════════════════════════════════════════════════
+
+- id: PMAT-010
+  github_issue: null
+  item_type: task
+  title: "Implement Marlin-style L2-optimized GPTQ kernel (QWEN-005)"
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-04T15:42:53Z
+  updated: 2026-03-04T15:42:53Z
+  spec: contracts/components/optimization-tiers.md
+  acceptance_criteria:
+    - "AC1: Streaming access pattern in Q4_K GEMV"
+    - "AC2: Shared memory double buffering"
+    - "AC3: L2 cache hit rate >= 80% (measured via Nsight)"
+    - "AC4: 1.5x speedup vs current Q4_K GEMV"
+  phases:
+    - name: "Implement streaming access patterns for L2 optimization"
+      status: planned
+    - name: "Add shared memory double buffering"
+      status: planned
+    - name: "Profile L2 cache hit rate with Nsight Compute"
+      status: planned
+    - name: "Benchmark against current Q4_K GEMV"
+      status: planned
+  subtasks: []
+  estimated_effort: 5d
+  labels: [marlin, l2-cache, gptq, tier2]
+  notes: "712 tok/s (Marlin) vs 276 tok/s (standard GPTQ) = 2.6x. Paper: MARLIN PPoPP2025."
+
+- id: PMAT-011
+  github_issue: null
+  item_type: task
+  title: "Implement Dual Chunk Attention for Qwen long context (QWEN-006)"
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-04T15:43:00Z
+  updated: 2026-03-04T15:43:00Z
+  spec: contracts/components/optimization-tiers.md
+  acceptance_criteria:
+    - "AC1: DCA position remapping for Qwen architecture detection"
+    - "AC2: Passkey retrieval >= 99% at 128K context"
+    - "AC3: No quality degradation on standard benchmarks"
+  phases:
+    - name: "Implement intra-chunk attention (local coherence within chunk)"
+      status: planned
+    - name: "Implement inter-chunk attention (cross-chunk via position remapping)"
+      status: planned
+    - name: "Detect Qwen architecture for automatic DCA activation"
+      status: planned
+    - name: "Validate with passkey retrieval at 128K context"
+      status: planned
+  subtasks: []
+  estimated_effort: 4d
+  labels: [long-context, dca, tier2]
+  notes: "32K-trained models achieve perfect passkey retrieval at 1M tokens (training-free). Paper: Qwen2.5-1M Technical Report."
+
+- id: PMAT-012
+  github_issue: null
+  item_type: task
+  title: "Implement MInference sparse attention for long-context prefill (QWEN-008)"
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-04T15:43:04Z
+  updated: 2026-03-04T15:43:04Z
+  spec: contracts/components/optimization-tiers.md
+  acceptance_criteria:
+    - "AC1: Sparse pattern detection for attention matrices"
+    - "AC2: 3x prefill speedup for 32K+ sequences"
+    - "AC3: No quality degradation on RULER benchmark"
+  phases:
+    - name: "Identify low-attention-score token pairs for skipping"
+      status: planned
+    - name: "Implement chunked prefill (32K chunks)"
+      status: planned
+    - name: "Integrate sparse attention with existing FlashAttention"
+      status: planned
+    - name: "Validate quality on RULER benchmark"
+      status: planned
+  subtasks: []
+  estimated_effort: 5d
+  labels: [sparse-attention, minference, tier2]
+  notes: "Combined with chunked prefill, reduces activation VRAM by 96.7%. Target: 3-6x prefill speedup. Paper: MInference arXiv:2407.02490."
