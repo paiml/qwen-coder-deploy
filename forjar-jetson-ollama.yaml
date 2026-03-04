@@ -37,5 +37,5 @@ resources:
     depends_on: [stop-apr, stop-llamacpp, ollama-default-stop]
 
 policy:
-  failure: abort
+  failure: stop_on_first
   lock_file: true

@@ -179,7 +179,7 @@ BENCH_PROFILE  := short
 
 bench-jetson-realizr:
 	@echo "=== realizr (isolated) ==="
-	forjar apply -f forjar-jetson-realizr.yaml --yes
+	forjar apply -f forjar-jetson-realizr.yaml --yes --force
 	@echo "--- c=1 ---"
 	probador llm load --url $(JETSON_REALIZAR) --concurrency 1 \
 		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
@@ -194,7 +194,7 @@ bench-jetson-realizr:
 
 bench-jetson-ollama:
 	@echo "=== ollama (isolated) ==="
-	forjar apply -f forjar-jetson-ollama.yaml --yes
+	forjar apply -f forjar-jetson-ollama.yaml --yes --force
 	@echo "--- c=1 ---"
 	probador llm load --url $(JETSON_OLLAMA) --model $(OLLAMA_MODEL) --concurrency 1 \
 		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
@@ -209,7 +209,7 @@ bench-jetson-ollama:
 
 bench-jetson-llamacpp:
 	@echo "=== llama.cpp (isolated) ==="
-	forjar apply -f forjar-jetson-llamacpp.yaml --yes
+	forjar apply -f forjar-jetson-llamacpp.yaml --yes --force
 	@echo "--- c=1 ---"
 	probador llm load --url $(JETSON_LLAMACPP) --concurrency 1 \
 		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
