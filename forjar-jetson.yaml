@@ -1,0 +1,107 @@
+version: "1.0"
+name: qwen-coder-deploy-jetson
+description: "Deploy Qwen2.5-Coder-1.5B-Instruct across apr serve (GGUF/APR), ollama, llama.cpp - Jetson Orin (dedicated load testing)"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+  apr_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4k.apr"
+
+machines:
+  jetson:
+    hostname: jetson
+    addr: jetson
+    user: noah
+    arch: aarch64
+    transport: ssh
+
+resources:
+  # -- Prerequisites ----------------------------------------------------------
+
+  model-gguf:
+    type: task
+    machine: jetson
+    command: "test -f {{params.gguf_model}} || { echo 'Missing GGUF — scp from host: scp ~/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf jetson:~/models/'; exit 1; }"
+    completion_check: "test -f {{params.gguf_model}}"
+
+  model-apr:
+    type: task
+    machine: jetson
+    command: "test -f {{params.apr_model}} || { echo 'Missing APR — scp from host: scp ~/models/qwen2.5-coder-1.5b-instruct-q4k.apr jetson:~/models/'; exit 1; }"
+    completion_check: "test -f {{params.apr_model}}"
+
+  llamacpp-build:
+    type: task
+    machine: jetson
+    command: |
+      if [ ! -d /home/noah/src/llama.cpp ]; then
+        git clone --depth 1 https://github.com/ggerganov/llama.cpp.git /home/noah/src/llama.cpp
+      fi
+      mkdir -p /home/noah/src/llama.cpp/build
+      cd /home/noah/src/llama.cpp/build
+      cmake .. -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=87
+      cmake --build . --target llama-server -j$(nproc)
+    completion_check: "test -x /home/noah/src/llama.cpp/build/bin/llama-server"
+    timeout: 1200
+
+  ollama-install:
+    type: task
+    machine: jetson
+    command: "which ollama || curl -fsSL https://ollama.com/install.sh | sh"
+    completion_check: "which ollama"
+    timeout: 300
+
+  ollama-model:
+    type: task
+    machine: jetson
+    command: "ollama pull qwen2.5-coder:1.5b-instruct"
+    completion_check: "ollama list 2>/dev/null | grep -q 'qwen2.5-coder:1.5b-instruct'"
+    depends_on: [ollama-install]
+
+  ollama-default-stop:
+    type: task
+    machine: jetson
+    command: "sudo systemctl stop ollama.service 2>/dev/null || true"
+    completion_check: "! systemctl is-active --quiet ollama.service"
+    depends_on: [ollama-model]
+
+  apr-install:
+    type: task
+    machine: jetson
+    command: "which apr || { echo 'Missing apr binary — cross-compile or build natively: cargo install --path ~/src/aprender/crates/apr-cli --features inference,cuda'; exit 1; }"
+    completion_check: "which apr"
+
+  # -- GPU Services -----------------------------------------------------------
+  # Ports: 8081 apr/GGUF, 8082 ollama, 8083 llama.cpp, 8084 apr/APR
+
+  apr-gguf-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.gguf_model}} --port 8081 --gpu --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
+    depends_on: [model-gguf, apr-install]
+
+  ollama-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sleep 1; OLLAMA_HOST=0.0.0.0:8082 nohup ollama serve > /tmp/ollama-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8082/api/tags >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8082/api/tags >/dev/null 2>&1"
+    depends_on: [ollama-model, ollama-default-stop]
+
+  llamacpp-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'llama-server.*8083' 2>/dev/null || true; sleep 1; nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
+    depends_on: [llamacpp-build, model-gguf]
+
+  apr-apr-gpu:
+    type: task
+    machine: jetson
+    command: "pkill -f 'apr serve.*8084' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.apr_model}} --port 8084 --gpu --skip-contract > /tmp/apr-apr-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8084/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8084/health >/dev/null 2>&1"
+    depends_on: [model-apr, apr-install]
+
+policy:
+  failure: continue_independent
+  tripwire: false
+  lock_file: true

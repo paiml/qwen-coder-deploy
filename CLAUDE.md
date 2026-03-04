@@ -12,21 +12,35 @@ Uses **forjar** for declarative deployment and **probador** (probar CLI) for cor
 ## Architecture
 
 ```
-GPU (localhost, RTX 4090)                CPU (intel, 192.168.50.100)
-├── realizar   :8081  (GGUF, CUDA)       ├── qwen-realizar    :8081  (systemd)
-├── ollama     :8082  (GGUF, CUDA)       ├── qwen-ollama      :8082  (systemd)
-└── llama.cpp  :8083  (GGUF, CUDA)       └── qwen-llamacpp    :8083  (systemd)
+Jetson Orin (dedicated load testing)     4090 Host (QLoRA training + deep profiling)
+├── realizar   :8081  (GGUF, CUDA)       ├── QLoRA fine-tuning (full-time)
+├── ollama     :8082  (GGUF, CUDA)       ├── Deep profiling (occasional):
+├── llama.cpp  :8083  (GGUF, CUDA)       │   nsys-gpu, ncu-gpu, profile-gpu
+├── apr-native :8084  (APR, CUDA)        └── Builds: apr, llama.cpp, trueno
+└── probador load tests (continuous)
+
+CPU (intel, 192.168.50.100)
+├── qwen-realizar    :8081  (systemd)
+├── qwen-ollama      :8082  (systemd)
+└── qwen-llamacpp    :8083  (systemd)
 ```
 
 ## Commands
 
 ```bash
-# GPU deployment (localhost)
+# Jetson deployment (dedicated load testing — primary)
+make deploy-jetson     # forjar apply -f forjar-jetson.yaml
+make health-jetson     # Health check all 4 services
+make test-jetson       # Correctness tests
+make load-jetson       # Load tests (60s, concurrency=4, 5s warmup)
+make teardown-jetson   # Stop all services
+make nightly-jetson    # Full pipeline: deploy → health → test → load → report
+
+# 4090 deployment (deep profiling only — 4090 runs QLoRA full-time)
 make deploy-gpu        # forjar apply -f forjar-gpu.yaml
-make health-gpu        # Health check all 3
-make test-gpu          # Correctness tests
-make load-gpu          # Load tests (60s, concurrency=4)
-make teardown-gpu      # Stop all processes
+make nsys-gpu          # nsys kernel timeline
+make ncu-gpu           # ncu per-kernel roofline
+make profile-gpu       # apr profile (roofline + hotspots)
 
 # CPU deployment (intel host)
 make deploy            # forjar apply
@@ -43,12 +57,14 @@ make report            # Generate performance.md + update README
 | Runtime | Format | Source |
 |---------|--------|--------|
 | realizar | GGUF (Q4_K_M) | From HuggingFace, served via OpenAI-compat endpoint |
-| ollama | GGUF (Q4_K_M) | ollama pull qwen2.5-coder:1.5b |
+| ollama | GGUF (Q4_K_M) | ollama pull qwen2.5-coder:1.5b-instruct |
 | llama.cpp | GGUF (Q4_K_M) | Same GGUF file as realizar |
 
 ## Forjar Configs
 
-- `forjar-gpu.yaml` — GPU deployment: builds llama-server, verifies models, starts 3 processes
+- `forjar-jetson.yaml` — Jetson Orin deployment: apr, ollama, llama.cpp (dedicated load testing)
+- `forjar-jetson-teardown.yaml` — Stop Jetson services
+- `forjar-gpu.yaml` — 4090 deployment: deep profiling only (occasional)
 - `forjar.yaml` — CPU deployment: SSH to intel host, systemd services
 - `forjar-gpu-teardown.yaml` / `forjar-teardown.yaml` — Stop services
 
@@ -57,11 +73,17 @@ make report            # Generate performance.md + update README
 Correctness tests defined in `prompts/correctness.yaml` (6 prompts: math, code gen, explanation, JSON, SQL).
 Load tests via `probador llm load` with configurable concurrency and duration.
 
+**Important:** probador `--url` takes the base URL (e.g., `http://jetson:8081`), NOT the full endpoint path. It appends `/v1/chat/completions` internally.
+
+**Important:** Ollama requires `--model qwen2.5-coder:1.5b-instruct` (exact tag from `ollama list`).
+
 ## Key Files
 
-- `forjar-gpu.yaml` — GPU deployment configuration (localhost)
+- `forjar-jetson.yaml` — Jetson Orin deployment (primary load testing)
+- `forjar-gpu.yaml` — 4090 deployment (deep profiling only)
 - `forjar.yaml` — CPU deployment configuration (intel host)
 - `prompts/correctness.yaml` — Correctness test suite
+- `contracts/gpu-performance-spec.md` — Performance specification (v2.3.0)
 - `performance.md` — Historical performance data (auto-updated)
 - `results/` — JSON result files (git-tracked)
 - `scripts/nightly.sh` — Automated benchmark pipeline (cpu|gpu|both)

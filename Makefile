@@ -2,10 +2,14 @@
 # qwen-coder-deploy — Benchmark realizar vs ollama vs llama.cpp
 # ============================================================================
 # Targets:
-#   CPU (intel host):  make deploy / make test / make load
-#   GPU (localhost):   make deploy-gpu / make test-gpu / make load-gpu
+#   Jetson (dedicated):  make deploy-jetson / make test-jetson / make load-jetson
+#   GPU (4090, profiling only): make deploy-gpu / make nsys-gpu / make profile-gpu
+#   CPU (intel host):    make deploy / make test / make load
 #
-# Deep profiling (apr/realizar tools):
+# Load testing runs on Jetson Orin (dedicated). 4090 freed for QLoRA training.
+# Deep profiling (nsys/ncu/apr profile) remains 4090-only (occasional).
+#
+# Deep profiling (apr/realizar tools, 4090 only):
 #   make profile-gpu    — Roofline analysis + hotspot breakdown
 #   make bench-gpu      — Per-brick timing with budget targets
 #   make cbtop-gpu      — ComputeBrick pipeline profiler (headless)
@@ -14,7 +18,7 @@
 #   make realize-bench  — realizar internal benchmark suites
 #   make gpu-util       — nvidia-smi GPU utilization snapshot
 #
-# NVIDIA Nsight profiling (kernel-level):
+# NVIDIA Nsight profiling (kernel-level, 4090 only):
 #   make install        — Install nsight-systems + nsight-compute via forjar
 #   make nsys-gpu       — nsys timeline of GPU decode (per-kernel breakdown)
 #   make ncu-gpu        — ncu roofline per GEMV kernel (bandwidth/compute)
@@ -33,19 +37,27 @@ INTEL_REALIZAR := http://$(INTEL_HOST):8081
 INTEL_OLLAMA   := http://$(INTEL_HOST):8082
 INTEL_LLAMACPP := http://$(INTEL_HOST):8083
 
-# --- GPU (localhost, RTX 4090) ---
+# --- GPU (localhost, RTX 4090 — deep profiling only, 4090 runs QLoRA full-time) ---
 GPU_HOST := 127.0.0.1
 GPU_REALIZAR := http://$(GPU_HOST):8081
 GPU_OLLAMA   := http://$(GPU_HOST):8082
 GPU_LLAMACPP := http://$(GPU_HOST):8083
 
+# --- Jetson Orin (dedicated load testing) ---
+JETSON_HOST := jetson
+JETSON_REALIZAR   := http://$(JETSON_HOST):8081
+JETSON_OLLAMA     := http://$(JETSON_HOST):8082
+JETSON_LLAMACPP   := http://$(JETSON_HOST):8083
+JETSON_APR_NATIVE := http://$(JETSON_HOST):8084
+
 # Ollama requires exact model tag (not "default")
-OLLAMA_MODEL := qwen2.5-coder:1.5b-instruct-q4_K_M
+OLLAMA_MODEL := qwen2.5-coder:1.5b-instruct
 
 GGUF_MODEL := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 
 .PHONY: deploy teardown test load report nightly health \
         deploy-gpu teardown-gpu test-gpu load-gpu health-gpu nightly-gpu \
+        deploy-jetson teardown-jetson test-jetson load-jetson health-jetson nightly-jetson \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp
@@ -111,7 +123,43 @@ load-gpu:
 nightly-gpu: deploy-gpu health-gpu test-gpu load-gpu report
 
 # ============================================================================
-# Deep profiling (apr + realizar tools)
+# Jetson Orin targets (dedicated load testing — frees 4090 for QLoRA)
+# ============================================================================
+# Jetson Orin: aarch64, CUDA 12.6, 7.4 GB unified memory, JetPack R36.5
+# All load testing runs here. 4090 only used for deep profiling (nsys/ncu).
+
+deploy-jetson:
+	forjar apply -f forjar-jetson.yaml
+
+teardown-jetson:
+	forjar apply -f forjar-jetson-teardown.yaml
+
+health-jetson:
+	@echo "Checking realizar (Jetson)..."
+	@curl -sf $(JETSON_REALIZAR)/health && echo " OK" || echo " FAIL"
+	@echo "Checking ollama (Jetson)..."
+	@curl -sf $(JETSON_OLLAMA)/api/tags >/dev/null 2>&1 && echo " OK" || echo " FAIL"
+	@echo "Checking llama.cpp (Jetson)..."
+	@curl -sf $(JETSON_LLAMACPP)/health && echo " OK" || echo " FAIL"
+	@echo "Checking apr native (Jetson)..."
+	@curl -sf $(JETSON_APR_NATIVE)/health && echo " OK" || echo " FAIL"
+
+test-jetson:
+	probador llm test --config prompts/correctness.yaml --url $(JETSON_REALIZAR) --runtime-name realizar-jetson --output results/realizar-jetson-correctness-$(DATE).json
+	probador llm test --config prompts/correctness.yaml --url $(JETSON_OLLAMA) --model $(OLLAMA_MODEL) --runtime-name ollama-jetson --output results/ollama-jetson-correctness-$(DATE).json
+	probador llm test --config prompts/correctness.yaml --url $(JETSON_LLAMACPP) --runtime-name llamacpp-jetson --output results/llamacpp-jetson-correctness-$(DATE).json
+	probador llm test --config prompts/correctness.yaml --url $(JETSON_APR_NATIVE) --runtime-name apr-native-jetson --output results/apr-native-jetson-correctness-$(DATE).json
+
+load-jetson:
+	probador llm load --url $(JETSON_REALIZAR) --concurrency 4 --duration 60s --warmup 5s --runtime-name realizar-jetson --output results/realizar-jetson-load-$(DATE).json
+	probador llm load --url $(JETSON_OLLAMA) --model $(OLLAMA_MODEL) --concurrency 4 --duration 60s --warmup 5s --runtime-name ollama-jetson --output results/ollama-jetson-load-$(DATE).json
+	probador llm load --url $(JETSON_LLAMACPP) --concurrency 4 --duration 60s --warmup 5s --runtime-name llamacpp-jetson --output results/llamacpp-jetson-load-$(DATE).json
+	probador llm load --url $(JETSON_APR_NATIVE) --concurrency 4 --duration 60s --warmup 5s --runtime-name apr-native-jetson --output results/apr-native-jetson-load-$(DATE).json
+
+nightly-jetson: deploy-jetson health-jetson test-jetson load-jetson report
+
+# ============================================================================
+# Deep profiling (apr + realizar tools, 4090 only)
 # ============================================================================
 
 # Roofline analysis: compute-bound vs memory-bound, hardware efficiency %,

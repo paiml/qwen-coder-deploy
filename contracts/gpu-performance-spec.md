@@ -1,11 +1,11 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Status:** ACTIVE
 **Date:** 2026-03-04
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
-**Target:** >=2x Ollama parity on RTX 4090 for decoder-only transformer inference
+**Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
 
 ---
@@ -41,7 +41,9 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 4, 2026):** Under standardized load testing (c=4, 60s, 5s warmup), realizar achieves **167.1 tok/s** (safetensors, best format) vs llama.cpp **948.2 tok/s** and ollama **568.9 tok/s** — a **3.4x gap** to Ollama parity. All three APR formats now functional (143-167 tok/s), with common decode bottleneck at 39-43 tok/s. APR native GPU regression fixed (was 100% errors on Mar 3).
+**Competition Reality (Mar 4, 2026 — 4090):** Under standardized load testing (c=4, 60s), realizar achieves **151.4 tok/s** (GGUF) vs llama.cpp **931.5 tok/s** and ollama **561.6 tok/s** — a **3.7x gap** to Ollama. Decode bottleneck at ~40 tok/s (c=4), ~270 tok/s raw per-token (DECODE_TIMING). Root cause: Q6K GEMV kernel uses 1-warp (32 threads) vs Q4K's MWV 4-warp — Q6K is 4x slower per call, consuming 31.9% of GPU time (GH #118).
+
+**Next step:** Benchmarks moving to dedicated Jetson Orin; 4090 freed for full-time QLoRA training.
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -74,6 +76,18 @@ Token → Embedding → [RMSNorm → Attention → Residual → RMSNorm → FFN 
 **IN:** M=1 GEMV, memory coalescing, GPU transfer elimination, async serving, quantized KV cache
 **OUT:** Prefill-phase GEMM [Patel24], multi-GPU distribution, training
 
+### Deployment Topology
+
+```
+4090 Host (noah-Lambda-Vector)           Jetson Orin (jetson)
+├── QLoRA training (full-time)           ├── apr-gguf     :8081  (CUDA)
+├── Deep profiling (occasional):         ├── ollama       :8082  (CUDA)
+│   nsys-gpu, ncu-gpu, profile-gpu       ├── llama.cpp    :8083  (CUDA)
+│   apr profile, apr bench               ├── apr-apr      :8084  (CUDA)
+└── Builds: apr, llama.cpp, trueno       ├── apr-safetens :8085  (CUDA)
+                                         └── probador load tests (continuous)
+```
+
 For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./components/baselines.md#2-model-reference-qwen2qwen25-architecture).
 
 ---
@@ -91,21 +105,28 @@ For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./co
 
 ### Competition Benchmarks (Mar 2026)
 
-Standardized load test: `probador llm load` (60s, c=4, 3 runs). Model: Qwen2.5-Coder-1.5B Q4_K_M.
+Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5B Q4_K_M.
 
-| Runtime | GPU (tok/s) | CPU (tok/s) | GPU/CPU Ratio |
-|---------|-------------|-------------|---------------|
-| llama.cpp | **1,013.6** | 218.5 | 4.64x |
-| ollama | **607.9** | 149.5 | 4.07x |
-| realizar (safetensors) | **96.5** | 28.3 | 3.41x |
-| realizar (GGUF) | 25.8 | 23.0 | 1.12x |
-| realizar (APR native) | 0.0 (broken) | 9.5 | N/A |
+**RTX 4090 (Mar 4 2026 — final 4090 baselines before Jetson migration):**
 
-**Gap to parity:** realizar best (96.5 tok/s) is **6.3x slower** than ollama (607.9 tok/s) and **10.5x slower** than llama.cpp (1,013.6 tok/s) on GPU under load.
+| Runtime | Tokens/s | Decode tok/s | Latency P50 (ms) |
+|---------|----------|-------------|-------------------|
+| llama.cpp | **931.5** | **233.5** | 548 |
+| ollama | **561.6** | **139.9** | 915 |
+| realizar (GGUF) | 151.4 | 40.8 | 2,530 |
+
+**Gap to parity:** realizar decode (40.8 tok/s) is **3.4x slower** than ollama decode (139.9 tok/s) and **5.7x slower** than llama.cpp (233.5 tok/s) at c=4. Raw per-token decode is ~270 tok/s (DECODE_TIMING), suggesting concurrency lock contention and prefill overhead dominate under load.
+
+**Jetson Orin baselines:** Pending — first benchmark run after `make deploy-jetson`.
 
 ### Hardware Reference
 
-RTX 4090: 1008 GB/s bandwidth, 72MB L2, 100KB shared/SM, Gen4 PCIe x16.
+| Host | GPU | Memory BW | VRAM | Role |
+|------|-----|-----------|------|------|
+| noah-Lambda-Vector (4090) | RTX 4090 | 1,008 GB/s | 24 GB GDDR6X | QLoRA training (full-time) + deep profiling (nsys/ncu, occasional) |
+| jetson | Orin (nvgpu) | 102 GB/s | 7.4 GB unified | Continuous load testing + CI benchmarks (dedicated) |
+
+**Architecture split (v2.3.0):** Load testing moves permanently to Jetson Orin, freeing the 4090 for full-time QLoRA fine-tuning. The 4090 is only used for inference during occasional deep GPU profiling (nsys/ncu). All `probador llm load` benchmarks target Jetson-hosted services.
 
 For complete baseline tables, threshold registry, and measurement protocol, see [baselines.md](./components/baselines.md).
 
@@ -176,9 +197,9 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 ### New Root Causes (Mar 2026)
 
+- **Q6K GEMV 1-warp bottleneck (GH #118):** Q6K GEMV uses 32-thread kernel (1 warp, 33% occupancy) while Q4K uses MWV 4-warp (128 threads). Q6K is 4x slower per call (39.7µs vs 9.9µs), consuming 31.9% of GPU time despite only 29 tensors. Affects: `output.weight`, `ffn_down.weight` (28L), `attn_v.weight` (28L).
 - **Kernel launch overhead:** 52.5% of decode time from ~180 kernel launches/token (PMAT-015/017)
-- **APR native GPU regression:** 100% error rate under concurrent GPU load (PMAT-016/018)
-- **GGUF GPU underutilization:** Only 1.12x GPU speedup vs CPU for GGUF format
+- **Concurrency lock contention:** RwLock serialization at c=4 drops decode from ~270 tok/s (raw) to 40.8 tok/s (probador). Single-request path is 153 tok/s due to prefill + HTTP overhead.
 
 For full analysis including the "impossible observation" (CPU outperforming GPU), see [root-cause-analysis.md](./components/root-cause-analysis.md).
 
@@ -200,7 +221,8 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 
 | ID | PMAT | Optimization | Speedup | Status |
 |----|------|--------------|---------|--------|
-| QWEN-015 | PMAT-018 | **APR native GPU fix** | **N/A** | ❌ **P0 REGRESSION** |
+| GH #118 | PMAT-019 | **Q6K MWV GEMV kernel** | **2-4x Q6K** | **Planned (31.9% GPU time)** |
+| QWEN-015 | PMAT-018 | APR native GPU fix | N/A | ✅ Fixed |
 | QWEN-014 | PMAT-017 | **Kernel launch overhead** | **2-5x** | **Planned (52.5% overhead)** |
 | QWEN-003 | PMAT-002 | SwiGLU GPU fusion | 1.5-2x | ✅ DONE |
 | QWEN-011 | PMAT-003 | GELU GPU fusion | 1.2x | ✅ DONE |
@@ -253,6 +275,17 @@ For implementation details, PTX generation, and memory savings analysis, see [ke
 5. **Environment metadata:** Full reproducibility
 
 ### Infrastructure
+
+**Load Testing (Jetson Orin — dedicated):**
+- All `probador llm load` benchmarks run on Jetson Orin (aarch64, CUDA 12.6, 7.4 GB unified)
+- Forjar config: `forjar-jetson.yaml` deploys apr, ollama, llama.cpp
+- `make deploy-jetson / load-jetson / test-jetson` targets
+- Services on ports 8081-8085 (same as former 4090 GPU layout)
+
+**Deep Profiling (4090 — occasional):**
+- nsys/ncu kernel profiling requires 4090 SM count and PCIe topology
+- `make nsys-gpu / ncu-gpu / profile-gpu` targets remain 4090-only
+- Run only when diagnosing kernel-level bottlenecks
 
 Implemented in PARITY-007 through PARITY-010:
 - `CVStoppingBenchmark`, `WarmupBenchmark`, `EnvironmentMetadata`
@@ -381,7 +414,9 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-015 | — | Kernel Launch Overhead RCA | ✅ Completed |
 | PMAT-016 | — | APR Native GPU Regression RCA | ✅ Completed |
 | PMAT-017 | QWEN-014 | CUDA Graphs / Fusion (launch overhead) | Planned |
-| PMAT-018 | QWEN-015 | APR Native GPU Fix | ❌ P0 Regression |
+| PMAT-018 | QWEN-015 | APR Native GPU Fix | ✅ Fixed (--skip-contract) |
+| PMAT-019 | GH #118 | **Q6K MWV GEMV kernel** (31.9% GPU time) | **Planned — 2-4x Q6K speedup** |
+| PMAT-020 | — | Jetson Orin load test migration | **In Progress** |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
@@ -467,6 +502,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3.0 | 2026-03-04 | **Jetson Orin migration:** Load testing moves to dedicated Jetson Orin (aarch64, CUDA 12.6, 7.4 GB), freeing 4090 for full-time QLoRA. New forjar-jetson.yaml + Makefile targets. Q6K GEMV bottleneck identified (GH #118): 31.9% GPU time, 4x slower than Q4K MWV. Updated baselines: APR 40.8 tok/s decode (c=4) vs llama.cpp 233.5. PMAT-019 (Q6K MWV), PMAT-020 (Jetson migration) added. |
 | 2.2.0 | 2026-03-04 | v3 benchmarks: gap narrowed from 6.3x to 3.4x. APR native regression fixed (PMAT-018, --skip-contract). All formats 143-167 tok/s. GitHub issues #1-#5 filed. forjar hardened (continue_independent, SafeTensors timeout). |
 | 2.1.0 | 2026-03-04 | Competition baselines (v3/20260303), Nsight profiling integration, kernel launch overhead RCA (52.5%), APR native GPU regression (100% errors), PMAT-013 through PMAT-018 added. |
 | 2.0.0 | 2026-03-04 | Consolidated from 3 specs (SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput v1.3.0). Added component sub-specs. pmat work roadmap with 12 tickets. |
