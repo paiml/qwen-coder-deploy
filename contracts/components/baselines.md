@@ -92,13 +92,15 @@ All autoregressive decoder-only transformers with token-by-token generation:
 
 ## 5. Post-Fix Baselines (Feb 2026)
 
-### GPU Performance (APR Q4 Adapter)
+### Internal Microbenchmarks (APR Q4 Adapter, M=batch)
 
 | Metric | M=8 | M=16 | Notes |
 |--------|-----|------|-------|
-| Throughput (tok/s) | 740.5 | 583.6 | After Fixes 1-4 |
-| Ollama ratio | 2.54x | 2.01x | Exceeds Ollama |
+| Throughput (tok/s) | 740.5 | 583.6 | After Fixes 1-4, internal bench |
+| Ollama ratio | 2.54x | 2.01x | vs Ollama 291.2 tok/s (internal) |
 | PCIe transfers/token | 0 | 0 | Fully GPU-resident |
+
+*Note: These numbers reflect internal microbenchmarks with batch scheduling. Production benchmarks under load test conditions (§5a) show different results.*
 
 ### CPU Performance (GGUF)
 
@@ -106,6 +108,53 @@ All autoregressive decoder-only transformers with token-by-token generation:
 |--------|-------|-------|
 | Throughput | 12.5-17.3 tok/s | After GQA verification |
 | Q4K routing | CPU-optimal | Fix 1 resolved GPU routing |
+
+---
+
+## 5a. Competition Baselines (Mar 2026)
+
+Measured via `probador llm load` (60s, concurrency=4, 3 runs, 95% CI). Model: Qwen2.5-Coder-1.5B-Instruct Q4_K_M.
+
+### GPU (RTX 4090) — 2026-03-03
+
+| Rank | Runtime | Tok/s | P50 (ms) | P95 (ms) | P99 (ms) | Error Rate |
+|------|---------|-------|----------|----------|----------|------------|
+| 1 | llama.cpp | **1,013.6** | 504 | 521 | 528 | 0% |
+| 2 | ollama | **607.9** | 839 | 872 | 887 | 0% |
+| 3 | realizar (safetensors) | **96.5** | 5,274 | 7,480 | 9,013 | 0% |
+| 4 | realizar (GGUF) | **25.8** | 18,989 | 24,229 | 24,258 | 0% |
+| 5 | realizar (APR native) | **0.0** | N/A | N/A | N/A | **100%** |
+
+### CPU (Intel EPYC, 192.168.50.100) — 2026-03-03
+
+| Rank | Runtime | Tok/s | P50 (ms) | P95 (ms) | P99 (ms) | Error Rate |
+|------|---------|-------|----------|----------|----------|------------|
+| 1 | llama.cpp | **218.5** | 2,340 | 2,381 | 2,389 | 0% |
+| 2 | ollama | **149.5** | 3,356 | 3,782 | 3,817 | 0% |
+| 3 | realizar (safetensors) | **28.3** | 18,110 | 18,293 | 18,317 | 0% |
+| 4 | realizar (GGUF) | **23.0** | 20,007 | 30,699 | 31,408 | 0% |
+| 5 | realizar (APR native) | **9.5** | 53,263 | 54,537 | 54,537 | 0% |
+
+### GPU Speedup vs CPU (Same Runtime)
+
+| Runtime | CPU (tok/s) | GPU (tok/s) | GPU Speedup |
+|---------|-------------|-------------|-------------|
+| llama.cpp | 218.5 | 1,013.6 | **4.64x** |
+| ollama | 149.5 | 607.9 | **4.07x** |
+| realizar (safetensors) | 28.3 | 96.5 | **3.41x** |
+| realizar (GGUF) | 23.0 | 25.8 | **1.12x** |
+| realizar (APR native) | 9.5 | 0.0 | **BROKEN** |
+
+### Gap Analysis
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Realizar best GPU vs llama.cpp | **10.5x slower** | safetensors: 96.5 vs 1,013.6 tok/s |
+| Realizar best GPU vs ollama | **6.3x slower** | safetensors: 96.5 vs 607.9 tok/s |
+| Realizar GGUF GPU speedup | **1.12x** | Minimal GPU benefit — investigate |
+| APR native GPU | **BROKEN** | 100% error rate (PMAT-016) |
+
+**Source:** `bench-results-v2/*-gpu-20260303.json`, `bench-results-v2/*-cpu-v3.json`
 
 ---
 
@@ -152,18 +201,32 @@ For authoritative benchmark methodology and baselines, see:
 
 ## 8. Threshold Registry
 
+### Internal Microbenchmark Thresholds (Feb 2026)
+
 | ID | Claim | Threshold | Unit | Status |
 |----|-------|-----------|------|--------|
-| THRESH-001 | Ollama baseline | >= 180 | tok/s | ✅ 240.1 |
-| THRESH-002 | Realizar current | >= 5 | tok/s | ✅ 740.5 |
-| THRESH-003 | Gap to Ollama | <= 50x | ratio | ✅ 0.39x (we're faster) |
-| THRESH-004 | Parity target | <= 1.25x | ratio | ✅ 0.39x |
+| THRESH-001 | Ollama baseline (internal) | >= 180 | tok/s | ✅ 291.2 |
+| THRESH-002 | Realizar M=8 (internal) | >= 5 | tok/s | ✅ 740.5 |
 | THRESH-005 | CV stability | < 0.05 | ratio | ✅ |
 | THRESH-006 | KV cache speedup | >= 10x | ratio | ✅ 128x avg |
 | THRESH-007 | GPU GEMM speedup | >= 10x | ratio | ✅ 57x |
 | THRESH-008 | ContiguousKV speedup | >= 100x | ratio | ✅ 16,640x |
 | THRESH-009 | Multi-acc SIMD speedup | >= 2x | ratio | Partial (6.6%) |
 | THRESH-010 | FlashAttention speedup | >= 4x | ratio | Pending |
+
+### Competition Benchmark Thresholds (Mar 2026)
+
+| ID | Claim | Threshold | Unit | Status |
+|----|-------|-----------|------|--------|
+| THRESH-C01 | Ollama GPU baseline | >= 500 | tok/s | ✅ 607.9 |
+| THRESH-C02 | llama.cpp GPU baseline | >= 900 | tok/s | ✅ 1,013.6 |
+| THRESH-C03 | Realizar GPU (best) | >= 50 | tok/s | ✅ 96.5 (safetensors) |
+| THRESH-C04 | Realizar GPU parity | <= 2x Ollama | ratio | ❌ **6.3x** (96.5 vs 607.9) |
+| THRESH-C05 | APR native GPU | >= 1 | tok/s | ❌ **BROKEN** (0 tok/s, 100% errors) |
+| THRESH-C06 | GGUF GPU acceleration | >= 3x CPU | ratio | ❌ **1.12x** (25.8 vs 23.0) |
+| THRESH-C07 | llama.cpp CPU baseline | >= 150 | tok/s | ✅ 218.5 |
+
+**Key Failure:** Competition benchmarks reveal that the Ollama parity claim (THRESH-003/004 "0.39x, we're faster") applies only to internal M=8 batched microbenchmarks. Under standardized load testing conditions (c=4, 60s), realizar is **6.3x slower** than Ollama on GPU.
 
 ---
 

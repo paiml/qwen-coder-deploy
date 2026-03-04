@@ -39,7 +39,9 @@ This specification consolidates all GPU decoder throughput optimization work for
 - Async runtime integration for serving
 - Quantized attention and KV cache optimization
 
-**Key Result:** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement**, achieving 2.54x Ollama parity on RTX 4090.
+**Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
+
+**Competition Reality (Mar 2026):** Under standardized load testing, realizar achieves **96.5 tok/s** (safetensors, best format) vs llama.cpp **1,013.6 tok/s** and ollama **607.9 tok/s** — a **6.3x gap** to Ollama parity. APR native format is broken (100% error rate on GPU).
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -78,15 +80,28 @@ For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./co
 
 ## 3. Performance Baseline
 
-### Before vs After
+### Internal Microbenchmarks (Feb 2026)
 
 | Metric | Before (Dec 2025) | After (Feb 2026) | Improvement |
 |--------|-------------------|-------------------|-------------|
 | GGUF CPU throughput | 3.0 tok/s | 12.5-17.3 tok/s | 4-6x |
-| APR GPU throughput | 0.9 tok/s | 740.5 tok/s (M=8) | 823x |
-| Ollama ratio | 0.004x | 2.54x (M=8) | 635x |
-| GEMV bandwidth utilization | 1.4% | >90% (target) | 64x |
+| APR GPU throughput (M=8) | 0.9 tok/s | 740.5 tok/s | 823x |
+| Ollama ratio (internal) | 0.004x | 2.54x (M=8) | 635x |
 | PCIe transfers per token | 252+ | 0 | ∞ |
+
+### Competition Benchmarks (Mar 2026)
+
+Standardized load test: `probador llm load` (60s, c=4, 3 runs). Model: Qwen2.5-Coder-1.5B Q4_K_M.
+
+| Runtime | GPU (tok/s) | CPU (tok/s) | GPU/CPU Ratio |
+|---------|-------------|-------------|---------------|
+| llama.cpp | **1,013.6** | 218.5 | 4.64x |
+| ollama | **607.9** | 149.5 | 4.07x |
+| realizar (safetensors) | **96.5** | 28.3 | 3.41x |
+| realizar (GGUF) | 25.8 | 23.0 | 1.12x |
+| realizar (APR native) | 0.0 (broken) | 9.5 | N/A |
+
+**Gap to parity:** realizar best (96.5 tok/s) is **6.3x slower** than ollama (607.9 tok/s) and **10.5x slower** than llama.cpp (1,013.6 tok/s) on GPU under load.
 
 ### Hardware Reference
 
