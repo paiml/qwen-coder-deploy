@@ -262,11 +262,33 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 
 ## 9. Profiling Data
 
+### Nsight Systems Kernel Profile (2026-03-04)
+
+| Kernel | Time (%) | Instances | Avg (µs) |
+|--------|----------|-----------|----------|
+| `mwv_q4k_gemv` | **46.0%** | 53,592 | 9.9 |
+| `q6k_gemv_warp_reduce` | **31.9%** | 9,251 | 39.7 |
+| `multi_warp_attention_indirect` | 9.3% | 8,932 | 12.0 |
+| `rmsnorm_vectorized` | 5.3% | 18,183 | 3.3 |
+| `residual_add` | 3.8% | 44,660 | 1.0 |
+| `fused_swiglu` | 0.7% | 8,932 | 0.9 |
+
+**Dominant bottleneck:** GEMV kernels consume **77.9%** of GPU time.
+
+### Host-Side Profiling (2026-03-02)
+
+| Metric | Value |
+|--------|-------|
+| Kernel launch overhead | **52.5%** of decode time (128,484µs) |
+| Memory efficiency | **8.4%** (84.3 / 1,008 GB/s) |
+| Decode throughput (M=1) | 130.7 tok/s |
+| Performance grade | **D** |
+| Roofline classification | **MEMORY BOUND** (4.0 FLOP/byte, threshold 82.0) |
+
 ### Key Numbers
 
 | Metric | Value | Source |
 |--------|-------|--------|
-| Forward pass time (M=8) | ~1.35ms/token | Post-fix profiling |
 | PCIe transfers eliminated | 252+/token | Fixes 2-4 |
 | ContiguousKV speedup | 16,640x | PARITY-005 |
 | Q8 KV memory reduction | 3.56x | QWEN-007 |

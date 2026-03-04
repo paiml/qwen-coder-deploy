@@ -30,24 +30,96 @@ Coalesced (target):
 
 ---
 
-## 2. GPU Kernel Profiling (Post-Fix)
+## 2. Nsight Systems Kernel Profile (2026-03-04)
 
-### APR Q4 Forward Pass (Qwen2.5-Coder-0.5B)
+**Source:** `results/nsys-apr-gpu-kernels-20260304.txt` (Qwen2.5-Coder-1.5B Q4_K_M, RTX 4090)
 
-**After Fixes 1-4 (GPU-resident):**
+### CUDA GPU Kernel Summary
 
-| Operation | Time (ms) | PCIe Transfers | Notes |
-|-----------|-----------|----------------|-------|
-| Embedding lookup | 0.01 | 0 | GPU-resident |
-| RMSNorm (per layer) | 0.005 | 0 | GPU ptr-based |
-| Q4K Attention GEMV | 0.12 | 0 | Fused dequant |
-| SwiGLU FFN | 0.08 | 0 | Fused kernel |
-| Residual add | 0.003 | 0 | GPU in-place |
-| Output norm | 0.005 | 0 | GPU ptr-based |
-| LM head | 0.05 | 0 | GPU matmul |
-| **Total per token** | **~1.35** | **0** | M=8: 740.5 tok/s |
+| Kernel | Time (%) | Total Time (ms) | Instances | Avg (µs) | Med (µs) | Min (µs) | Max (ms) |
+|--------|----------|-----------------|-----------|----------|----------|----------|----------|
+| `mwv_q4k_gemv` | **46.0%** | 528.7 | 53,592 | 9.9 | 4.5 | 2.3 | 1.3 |
+| `q6k_gemv_warp_reduce` | **31.9%** | 367.4 | 9,251 | 39.7 | 39.2 | 6.4 | 1.8 |
+| `multi_warp_attention_indirect` | **9.3%** | 107.1 | 8,932 | 12.0 | 11.2 | 1.8 | 1.3 |
+| `rmsnorm_vectorized` | 5.3% | 60.8 | 18,183 | 3.3 | 3.1 | 3.0 | 1.3 |
+| `residual_add` | 3.8% | 43.3 | 44,660 | 1.0 | 1.0 | 0.8 | 1.2 |
+| `rope_neox_indirect` | 1.7% | 19.6 | 17,864 | 1.1 | 1.0 | 1.0 | 1.3 |
+| `kv_cache_scatter_indirect` | 1.3% | 15.3 | 17,864 | 0.9 | 0.9 | 0.8 | 0.006 |
+| `fused_swiglu` | 0.7% | 8.1 | 8,932 | 0.9 | 0.9 | 0.9 | 0.006 |
 
-### PCIe Transfer Elimination (Fixes 2-4)
+**Key Findings:**
+- GEMV kernels dominate: **77.9%** of GPU time (`mwv_q4k_gemv` 46% + `q6k_gemv_warp_reduce` 31.9%)
+- Attention is only 9.3% of kernel time (not 76% — profile telemetry counts host-side overhead)
+- `fused_swiglu` is fast (0.7%) — GPU fusion working correctly
+- `residual_add` has highest instance count (44,660) at <1µs each — minimal overhead
+
+---
+
+## 2a. Per-Operation Telemetry (2026-03-02)
+
+**Source:** `results/profile-gpu-20260302.txt` (Qwen2.5-Coder-1.5B Q4_K_M, RTX 4090)
+
+Host-side profiling captures end-to-end operation time including kernel launch overhead.
+
+### Operation Hotspots
+
+| # | Operation | Time (µs) | % of Decode | Bottleneck | Bandwidth |
+|---|-----------|-----------|-------------|------------|-----------|
+| 1 | AttentionScore | 88,390 | **76.0%** | MEMORY | 0.2 GB/s (eff 0%) |
+| 2 | RmsNorm | 17,118 | **14.7%** | MEMORY | 1.2 GB/s (eff 0%) |
+| 3 | QkvProjection | 2,755 | 2.4% | MEMORY | — |
+| 4 | GateProjection | 1,838 | 1.6% | MEMORY | — |
+| 5 | RopeEmbedding | 1,637 | 1.4% | COMPUTE | 4.2 GB/s |
+| 6 | OutputProjection | 965 | 0.8% | MEMORY | — |
+| 7 | DownProjection | 938 | 0.8% | MEMORY | — |
+| 8 | Residual1 | 863 | 0.7% | MEMORY | — |
+| 9 | Activation | 837 | 0.7% | COMPUTE | — |
+| 10 | Residual2 | 830 | 0.7% | MEMORY | — |
+| 11 | LmHead | 155 | 0.1% | MEMORY | — |
+
+### Category Summary
+
+| Category | % of Decode |
+|----------|-------------|
+| Attention | **80.6%** |
+| Norm | **14.7%** |
+| FFN | 3.2% |
+| Other | 1.5% |
+
+### Kernel Launch Overhead (F-PROFILE-009)
+
+| Metric | Value |
+|--------|-------|
+| Overhead | **128,484µs** |
+| % of decode time | **52.5%** |
+| Status | **WARNING: >20% — kernel fusion needed** |
+
+This 52.5% overhead explains the gap between Nsight kernel time and host-side telemetry. The actual CUDA kernels are fast, but launch overhead dominates. See root cause §6 and PMAT-015.
+
+### Roofline Analysis
+
+| Metric | Value |
+|--------|-------|
+| Hardware | NVIDIA RTX 4090 (82,580 GFLOPS, 1,008 GB/s) |
+| Achieved compute | 337.3 GFLOPS (0.4% efficiency) |
+| Achieved bandwidth | **84.3 GB/s (8.4% efficiency)** |
+| Arithmetic intensity | 4.0 FLOP/byte (threshold: 82.0) |
+| Classification | **MEMORY BOUND** |
+| Performance grade | **D** — significant optimization needed |
+
+### Generation Performance (Profile Run)
+
+| Metric | Value |
+|--------|-------|
+| Decode throughput | **130.7 tok/s** |
+| Prefill throughput | 82.7 tok/s |
+| P50 latency | 245.6ms |
+| P95 latency | 264.2ms |
+| Model | Qwen2 (28 layers, hidden=1,536) |
+
+---
+
+## 3. PCIe Transfer Elimination (Fixes 2-4)
 
 | Fix | Transfers Eliminated | Per Layer | Per Model (28L) |
 |-----|---------------------|-----------|-----------------|
@@ -58,7 +130,7 @@ Coalesced (target):
 
 ---
 
-## 3. Memory Bandwidth Analysis
+## 4. Memory Bandwidth Analysis
 
 ### RTX 4090 Roofline
 
@@ -81,7 +153,7 @@ GEMM (M>64): ~128 FLOP/byte → COMPUTE BOUND
 
 ---
 
-## 4. KV Cache Performance
+## 5. KV Cache Performance
 
 ### ContiguousKVCache vs Vec<Vec> (PARITY-005)
 
@@ -101,7 +173,7 @@ GEMM (M>64): ~128 FLOP/byte → COMPUTE BOUND
 
 ---
 
-## 5. Batch Scheduling Profiling
+## 6. Batch Scheduling Profiling
 
 ### spawn_blocking Impact (Fix 3)
 
@@ -125,7 +197,7 @@ After: `tokio::task::spawn_blocking` isolates GPU work
 
 ---
 
-## 6. Warp Count Sweep
+## 7. Warp Count Sweep
 
 ### Optimal Warp Configuration (GEMV)
 
@@ -141,14 +213,28 @@ Per [Volkov10]: For memory-bound GEMV, increasing occupancy beyond 50% provides 
 
 ---
 
-## 7. Batch Size Throughput Scaling
+## 8. Batch Size Throughput Scaling
 
-| Batch Size (M) | Throughput (tok/s) | Ollama Ratio | Bound |
-|----------------|-------------------|--------------|-------|
+### Internal Microbenchmarks (Feb 2026)
+
+| Batch Size (M) | Throughput (tok/s) | Ollama Ratio (internal) | Bound |
+|----------------|-------------------|------------------------|-------|
 | 1 | ~180 | 0.75x | Memory |
 | 8 | 740.5 | 2.54x | Memory |
 | 16 | 583.6 | 2.01x | Transitional |
 | 64 | TBD | TBD | Compute |
+
+### Competition Load Test (Mar 2026, c=4, 60s)
+
+| Runtime | GPU (tok/s) | CPU (tok/s) | GPU/CPU |
+|---------|-------------|-------------|---------|
+| llama.cpp | 1,013.6 | 218.5 | 4.64x |
+| ollama | 607.9 | 149.5 | 4.07x |
+| realizar (safetensors) | 96.5 | 28.3 | 3.41x |
+| realizar (GGUF) | 25.8 | 23.0 | 1.12x |
+| realizar (APR native) | 0.0 (broken) | 9.5 | N/A |
+
+*Note: Discrepancy between internal 740.5 tok/s (M=8) and competition 96.5 tok/s is due to batched microbenchmark vs concurrent load test conditions. See baselines.md §5a.*
 
 ---
 
