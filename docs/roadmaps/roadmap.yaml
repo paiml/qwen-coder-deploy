@@ -356,11 +356,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: Integrate Nsight profiling data into spec (2026-03-04)
-  status: inprogress
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-03-04T15:50:48Z
-  updated: 2026-03-04T15:53:20.526597295+00:00
+  updated: 2026-03-04T15:57:40Z
   spec: null
   acceptance_criteria:
   - 'nsys-apr-gpu-kernels-20260304.txt shows: mwv_q4k_gemv 46%, q6k_gemv_warp_reduce 31.9%, multi_warp_attention_indirect 9.3%, rmsnorm_vectorized 5.3%, residual_add 3.8%. Also APR profile shows 52.5% kernel launch overhead and 8.4% memory efficiency (Grade D). Update profiling-data.md and main spec §9.'
@@ -376,11 +376,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: Update baselines with v3/20260303 benchmark competition results
-  status: inprogress
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-04T15:50:52Z
-  updated: 2026-03-04T15:51:03.114991599+00:00
+  updated: 2026-03-04T15:57:40Z
   spec: null
   acceptance_criteria:
   - 'Spec claims 740.5 tok/s but latest benchmarks (2026-03-03) show: llama.cpp GPU 1013.6 tok/s, ollama GPU 607.9 tok/s, realizar safetensors GPU 96.5 tok/s, realizar GGUF GPU 25.8 tok/s, APR native GPU BROKEN (100% errors). CPU: llama.cpp 218.5, ollama 149.5, realizar safetensors 28.3, GGUF 23.0, APR 9.5. Update baselines.md, performance.md, and main spec §3.'
@@ -396,11 +396,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: Add kernel launch overhead root cause and optimization ticket
-  status: inprogress
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-03-04T15:50:54Z
-  updated: 2026-03-04T15:54:58.246811626+00:00
+  updated: 2026-03-04T15:57:40Z
   spec: null
   acceptance_criteria:
   - 'APR profile reveals 52.5% of decode time is kernel launch overhead (128,484µs). This is a new primary bottleneck not in original spec. Need: new root cause in root-cause-analysis.md, new QWEN optimization ticket for CUDA graph / kernel fusion to reduce overhead.'
@@ -416,11 +416,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: Document APR native GPU regression (100% error rate)
-  status: inprogress
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-04T15:50:57Z
-  updated: 2026-03-04T15:54:58.259596032+00:00
+  updated: 2026-03-04T15:57:40Z
   spec: null
   acceptance_criteria:
   - APR native format is completely broken on GPU as of 2026-03-03 — 100% error rate, ~3913 failed requests per run. This is a P0 regression that must be documented and tracked. Add to root-cause-analysis.md and create investigation ticket.

@@ -196,6 +196,12 @@ notes: "detect_optimal_tile_size() auto-detects GPU: Ada Lovelace→64×64, othe
 | QWEN-PMAT-005 (Marlin) | PMAT-010 | Planned |
 | QWEN-PMAT-006 (DCA) | PMAT-011 | Planned |
 | QWEN-PMAT-008 (MInference) | PMAT-012 | Planned |
+| — (Nsight Integration) | PMAT-013 | ✅ Completed |
+| — (Baseline Update) | PMAT-014 | ✅ Completed |
+| — (Launch Overhead RCA) | PMAT-015 | ✅ Completed |
+| — (APR Regression RCA) | PMAT-016 | ✅ Completed |
+| QWEN-014 (CUDA Graphs) | PMAT-017 | Planned |
+| QWEN-015 (APR GPU Fix) | PMAT-018 | ❌ P0 Regression |
 
 ---
 
