@@ -308,19 +308,26 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | Test Coverage | >= 80% | `make coverage` |
 | Clippy Warnings | 0 | `make lint` |
 
+### Roadmap
+
+**Source of truth:** [roadmap.yaml](../docs/roadmaps/roadmap.yaml) (`pmat work list`)
+
 ### Work Tickets Summary
 
-| Ticket | Title | Status |
-|--------|-------|--------|
-| QWEN-PMAT-001 | GQA Broadcasting Fix | ✅ Completed |
-| QWEN-PMAT-002 | SwiGLU GPU Fusion | ✅ Completed |
-| QWEN-PMAT-011 | GELU GPU Fusion | ✅ Completed |
-| QWEN-PMAT-013 | GPU RMSNorm+Residual | ✅ Completed |
-| QWEN-PMAT-003 | SageAttention INT8 | Planned |
-| QWEN-PMAT-004 | EAGLE Speculative | Planned |
-| QWEN-PMAT-005 | Marlin-Style Kernel | Planned |
-| QWEN-PMAT-006 | DCA Long Context | Planned |
-| QWEN-PMAT-007 | KV Cache Quantization | ✅ Completed |
+| PMAT ID | QWEN Ticket | Title | Status |
+|---------|-------------|-------|--------|
+| PMAT-001 | QWEN-PMAT-001 | GQA Broadcasting Fix | ✅ Completed |
+| PMAT-002 | QWEN-PMAT-002 | SwiGLU GPU Fusion | ✅ Completed |
+| PMAT-003 | QWEN-PMAT-011 | GELU GPU Fusion | ✅ Completed |
+| PMAT-004 | QWEN-PMAT-013 | GPU RMSNorm+Residual | ✅ Completed |
+| PMAT-005 | QWEN-PMAT-007 | KV Cache Quantization | ✅ Completed |
+| PMAT-006 | QWEN-009 | 3-Way FFN Fusion | ✅ Completed |
+| PMAT-007 | QWEN-010 | RTX 4090 Tile Tuning | ✅ Completed |
+| PMAT-008 | QWEN-PMAT-003 | SageAttention INT8 | Planned |
+| PMAT-009 | QWEN-PMAT-004 | EAGLE Speculative | Planned |
+| PMAT-010 | QWEN-PMAT-005 | Marlin-Style Kernel | Planned |
+| PMAT-011 | QWEN-PMAT-006 | DCA Long Context | Planned |
+| PMAT-012 | QWEN-008 | MInference Sparse | Planned |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
@@ -332,6 +339,7 @@ The following external documents are authoritative for their respective domains 
 
 | Document | Location | Purpose |
 |----------|----------|---------|
+| PMAT Roadmap | [roadmap.yaml](../docs/roadmaps/roadmap.yaml) | Work ticket tracking |
 | Benchmarking Methodology v2 | [benchmarking-v2.md](./benchmarking-v2.md) | Benchmark protocol |
 | Inference Showdown v1 | [inference-showdown-v1.yaml](./inference-showdown-v1.yaml) | Competition baselines |
 | Performance Snapshots | [performance.md](../performance.md) | Measured throughput tables |

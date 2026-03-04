@@ -1,6 +1,7 @@
 # PMAT Work Tickets: GPU Decoder Performance
 
 **Parent Spec:** [REALIZAR-GPU-PERF-001](../gpu-performance-spec.md)
+**Roadmap:** [roadmap.yaml](../../docs/roadmaps/roadmap.yaml)
 **Status:** Active Tracking
 **Date:** 2026-03-04
 
@@ -12,6 +13,7 @@
 
 ```yaml
 id: QWEN-PMAT-001
+pmat_id: PMAT-001
 status: completed
 priority: critical
 title: "Fix GQA naive KV head broadcasting in attention"
@@ -27,6 +29,7 @@ notes: "Already correctly implemented. 3.0 tok/s was outdated data."
 
 ```yaml
 id: QWEN-PMAT-002
+pmat_id: PMAT-002
 status: completed
 priority: critical
 title: "Wire fused SwiGLU kernel into APR Q4 adapter"
@@ -42,6 +45,7 @@ notes: "Eliminates 84 PCIe transfers for Qwen2-7B (3/layer × 28 layers)."
 
 ```yaml
 id: QWEN-PMAT-011
+pmat_id: PMAT-003
 status: completed
 priority: high
 title: "Wire GELU GPU kernel into standard FFN"
@@ -55,6 +59,7 @@ files: [src/gpu/adapters/apr_q4.rs, src/cuda/executor/quantized.rs]
 
 ```yaml
 id: QWEN-PMAT-013
+pmat_id: PMAT-004
 status: completed
 priority: critical
 title: "Wire GPU RMSNorm and fused residual kernels into APR Q4 adapter"
@@ -74,6 +79,7 @@ files: [src/cuda/executor/layer.rs, src/gpu/adapters/apr_q4.rs]
 
 ```yaml
 id: QWEN-PMAT-003
+pmat_id: PMAT-008
 status: planned
 priority: high
 title: "Implement SageAttention INT8 Q/K quantized attention"
@@ -86,6 +92,7 @@ files: ["../trueno/trueno-gpu/src/kernels/attention.rs", src/cuda/executor/atten
 
 ```yaml
 id: QWEN-PMAT-004
+pmat_id: PMAT-009
 status: planned
 priority: high
 title: "Complete EAGLE speculative decoding for Qwen models"
@@ -99,6 +106,7 @@ files: [src/speculative.rs, src/gguf/cuda/speculative.rs, src/gguf/batch_schedul
 
 ```yaml
 id: QWEN-PMAT-005
+pmat_id: PMAT-010
 status: planned
 priority: medium
 title: "Implement Marlin-style L2-optimized GPTQ kernel"
@@ -110,6 +118,7 @@ labels: [marlin, l2-cache]
 
 ```yaml
 id: QWEN-PMAT-006
+pmat_id: PMAT-011
 status: planned
 priority: medium
 title: "Implement DCA for Qwen long context"
@@ -121,6 +130,7 @@ labels: [long-context, dca]
 
 ```yaml
 id: QWEN-PMAT-007
+pmat_id: PMAT-005
 status: completed
 priority: medium
 title: "Implement INT8 KV cache quantization"
@@ -129,9 +139,67 @@ labels: [kv-cache, quantization]
 notes: "Phases 1-4 complete. AC5 (perplexity validation) pending."
 ```
 
+### QWEN-PMAT-008: MInference Sparse Attention
+
+```yaml
+id: QWEN-PMAT-008
+pmat_id: PMAT-012
+status: planned
+priority: medium
+title: "Implement MInference sparse attention for long-context prefill"
+estimated_effort: 5 days
+labels: [sparse-attention, minference]
+notes: "Combined with chunked prefill (32K chunks), reduces activation VRAM by 96.7%. Target: 3-6x prefill speedup."
+```
+
+### QWEN-009: 3-Way FFN Fusion
+
+```yaml
+id: QWEN-009
+pmat_id: PMAT-006
+status: completed
+priority: medium
+title: "Implement RMSNorm+Linear+Activation 3-way FFN fusion"
+estimated_effort: 3 days
+labels: [kernel-fusion]
+notes: "FusedRmsNormGateUpSwigluQ4KKernel in trueno-gpu. Kernel done, 3 tests passing. AC2 (1.2x benchmark) remaining."
+```
+
+### QWEN-010: RTX 4090 Tile Tuning
+
+```yaml
+id: QWEN-010
+pmat_id: PMAT-007
+status: completed
+priority: low
+title: "RTX 4090 block size tuning"
+estimated_effort: 1 day
+labels: [tile-tuning, rtx4090]
+notes: "detect_optimal_tile_size() auto-detects GPU: Ada Lovelace→64×64, others→32×32."
+```
+
 ---
 
-## 3. Quality Gate Thresholds
+## 3. PMAT ID Cross-Reference
+
+| QWEN Ticket | PMAT ID | Status |
+|-------------|---------|--------|
+| QWEN-PMAT-001 (GQA) | PMAT-001 | ✅ Completed |
+| QWEN-PMAT-002 (SwiGLU) | PMAT-002 | ✅ Completed |
+| QWEN-PMAT-011 (GELU) | PMAT-003 | ✅ Completed |
+| QWEN-PMAT-013 (RMSNorm) | PMAT-004 | ✅ Completed |
+| QWEN-PMAT-007 (KV Cache) | PMAT-005 | ✅ Completed |
+| QWEN-009 (3-Way Fusion) | PMAT-006 | ✅ Completed |
+| QWEN-010 (Tile Tuning) | PMAT-007 | ✅ Completed |
+| QWEN-PMAT-003 (SageAttention) | PMAT-008 | Planned |
+| QWEN-PMAT-004 (EAGLE) | PMAT-009 | Planned |
+| QWEN-PMAT-005 (Marlin) | PMAT-010 | Planned |
+| QWEN-PMAT-006 (DCA) | PMAT-011 | Planned |
+| QWEN-PMAT-008 (MInference) | PMAT-012 | Planned |
+
+---
+
+## 4. Quality Gate Thresholds
 
 | Metric | Threshold | Command |
 |--------|-----------|---------|
@@ -145,7 +213,7 @@ notes: "Phases 1-4 complete. AC5 (perplexity validation) pending."
 
 ---
 
-## 4. Pre-Commit Protocol
+## 5. Pre-Commit Protocol
 
 ```bash
 # Tier 1: Sub-second (ON-SAVE)
