@@ -1,20 +1,24 @@
 version: "1.0"
 name: qwen-coder-deploy-jetson
-description: "Deploy Qwen2.5-Coder-1.5B-Instruct across apr serve (GGUF), ollama, llama.cpp — Jetson Orin (dedicated load testing)"
+description: "Deploy Qwen2.5-Coder-1.5B-Instruct across apr serve (GGUF), ollama, llama.cpp — Jetson Orin"
 
-# Prerequisites (managed by ../infra/machines/jetson/forjar.yaml):
-#   - build-essential, cmake, pkg-config, libssl-dev (build-deps resource)
-#   - Rust toolchain (rustup-installer resource)
-#   - CUDA toolkit (cuda-toolkit / nvidia-jetpack resource)
-#   - apr binary: cross-compile via `cd ../infra && make -f machines/jetson/Makefile apr-deploy`
-#
-# Model sync (one-time):
-#   scp ~/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf jetson:~/models/
+# Cross-compile pipeline: Intel builds aarch64 binary → deploys to Jetson
+# See: https://github.com/paiml/forjar/issues/33 (native cross-compile resource)
 
 params:
   gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+  apr_cross_bin: "/tmp/cross-jetson/aarch64-unknown-linux-gnu/release/apr"
+  apr_target: "aarch64-unknown-linux-gnu"
+  apr_features: "hf-hub,safetensors-compare,inference,cuda,zram"
 
 machines:
+  intel:
+    hostname: intel
+    addr: 192.168.50.100
+    user: noah
+    arch: x86_64
+    transport: ssh
+
   jetson:
     hostname: jetson
     addr: 192.168.50.53
@@ -23,19 +27,69 @@ machines:
     transport: ssh
 
 resources:
-  # -- Prerequisites (verify only — provisioning is in ../infra) ---------------
+  # -- Phase 1: Cross-compile on Intel (192 threads, fast NVMe) ----------------
+
+  sync-trueno:
+    type: task
+    machine: intel
+    command: "cd ~/src/trueno && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/trueno && git rev-parse HEAD"
+
+  sync-realizar:
+    type: task
+    machine: intel
+    command: "cd ~/src/realizar && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/realizar && git rev-parse HEAD"
+
+  sync-aprender:
+    type: task
+    machine: intel
+    command: "cd ~/src/aprender && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/aprender && git rev-parse HEAD"
+
+  apr-cross-compile:
+    type: task
+    machine: intel
+    command: |
+      cd ~/src/aprender &&
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+      CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+      cargo +nightly build --release \
+        --target {{params.apr_target}} \
+        --target-dir /tmp/cross-jetson \
+        -p apr-cli \
+        --no-default-features \
+        --features "{{params.apr_features}}"
+    completion_check: "test -x {{params.apr_cross_bin}}"
+    depends_on: [sync-trueno, sync-realizar, sync-aprender]
+    timeout: 900
+
+  # -- Phase 2: Deploy binary to Jetson ----------------------------------------
+  # Two-hop: Intel → (scp via local) → Jetson
+  # Intel cannot reach Jetson directly (no route), so we relay through localhost.
+
+  apr-stop:
+    type: task
+    machine: jetson
+    command: "pkill -f '[a]pr serve' 2>/dev/null; sleep 2; true"
+    completion_check: "! pgrep -f 'apr serve' >/dev/null 2>&1"
+    depends_on: [apr-cross-compile]
+
+  apr-deploy:
+    type: task
+    machine: intel
+    command: "scp {{params.apr_cross_bin}} noah@192.168.50.53:~/.cargo/bin/apr"
+    completion_check: "ssh noah@192.168.50.53 'test -x ~/.cargo/bin/apr'"
+    depends_on: [apr-stop]
+    timeout: 120
+
+  # -- Phase 3: Prerequisites on Jetson ----------------------------------------
 
   model-gguf:
     type: task
     machine: jetson
     command: "test -f {{params.gguf_model}}"
     completion_check: "test -f {{params.gguf_model}}"
-
-  apr-check:
-    type: task
-    machine: jetson
-    command: "which apr && apr --version"
-    completion_check: "which apr >/dev/null 2>&1"
 
   llamacpp-build:
     type: task
@@ -74,15 +128,15 @@ resources:
     depends_on: [ollama-default-stop]
     timeout: 600
 
-  # -- GPU Services -----------------------------------------------------------
+  # -- Phase 4: Start GPU services ---------------------------------------------
   # Ports: 8081 apr/GGUF, 8082 ollama, 8083 llama.cpp
 
   apr-gguf-gpu:
     type: task
     machine: jetson
-    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    command: "pkill -f '[a]pr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
-    depends_on: [model-gguf, apr-check]
+    depends_on: [model-gguf, apr-deploy]
 
   ollama-gpu:
     type: task

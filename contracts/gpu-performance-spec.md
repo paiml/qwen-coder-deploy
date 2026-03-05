@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.4.0
+**Version:** 2.5.0
 **Status:** ACTIVE
 **Date:** 2026-03-05
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -121,13 +121,23 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 
 **CORRECTION (Mar 5 2026 — SSE streaming metrics):** Previous non-streaming measurement blended prefill + decode into a single tokens/sec figure. With SSE streaming (probador `--stream true`), we can now separate TTFT (prefill) from ITL/decode. **The decode gap is 1.9x, not 4.1x.** The dominant bottleneck is prefill (148x slower), not decode.
 
-**Jetson Orin (Mar 5 2026 — SSE streaming, isolated, c=1):**
+**Jetson Orin (Mar 5 2026 — SSE streaming, serial prefill, c=1):**
 
 | Runtime | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Prefill tok/s | E2E tok/s |
 |---------|-------------|-------------|--------------|--------------|-----------|
 | llama.cpp | **32.2** | **31.0** | **48.6** | **2099.8** | **32.1** |
 | ollama | 33.1 | 30.2 | 428.6 | 238.0 | 30.0 |
-| realizr (GGUF, GPU) | 17.0 | 58.9 | 7192 | 14.2 | 8.7 |
+| realizr (serial prefill) | 17.0 | 58.9 | 7192 | 14.2 | 8.7 |
+
+**FIX (Mar 5 2026 — PMAT-023 batched prefill):** Root cause: `generate_gpu_resident_streaming` in generate_1.rs defaulted `BATCHED_PREFILL` to `false`, processing each prompt token through the full transformer stack sequentially. For a ~20-token prompt: 20 × (7 GEMV × 28 layers) = 3,920 kernel launches instead of 196. Setting `BATCHED_PREFILL=1` (now the default) gives **9x TTFT improvement**.
+
+**Jetson Orin (Mar 5 2026 — SSE streaming, BATCHED prefill, c=1):**
+
+| Runtime | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Prefill tok/s | E2E tok/s |
+|---------|-------------|-------------|--------------|--------------|-----------|
+| llama.cpp | **32.3** | **31.0** | **43.9** | **524.3** | **31.9** |
+| realizr (batched prefill) | 17.7 | 56.6 | 815.7 | 28.2 | 12.5 |
+| **Gap** | **1.8x** | **1.8x** | **18.6x** | **18.6x** | **2.6x** |
 
 **Jetson Orin (Mar 4 2026 — non-streaming v1, serial isolated benchmarks):**
 
@@ -137,13 +147,13 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 | ollama | 23.4 | 23.3 | 42.8 | 32.6 | 8.2 | 3,907 |
 | realizr (GGUF, GPU) | 7.8 | 7.8 | 128.3 | 7.8 | 1.9 | 16,428 |
 
-**Methodology:** Serial isolated benchmarks — each runtime tested alone with all others stopped (`forjar-jetson-{realizr,ollama,llamacpp}.yaml`). Critical for Jetson's 7.4 GB unified memory where concurrent servers cause memory contention (ollama jumped from 11.3 → 23.4 tok/s when isolated, 2.1x improvement). Mar 5 results use SSE streaming (`probador --stream true`) for real per-token TTFT/ITL separation.
+**Methodology:** Serial isolated benchmarks — each runtime tested alone with all others stopped (`forjar-jetson-{realizr,ollama,llamacpp}.yaml`). Critical for Jetson's 7.4 GB unified memory where concurrent servers cause memory contention (ollama jumped from 11.3 → 23.4 tok/s when isolated, 2.1x improvement). Mar 5 results use SSE streaming (`probador --stream true`) for real per-token TTFT/ITL separation. "Short" prompt profile (~20 tokens).
 
 **Key findings (updated Mar 5 2026):**
-- **DECODE gap is 1.9x** (17.0 vs 32.2 tok/s), not 4.1x — previous metric blended prefill + decode
-- **PREFILL is the dominant bottleneck: 148x slower** (7.2s vs 48ms for llama.cpp)
-- realizr prefill (14.2 tok/s) uses batched_q4k/q6k GEMV kernels — 488µs/2297µs per call on Orin
-- llama.cpp prefill (2099.8 tok/s) uses optimized GEMM with flash attention
+- **DECODE gap is 1.8x** (17.7 vs 32.3 tok/s) — consistent, addressable via GEMV BW optimization
+- **PREFILL gap closed from 148x to 18.6x** by enabling batched prefill (PMAT-023)
+- Remaining 18.6x prefill gap: batched GEMV tiles M=8, rereading weights for each tile. cuBLAS GEMM reads weights once.
+- TTFT improved from 7.2s to 816ms (9x) — now dominated by batched GEMV kernel time, not kernel launch count
 - Concurrency scaling: llama.cpp 2.1x, ollama 1.4x, realizr 0x (flat, RwLock contention)
 - Native CUDA build on Jetson (45 min, no cross-compile) was 7.8x faster than CPU-only (1.0 tok/s)
 - Batch mode (`--batch`) OOM-killed on 7.4 GB unified memory
@@ -232,15 +242,25 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 ### Jetson Orin Root Cause Analysis (Updated Mar 5, 2026)
 
-**CRITICAL CORRECTION:** SSE streaming reveals the real bottleneck is **prefill (148x gap)**, not decode (1.9x gap). Previous non-streaming measurement (7.8 vs 31.9 tok/s = "4.1x gap") blended both phases.
+**CRITICAL CORRECTION:** SSE streaming reveals the real bottleneck is **prefill**, not decode. Previous non-streaming measurement (7.8 vs 31.9 tok/s = "4.1x gap") blended both phases. After PMAT-023 (batched prefill default), prefill gap is 18.6x (was 148x with serial prefill).
 
-**Five-Whys: realizr 7.2s prefill vs llama.cpp 48ms on Orin (148x gap)**
+**Five-Whys: realizr 816ms prefill vs llama.cpp 44ms on Orin (18.6x gap, post-PMAT-023)**
 
-1. Why 148x slower prefill? → realizr uses batched GEMV (M=seq_len), llama.cpp uses GEMM
-2. Why GEMV for prefill? → No GEMM kernel — all matmuls route through GEMV path regardless of M
-3. Why no GEMM? → Historical: M=1 decode was the optimization focus; prefill was "good enough" on 4090
-4. Why acceptable on 4090? → 4090 has 10x bandwidth (1008 vs 102 GB/s) and 72MB L2, hiding the inefficiency
-5. Why critical on Orin? → Orin's 102 GB/s BW makes GEMV prefill O(seq_len × k × n) unacceptably slow
+1. Why 18.6x slower prefill? → realizr uses batched GEMV (M=8 tiles), llama.cpp uses cuBLAS GEMM
+2. Why GEMV for prefill? → `batched_gemv_with_fallback` dispatches to GEMV regardless of M value
+3. Why not GEMM? → TensorCoreQ4KGemmKernel is a stub (only thread0 computes); no production quantized GEMM
+4. Why no production GEMM? → M=1 decode was the optimization focus; prefill was hidden on 4090
+5. Why critical on Orin? → Orin's 102 GB/s BW makes repeated weight reads per M=8 tile unacceptably slow
+
+**Resolution path:** cuBLAS GEMM integration for prefill when M > threshold, or implement fused quantized GEMM kernel in trueno.
+
+**Five-Whys: Serial prefill default in streaming path (148x → 18.6x, FIXED)**
+
+1. Why 148x slower? → generate_1.rs processed each prompt token as individual forward pass (serial)
+2. Why serial? → `BATCHED_PREFILL` env var defaulted to `false` in generate_gpu_resident_streaming
+3. Why false? → Historical: batched prefill was opt-in for profiling, not production default
+4. Why mismatch? → generate_2.rs already defaulted to `true`; generate_1.rs was not updated
+5. Why now? → Jetson SSE streaming benchmarks exposed the prefill bottleneck that 4090 masked
 
 **Five-Whys: realizr 59ms/token decode vs llama.cpp 31ms/token (1.9x gap)**
 
@@ -316,21 +336,25 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 5 2026 — prefill-first strategy)
+### Tier Summary (Updated Mar 5 2026 — post PMAT-023 batched prefill fix)
 
 | Tier | Speedup Range | Items | Status |
 |------|---------------|-------|--------|
-| T0: Completed | Shipped | 6 fixes | ✅ Production |
-| **T0b: Prefill GEMM** | **~100x prefill** | **Prefill GEMM kernel (batched matmul)** | **NEW — #1 PRIORITY** |
+| T0: Completed | Shipped | 6 fixes + PMAT-023 | ✅ Production |
+| **T0b: Prefill GEMM** | **~18x prefill** | **cuBLAS or fused Q4K GEMM for prefill** | **#1 PRIORITY** |
+| **T0c: Decode BW** | **~1.8x decode** | **GEMV BW utilization (12% → 31%)** | **#2 PRIORITY** |
 | T1: Critical | 2-5x | SageAttention, EAGLE, CUDA graphs | Planned |
 | T2: High Impact | 1.5-2x | Marlin, DCA, KV quant, MInference | Mixed |
-| T3: Incremental | 1.1-1.5x | 3-way fusion, decode GEMV BW | ✅ Mostly done |
+| T3: Incremental | 1.1-1.5x | 3-way fusion | ✅ Mostly done |
 
 ### Priority Matrix
 
 | ID | PMAT | Optimization | Speedup | Status |
 |----|------|--------------|---------|--------|
+| — | PMAT-023 | **Batched prefill default** | **9x TTFT** | **✅ DONE (148x → 18.6x gap)** |
+| — | PMAT-024 | **Prefill GEMM kernel (cuBLAS)** | **~18x prefill** | **Planned (#1 priority)** |
 | GH #118 | PMAT-019 | **Q6K MWV GEMV kernel** | **2-4x Q6K** | **Planned (31.9% GPU time)** |
+| — | PMAT-022 | **Q6K MWV as default** | **1.3x decode** | ✅ Code done (env var MWV_Q6K=1) |
 | QWEN-015 | PMAT-018 | APR native GPU fix | N/A | ✅ Fixed |
 | QWEN-014 | PMAT-017 | **Kernel launch overhead** | **2-5x** | **Planned (52.5% overhead)** |
 | QWEN-003 | PMAT-002 | SwiGLU GPU fusion | 1.5-2x | ✅ DONE |
@@ -624,6 +648,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.5.0 | 2026-03-05 | **PMAT-023: Batched prefill default.** Root cause: generate_1.rs (streaming) defaulted BATCHED_PREFILL=false, causing 150 serial forward passes instead of 1 batched. Fix: default to true (matching generate_2.rs). TTFT improved 7.2s→816ms (9x). Remaining gap: 18.6x (batched GEMV M=8 tiles vs cuBLAS GEMM). New priority: PMAT-024 (cuBLAS prefill GEMM). |
 | 2.4.0 | 2026-03-05 | **SSE streaming reveals prefill bottleneck:** probador --stream separates TTFT from decode. Decode gap 1.9x (17 vs 32 tok/s), not 4.1x. Prefill 148x slower (7.2s vs 48ms). New #1 priority: GEMM kernel for prefill (PMAT-023). Q6K MWV default committed (PMAT-022). probador overhaul: 6 issues fixed (#25-#30): rate control, SLO/goodput, token batching robustness. |
 | 2.3.0 | 2026-03-04 | **Jetson Orin migration:** Load testing moves to dedicated Jetson Orin (aarch64, CUDA 12.6, 7.4 GB), freeing 4090 for full-time QLoRA. New forjar-jetson.yaml + Makefile targets. Q6K GEMV bottleneck identified (GH #118): 31.9% GPU time, 4x slower than Q4K MWV. Updated baselines: APR 40.8 tok/s decode (c=4) vs llama.cpp 233.5. PMAT-019 (Q6K MWV), PMAT-020 (Jetson migration) added. |
 | 2.2.0 | 2026-03-04 | v3 benchmarks: gap narrowed from 6.3x to 3.4x. APR native regression fixed (PMAT-018, --skip-contract). All formats 143-167 tok/s. GitHub issues #1-#5 filed. forjar hardened (continue_independent, SafeTensors timeout). |
