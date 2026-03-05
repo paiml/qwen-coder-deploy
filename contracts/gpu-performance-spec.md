@@ -242,12 +242,48 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **CORRECTION:** Earlier brick profiling (`apr profile --granular`) claimed AttentionScore was 92% of time. nsys shows this was an artifact of CPU-side synchronization overhead. Actual attention is 0.3% of GPU time.
 
+**Warp Sweep Results (Mar 5, 2026 — Jetson Orin):**
+
+| MWV_WARPS | tok/s | Avg (ms) | Notes |
+|-----------|-------|----------|-------|
+| 1 | 8.9 | 4080 | Too few warps |
+| 2 | 9.9 | 3729 | Tied best (FP16) |
+| 3 (default) | 9.9 | 3707 | Tied best (FP16) |
+| 4 | 9.7 | 3786 | Slight regression |
+| 6 | 9.3 | 3946 | Occupancy contention |
+| 8 | 8.8 | 4152 | Worst — too many warps for 8-SM Orin |
+
+| Variant | tok/s | Avg (ms) | Notes |
+|---------|-------|----------|-------|
+| Default MWV | 9.9 | 3707 | FP16 baseline |
+| WIDE_Q4K | 6.8 | 5247 | 8 warps too wide |
+| VECTORIZED_Q4K | 9.3 | 3942 | 1 warp, u32 loads |
+| **DP4A_Q4K** | **11.2** | **3306** | **INT8 dot-product — best** |
+| WIDE_Q4K_DISABLE | 6.5 | 5495 | Legacy tiled — slowest |
+
+**Winner: DP4A_Q4K (+13% over default MWV).** Orin sm_87 has native DP4A INT8 acceleration.
+
+**nsys with DP4A (Mar 5, 2026):**
+
+| Kernel | Time % | Instances | Avg (µs) | Phase |
+|--------|--------|-----------|----------|-------|
+| batched_q4k_gemv_warp_reduce | 44% | 4,032 | 488 | Prefill |
+| q6k_gemv_warp_reduce | 18% | 1,808 | 442 | Decode |
+| batched_q6k_gemv_warp_reduce | 17% | 336 | 2,302 | Prefill |
+| mwv_dp4a_q4k_gemv | 16% | 2,688 | **268** | Decode |
+| multi_warp_attention | 0.4% | 2,688 | 6 | Decode |
+
+**DP4A reduced Q4K decode GEMV from 342µs to 268µs (22% faster).** Q6K at 442µs is now 1.65x slower than Q4K DP4A — Q6K is the new primary decode bottleneck.
+
 **Confirmed facts:**
 - Weights ARE on GPU (0 MB preload is reporting bug — weights uploaded in constructor, second call sees them cached)
 - CUDA graph IS active (graph replay path confirmed via GRAPH-TIMING)
 - GPU utilization 99% during decode (tegrastats GR3D_FREQ)
 - `trace: false` hardcoded in API handlers (fixed: now respects X-Trace-Level)
-- GEMV is 94% of GPU time, attention 0.5% (nsys on Orin, Mar 5 2026)
+- GEMV is 94% of GPU time, attention 0.3% (nsys on Orin, Mar 5 2026)
+- DP4A Q4K is optimal kernel variant for Orin (11.2 vs 9.9 tok/s, +13%)
+- Default MWV 2-3 warps is optimal for Orin (vs 4090 default of 3-4 warps)
+- Q6K decode GEMV (442µs) is now the dominant decode bottleneck with DP4A enabled
 
 For full analysis including the "impossible observation" (CPU outperforming GPU), see [root-cause-analysis.md](./components/root-cause-analysis.md).
 
@@ -385,7 +421,11 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | PCIe transfers eliminated | 252+/token | Fixes 2-4 |
 | ContiguousKV speedup | 16,640x | PARITY-005 |
 | Q8 KV memory reduction | 3.56x | QWEN-007 |
-| Optimal warp config | 256 threads (8 warps) | Warp sweep |
+| Optimal warp config (4090) | 256 threads (8 warps) | Warp sweep |
+| Optimal warp config (Orin) | 96 threads (3 warps) | Warp sweep Mar 5 |
+| Optimal kernel (Orin) | DP4A Q4K (+13%) | Variant sweep Mar 5 |
+| Q4K decode GEMV (Orin, DP4A) | 268µs | nsys Mar 5 |
+| Q6K decode GEMV (Orin) | 442µs (1.65x slower) | nsys Mar 5 |
 
 ### Roofline Position
 
@@ -468,6 +508,8 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-018 | QWEN-015 | APR Native GPU Fix | ✅ Fixed (--skip-contract) |
 | PMAT-019 | GH #118 | **Q6K MWV GEMV kernel** (31.9% GPU time) | **Planned — 2-4x Q6K speedup** |
 | PMAT-020 | — | Jetson Orin load test migration | **In Progress** |
+| PMAT-021 | GH #121 | **DP4A Q4K default on Orin sm_87** | **Validated (+13%)** |
+| PMAT-022 | GH #118 | **Q6K MWV GEMV kernel (442µs → target ~200µs)** | **Next — decode bottleneck** |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 

@@ -1,0 +1,28 @@
+# Warp Sweep Results — Jetson Orin (Mar 5, 2026)
+# Model: Qwen2.5-Coder-1.5B Q4_K_M
+# apr profile --skip-contract --warmup 1
+
+=== MWV_WARPS Sweep (default MWV Q4K) ===
+MWV_WARPS=1: 8.9 tok/s, avg=4079.6ms
+MWV_WARPS=2: 9.9 tok/s, avg=3728.7ms
+MWV_WARPS=3: 9.9 tok/s, avg=3706.8ms (default)
+MWV_WARPS=4: 9.7 tok/s, avg=3786.2ms
+MWV_WARPS=6: 9.3 tok/s, avg=3946.3ms
+MWV_WARPS=8: 8.8 tok/s, avg=4151.7ms
+
+Winner: 2-3 warps (tied at 9.9 tok/s). More warps hurts on 8-SM Orin.
+
+=== Kernel Variant Sweep ===
+Default (MWV 3):      9.9 tok/s, avg=3706.8ms
+WIDE_Q4K=1:           6.8 tok/s, avg=5247.0ms (8 warps, 256 threads — too wide for Orin)
+VECTORIZED_Q4K=1:     9.3 tok/s, avg=3941.9ms (1 warp, u32 loads)
+DP4A_Q4K=1:          11.2 tok/s, avg=3306.1ms (integer dot product — WINNER)
+WIDE_Q4K_DISABLE=1:   6.5 tok/s, avg=5494.5ms (legacy tiled — slowest)
+
+Winner: DP4A_Q4K at 11.2 tok/s (+13% over default MWV)
+
+Analysis:
+- DP4A leverages Orin sm_87 native INT8 dot-product instructions
+- WIDE variants are too wide for 8-SM Orin (occupancy limited)
+- Default MWV 3-warp is near-optimal for FP16 path
+- Next: test DP4A with different warp counts
