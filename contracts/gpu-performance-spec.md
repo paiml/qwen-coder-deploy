@@ -218,6 +218,37 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - **Kernel launch overhead:** 52.5% of decode time from ~180 kernel launches/token (PMAT-015/017)
 - **Concurrency lock contention:** RwLock serialization at c=4 drops decode from ~270 tok/s (raw) to 40.8 tok/s (probador). Single-request path is 153 tok/s due to prefill + HTTP overhead.
 
+### Jetson Orin Root Cause Analysis (Mar 5, 2026)
+
+**Five-Whys: realizr 104ms/token vs llama.cpp 31ms/token on Orin**
+
+1. Why 3.4x slower? → GEMV kernels consume 94% of GPU time (nsys profiling)
+2. Why GEMV so slow? → MWV Q4K avg 342µs on Orin vs 10µs on 4090 (34x, not 10x expected from BW ratio)
+3. Why 34x not 10x? → 3.4x kernel efficiency gap — MWV tuned for 128-SM 4090, suboptimal on 8-SM Orin
+4. Why suboptimal? → L2 cache (2 MB vs 72 MB), warp count (3 warps default), PTX sm_70 JIT'd to sm_87
+5. Why not tuned for Orin? → Historical focus on 4090; Orin has 16x fewer cores and 10x less bandwidth
+
+**nsys Kernel Profiling (Ground Truth — NOT brick profiler):**
+
+| Kernel | Time % | Instances | Avg (µs) | Phase |
+|--------|--------|-----------|----------|-------|
+| batched_q4k_gemv_warp_reduce | 42% | 4,032 | 488 | Prefill |
+| mwv_q4k_gemv | 19% | 2,688 | 342 | Decode |
+| q6k_gemv_warp_reduce | 17% | 1,808 | 442 | Decode |
+| batched_q6k_gemv_warp_reduce | 16% | 336 | 2,297 | Prefill |
+| multi_warp_attention | 0.3% | 2,688 | 6 | Decode |
+
+**Decode per-layer: ~3 Q4K (342µs) + ~2 Q6K (442µs) ≈ 1.9ms/layer × 28 = 53ms estimated.**
+
+**CORRECTION:** Earlier brick profiling (`apr profile --granular`) claimed AttentionScore was 92% of time. nsys shows this was an artifact of CPU-side synchronization overhead. Actual attention is 0.3% of GPU time.
+
+**Confirmed facts:**
+- Weights ARE on GPU (0 MB preload is reporting bug — weights uploaded in constructor, second call sees them cached)
+- CUDA graph IS active (graph replay path confirmed via GRAPH-TIMING)
+- GPU utilization 99% during decode (tegrastats GR3D_FREQ)
+- `trace: false` hardcoded in API handlers (fixed: now respects X-Trace-Level)
+- GEMV is 94% of GPU time, attention 0.5% (nsys on Orin, Mar 5 2026)
+
 For full analysis including the "impossible observation" (CPU outperforming GPU), see [root-cause-analysis.md](./components/root-cause-analysis.md).
 
 ---

@@ -1,0 +1,127 @@
+[2mLoading model for GPU generation profiling...[0m
+[2mGPU warmup: 3 passes x 32 tokens...[0m
+[2mGPU measurement: 10 passes x 32 tokens...[0m
+[2m  Pass 0: 32 tokens in 3463.8ms (prefill: 242.3ms, decode: 3221.5ms = 9.9 tok/s)[0m
+[2mPer-operation profiling pass (no CUDA graph)...[0m
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+{
+  "model": "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "architecture": "qwen2",
+  "num_layers": 28,
+  "vocab_size": 151936,
+  "hidden_dim": 1536,
+  "is_real_data": true,
+  "timing": {
+    "warmup_passes": 3,
+    "measure_passes": 10,
+    "avg_inference_us": 3705405.96,
+    "throughput_tok_s": 9.93
+  },
+  "hotspots": [
+    {
+      "name": "AttentionScore",
+      "total_us": 1212373.56,
+      "avg_us": 2706.19,
+      "min_us": 252.65,
+      "max_us": 3412.12,
+      "count": 448
+    },
+    {
+      "name": "RmsNorm",
+      "total_us": 60589.64,
+      "avg_us": 66.44,
+      "min_us": 6.66,
+      "max_us": 51971.36,
+      "count": 912
+    },
+    {
+      "name": "QkvProjection",
+      "total_us": 10950.08,
+      "avg_us": 24.44,
+      "min_us": 20.45,
+      "max_us": 40.32,
+      "count": 448
+    },
+    {
+      "name": "GateProjection",
+      "total_us": 8242.23,
+      "avg_us": 18.40,
+      "min_us": 15.23,
+      "max_us": 54.66,
+      "count": 448
+    },
+    {
+      "name": "RopeEmbedding",
+      "total_us": 6721.92,
+      "avg_us": 15.00,
+      "min_us": 12.77,
+      "max_us": 41.28,
+      "count": 448
+    },
+    {
+      "name": "OutputProjection",
+      "total_us": 6443.71,
+      "avg_us": 14.38,
+      "min_us": 10.34,
+      "max_us": 59.52,
+      "count": 448
+    },
+    {
+      "name": "Residual1",
+      "total_us": 4656.42,
+      "avg_us": 10.39,
+      "min_us": 7.20,
+      "max_us": 43.20,
+      "count": 448
+    },
+    {
+      "name": "DownProjection",
+      "total_us": 3794.81,
+      "avg_us": 8.47,
+      "min_us": 7.30,
+      "max_us": 35.23,
+      "count": 448
+    },
+    {
+      "name": "Activation",
+      "total_us": 3475.93,
+      "avg_us": 7.76,
+      "min_us": 6.88,
+      "max_us": 44.16,
+      "count": 448
+    },
+    {
+      "name": "Residual2",
+      "total_us": 3424.26,
+      "avg_us": 7.64,
+      "min_us": 6.05,
+      "max_us": 15.04,
+      "count": 448
+    },
+    {
+      "name": "LmHead",
+      "total_us": 445.29,
+      "avg_us": 27.83,
+      "min_us": 23.43,
+      "max_us": 45.95,
+      "count": 16
+    }
+  ],
+  "per_layer_us": []
+}
+
