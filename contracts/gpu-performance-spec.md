@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.3.0
+**Version:** 2.4.0
 **Status:** ACTIVE
-**Date:** 2026-03-04
+**Date:** 2026-03-05
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -117,9 +117,19 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 
 **Gap to parity (4090):** realizar decode (40.8 tok/s) is **3.4x slower** than ollama decode (139.9 tok/s) and **5.7x slower** than llama.cpp (233.5 tok/s) at c=4. Raw per-token decode is ~270 tok/s (DECODE_TIMING), suggesting concurrency lock contention and prefill overhead dominate under load.
 
-**Gap to parity (Jetson Orin, isolated):** realizr (7.8 tok/s) is **4.1x slower** than llama.cpp (31.9 tok/s) and **3.0x slower** than ollama (23.4 tok/s) at c=1. ITL 128ms vs 31ms (4x gap). Zero throughput scaling at c=4 (RwLock contention). Batch mode OOM on 7.4 GB unified memory.
+**Gap to parity (Jetson Orin, isolated, non-streaming v1):** realizr (7.8 tok/s) is **4.1x slower** than llama.cpp (31.9 tok/s) and **3.0x slower** than ollama (23.4 tok/s) at c=1. Zero throughput scaling at c=4 (RwLock contention). Batch mode OOM on 7.4 GB unified memory.
 
-**Jetson Orin (Mar 4 2026 — serial isolated benchmarks, one runtime at a time):**
+**CORRECTION (Mar 5 2026 — SSE streaming metrics):** Previous non-streaming measurement blended prefill + decode into a single tokens/sec figure. With SSE streaming (probador `--stream true`), we can now separate TTFT (prefill) from ITL/decode. **The decode gap is 1.9x, not 4.1x.** The dominant bottleneck is prefill (148x slower), not decode.
+
+**Jetson Orin (Mar 5 2026 — SSE streaming, isolated, c=1):**
+
+| Runtime | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Prefill tok/s | E2E tok/s |
+|---------|-------------|-------------|--------------|--------------|-----------|
+| llama.cpp | **32.2** | **31.0** | **48.6** | **2099.8** | **32.1** |
+| ollama | 33.1 | 30.2 | 428.6 | 238.0 | 30.0 |
+| realizr (GGUF, GPU) | 17.0 | 58.9 | 7192 | 14.2 | 8.7 |
+
+**Jetson Orin (Mar 4 2026 — non-streaming v1, serial isolated benchmarks):**
 
 | Runtime | c=1 tok/s | c=1 decode | c=1 ITL (ms) | c=4 tok/s | c=4 decode | c=4 P50 (ms) |
 |---------|-----------|------------|-------------|-----------|------------|------------|
@@ -127,11 +137,13 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 | ollama | 23.4 | 23.3 | 42.8 | 32.6 | 8.2 | 3,907 |
 | realizr (GGUF, GPU) | 7.8 | 7.8 | 128.3 | 7.8 | 1.9 | 16,428 |
 
-**Methodology:** Serial isolated benchmarks — each runtime tested alone with all others stopped (`forjar-jetson-{realizr,ollama,llamacpp}.yaml`). Critical for Jetson's 7.4 GB unified memory where concurrent servers cause memory contention (ollama jumped from 11.3 → 23.4 tok/s when isolated, 2.1x improvement).
+**Methodology:** Serial isolated benchmarks — each runtime tested alone with all others stopped (`forjar-jetson-{realizr,ollama,llamacpp}.yaml`). Critical for Jetson's 7.4 GB unified memory where concurrent servers cause memory contention (ollama jumped from 11.3 → 23.4 tok/s when isolated, 2.1x improvement). Mar 5 results use SSE streaming (`probador --stream true`) for real per-token TTFT/ITL separation.
 
-**Key findings:**
-- realizr GPU (7.8 tok/s) is **4.1x slower** than llama.cpp (31.9) and **3x slower** than ollama (23.4) at c=1
-- **ITL gap is 4x:** realizr 128ms/token vs llama.cpp 31ms/token — decode kernel is the bottleneck
+**Key findings (updated Mar 5 2026):**
+- **DECODE gap is 1.9x** (17.0 vs 32.2 tok/s), not 4.1x — previous metric blended prefill + decode
+- **PREFILL is the dominant bottleneck: 148x slower** (7.2s vs 48ms for llama.cpp)
+- realizr prefill (14.2 tok/s) uses batched_q4k/q6k GEMV kernels — 488µs/2297µs per call on Orin
+- llama.cpp prefill (2099.8 tok/s) uses optimized GEMM with flash attention
 - Concurrency scaling: llama.cpp 2.1x, ollama 1.4x, realizr 0x (flat, RwLock contention)
 - Native CUDA build on Jetson (45 min, no cross-compile) was 7.8x faster than CPU-only (1.0 tok/s)
 - Batch mode (`--batch`) OOM-killed on 7.4 GB unified memory
@@ -218,15 +230,25 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - **Kernel launch overhead:** 52.5% of decode time from ~180 kernel launches/token (PMAT-015/017)
 - **Concurrency lock contention:** RwLock serialization at c=4 drops decode from ~270 tok/s (raw) to 40.8 tok/s (probador). Single-request path is 153 tok/s due to prefill + HTTP overhead.
 
-### Jetson Orin Root Cause Analysis (Mar 5, 2026)
+### Jetson Orin Root Cause Analysis (Updated Mar 5, 2026)
 
-**Five-Whys: realizr 104ms/token vs llama.cpp 31ms/token on Orin**
+**CRITICAL CORRECTION:** SSE streaming reveals the real bottleneck is **prefill (148x gap)**, not decode (1.9x gap). Previous non-streaming measurement (7.8 vs 31.9 tok/s = "4.1x gap") blended both phases.
 
-1. Why 3.4x slower? → GEMV kernels consume 94% of GPU time (nsys profiling)
-2. Why GEMV so slow? → MWV Q4K avg 342µs on Orin vs 10µs on 4090 (34x, not 10x expected from BW ratio)
-3. Why 34x not 10x? → 3.4x kernel efficiency gap — MWV tuned for 128-SM 4090, suboptimal on 8-SM Orin
-4. Why suboptimal? → L2 cache (2 MB vs 72 MB), warp count (3 warps default), PTX sm_70 JIT'd to sm_87
-5. Why not tuned for Orin? → Historical focus on 4090; Orin has 16x fewer cores and 10x less bandwidth
+**Five-Whys: realizr 7.2s prefill vs llama.cpp 48ms on Orin (148x gap)**
+
+1. Why 148x slower prefill? → realizr uses batched GEMV (M=seq_len), llama.cpp uses GEMM
+2. Why GEMV for prefill? → No GEMM kernel — all matmuls route through GEMV path regardless of M
+3. Why no GEMM? → Historical: M=1 decode was the optimization focus; prefill was "good enough" on 4090
+4. Why acceptable on 4090? → 4090 has 10x bandwidth (1008 vs 102 GB/s) and 72MB L2, hiding the inefficiency
+5. Why critical on Orin? → Orin's 102 GB/s BW makes GEMV prefill O(seq_len × k × n) unacceptably slow
+
+**Five-Whys: realizr 59ms/token decode vs llama.cpp 31ms/token (1.9x gap)**
+
+1. Why 1.9x slower decode? → GEMV kernels at 12% BW utilization vs llama.cpp ~31%
+2. Why low BW? → MWV Q4K avg 268µs (DP4A) on Orin, instruction overhead from 56-selp scale selection
+3. Why 56 selp? → Q4K/Q6K super-block scale lookup uses sequential predicated selection
+4. Why not binary tree? → Initial implementation prioritized correctness; not yet optimized for Orin
+5. Why not tuned for Orin? → Historical focus on 4090; Orin has 16x fewer SMs, different optimal strategy
 
 **nsys Kernel Profiling (Ground Truth — NOT brick profiler):**
 
@@ -284,6 +306,9 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - DP4A Q4K is optimal kernel variant for Orin (11.2 vs 9.9 tok/s, +13%)
 - Default MWV 2-3 warps is optimal for Orin (vs 4090 default of 3-4 warps)
 - Q6K decode GEMV (442µs) is now the dominant decode bottleneck with DP4A enabled
+- **Decode gap is 1.9x, not 4.1x** (SSE streaming separates prefill from decode, Mar 5 2026)
+- **Prefill is 148x slower** (7.2s vs 48ms) — the dominant e2e bottleneck
+- **No GEMM kernel exists** — prefill routes through batched GEMV, O(seq_len) slower than GEMM
 
 For full analysis including the "impossible observation" (CPU outperforming GPU), see [root-cause-analysis.md](./components/root-cause-analysis.md).
 
@@ -291,15 +316,15 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 
 ## 6. Optimization Roadmap
 
-### Tier Summary
+### Tier Summary (Updated Mar 5 2026 — prefill-first strategy)
 
 | Tier | Speedup Range | Items | Status |
 |------|---------------|-------|--------|
 | T0: Completed | Shipped | 6 fixes | ✅ Production |
-| T0a: Regressions | P0 | APR native GPU fix | ❌ Broken |
+| **T0b: Prefill GEMM** | **~100x prefill** | **Prefill GEMM kernel (batched matmul)** | **NEW — #1 PRIORITY** |
 | T1: Critical | 2-5x | SageAttention, EAGLE, CUDA graphs | Planned |
 | T2: High Impact | 1.5-2x | Marlin, DCA, KV quant, MInference | Mixed |
-| T3: Incremental | 1.1-1.5x | 3-way fusion, tile tuning | ✅ Mostly done |
+| T3: Incremental | 1.1-1.5x | 3-way fusion, decode GEMV BW | ✅ Mostly done |
 
 ### Priority Matrix
 
@@ -426,6 +451,9 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | Optimal kernel (Orin) | DP4A Q4K (+13%) | Variant sweep Mar 5 |
 | Q4K decode GEMV (Orin, DP4A) | 268µs | nsys Mar 5 |
 | Q6K decode GEMV (Orin) | 442µs (1.65x slower) | nsys Mar 5 |
+| **Decode gap (streaming)** | **1.9x** (17.0 vs 32.2 tok/s) | probador --stream Mar 5 |
+| **Prefill gap** | **148x** (7.2s vs 48ms TTFT) | probador --stream Mar 5 |
+| **Prefill throughput** | 14.2 tok/s (vs 2099 llama.cpp) | probador --stream Mar 5 |
 
 ### Roofline Position
 
@@ -509,7 +537,8 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-019 | GH #118 | **Q6K MWV GEMV kernel** (31.9% GPU time) | **Planned — 2-4x Q6K speedup** |
 | PMAT-020 | — | Jetson Orin load test migration | **In Progress** |
 | PMAT-021 | GH #121 | **DP4A Q4K default on Orin sm_87** | **Validated (+13%)** |
-| PMAT-022 | GH #118 | **Q6K MWV GEMV kernel (442µs → target ~200µs)** | **Next — decode bottleneck** |
+| PMAT-022 | GH #118 | Q6K MWV GEMV default (was 442µs single-warp) | ✅ Done (MWV default, Refs #118) |
+| PMAT-023 | — | **Prefill GEMM kernel (7.2s → target <500ms)** | **NEW — #1 PRIORITY (148x gap)** |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
@@ -595,6 +624,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4.0 | 2026-03-05 | **SSE streaming reveals prefill bottleneck:** probador --stream separates TTFT from decode. Decode gap 1.9x (17 vs 32 tok/s), not 4.1x. Prefill 148x slower (7.2s vs 48ms). New #1 priority: GEMM kernel for prefill (PMAT-023). Q6K MWV default committed (PMAT-022). probador overhaul: 6 issues fixed (#25-#30): rate control, SLO/goodput, token batching robustness. |
 | 2.3.0 | 2026-03-04 | **Jetson Orin migration:** Load testing moves to dedicated Jetson Orin (aarch64, CUDA 12.6, 7.4 GB), freeing 4090 for full-time QLoRA. New forjar-jetson.yaml + Makefile targets. Q6K GEMV bottleneck identified (GH #118): 31.9% GPU time, 4x slower than Q4K MWV. Updated baselines: APR 40.8 tok/s decode (c=4) vs llama.cpp 233.5. PMAT-019 (Q6K MWV), PMAT-020 (Jetson migration) added. |
 | 2.2.0 | 2026-03-04 | v3 benchmarks: gap narrowed from 6.3x to 3.4x. APR native regression fixed (PMAT-018, --skip-contract). All formats 143-167 tok/s. GitHub issues #1-#5 filed. forjar hardened (continue_independent, SafeTensors timeout). |
 | 2.1.0 | 2026-03-04 | Competition baselines (v3/20260303), Nsight profiling integration, kernel launch overhead RCA (52.5%), APR native GPU regression (100% errors), PMAT-013 through PMAT-018 added. |
