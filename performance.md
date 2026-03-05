@@ -49,6 +49,35 @@
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 13 |
 | 2026-03-01 | realizar-gguf | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 45 |
 
+## Jetson Orin (sm_87, Qwen2.5-Coder-1.5B Q4_K_M)
+
+### Load Test Results (2026-03-06, c=1, 60s, 5s warmup)
+
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Tok/s |
+|---------|-------------|--------------|---------------|-------------|-------|
+| realizr | 16.7 | 25.8 | 3,956 | 60 | 11.1 |
+| llama.cpp | 32.3 | 2,092 | 49 | 31 | 32.1 |
+| ollama | 12.5 | 227 | 449 | 80 | 10.1 |
+
+**Gap vs llama.cpp:** Decode 1.93x, Prefill 81x (GEMV vs cuBLAS GEMM), TTFT 81x
+
+### Config: `DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3`
+
+### Optimization Sweeps
+
+**DP4A impact:**
+- No DP4A: 12.6 tok/s (baseline)
+- +DP4A_Q4K: 14.5 (+15%)
+- +DP4A_Q4K +DP4A_Q6K: **16.7** (+33%)
+
+**Warp count (MWV_WARPS):**
+- 2 warps: 14.5, **3 warps: 16.7**, 4 warps: 15.2
+
+### Decode Timing (GRAPH-TIMING, per token)
+- h2d async: 40µs, graph launch: 18µs, argmax+sync: **57,300µs** (99.8%)
+- Effective bandwidth: 14.8 GB/s (7.2% of 204 GB/s peak)
+- Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
+
 ## GPU Profiling (2026-03-04, Nsight Systems)
 
 ### CUDA Kernel Time Distribution

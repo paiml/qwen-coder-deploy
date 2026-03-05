@@ -1,0 +1,83 @@
+{
+  "total_requests": 5,
+  "successful": 5,
+  "failed": 0,
+  "throughput_rps": 0.07861534052318474,
+  "latency_p50_ms": 12721.031218,
+  "latency_p95_ms": 12727.700388399999,
+  "latency_p99_ms": 12728.84241128,
+  "ttft_p50_ms": 3970.3202890000002,
+  "tokens_per_sec": 10.062763586967646,
+  "avg_tok_per_req": 128.0,
+  "itl_p50_ms": 68.91074273228347,
+  "decode_tok_per_sec": 14.511525494435247,
+  "prefill_tok_per_sec": 25.690622563271997,
+  "timestamp": "2026-03-05T23:22:31.210942016+00:00",
+  "runtime_name": "realizar-jetson-2warp",
+  "elapsed_secs": 63.60081845,
+  "concurrency": 1,
+  "ttft_p90_ms": 3973.8973818,
+  "ttft_p95_ms": 3974.3450334,
+  "ttft_p99_ms": 3974.7031546800004,
+  "tpot_p50_ms": 68.91074273228347,
+  "tpot_p90_ms": 68.92882100314961,
+  "tpot_p95_ms": 68.93027330866141,
+  "tpot_p99_ms": 68.93143515307086,
+  "latency_min_ms": 12708.163447,
+  "latency_max_ms": 12729.127917,
+  "latency_stddev_ms": 7.5570459531015395,
+  "error_rate": 0.0,
+  "prompt_tokens_total": 510,
+  "completion_tokens_total": 640,
+  "truncated_pct": 0.0,
+  "sse_batch_ratio": 1.0,
+  "goodput_pct": 0.0,
+  "output_tokens_dist": [
+    128.0,
+    128.0,
+    128.0,
+    128.0
+  ],
+  "request_details": [
+    {
+      "latency_ms": 12721.031218,
+      "ttft_ms": 3972.554427,
+      "completion_tokens": 128,
+      "prompt_tokens": 102,
+      "itl_ms": 68.88559442519684,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 12721.990274,
+      "ttft_ms": 3970.3202890000002,
+      "completion_tokens": 128,
+      "prompt_tokens": 102,
+      "itl_ms": 68.91074273228347,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 12708.163447,
+      "ttft_ms": 3965.388031,
+      "completion_tokens": 128,
+      "prompt_tokens": 102,
+      "itl_ms": 68.84070146456692,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 12719.951787,
+      "ttft_ms": 3966.536536,
+      "completion_tokens": 128,
+      "prompt_tokens": 102,
+      "itl_ms": 68.92446408661418,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 12729.127917,
+      "ttft_ms": 3974.7926850000003,
+      "completion_tokens": 128,
+      "prompt_tokens": 102,
+      "itl_ms": 68.93172561417323,
+      "finish_reason": "stop"
+    }
+  ]
+}

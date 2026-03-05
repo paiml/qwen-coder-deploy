@@ -38,14 +38,14 @@ resources:
   sync-realizar:
     type: task
     machine: intel
-    command: "cd ~/src/realizar && git fetch origin && git checkout main && git reset --hard origin/main"
-    completion_check: "cd ~/src/realizar && git rev-parse HEAD"
+    command: "cd ~/src/realizar && git fetch origin && git checkout gh-129-jetson-ptx-fix && git reset --hard origin/gh-129-jetson-ptx-fix"
+    completion_check: "cd ~/src/realizar && git branch --show-current | grep -q gh-129-jetson-ptx-fix"
 
   sync-aprender:
     type: task
     machine: intel
-    command: "cd ~/src/aprender && git fetch origin && git checkout main && git reset --hard origin/main"
-    completion_check: "cd ~/src/aprender && git rev-parse HEAD"
+    command: "cd ~/src/aprender && git fetch origin && git checkout gh-129-jetson-support && git reset --hard origin/gh-129-jetson-support"
+    completion_check: "cd ~/src/aprender && git branch --show-current | grep -q gh-129-jetson-support"
 
   apr-cross-compile:
     type: task
@@ -62,7 +62,7 @@ resources:
         --features "{{params.apr_features}}"
     completion_check: "test -x {{params.apr_cross_bin}}"
     depends_on: [sync-trueno, sync-realizar, sync-aprender]
-    timeout: 900
+    timeout: 1800
 
   # -- Phase 2: Deploy binary to Jetson ----------------------------------------
   # Two-hop: Intel → (scp via local) → Jetson
@@ -134,8 +134,8 @@ resources:
   apr-gguf-gpu:
     type: task
     machine: jetson
-    command: "pkill -f '[a]pr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
-    completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
+    command: "pkill -f '[a]pr serve.*8081' 2>/dev/null || true; sleep 2; REALIZAR_VERBOSE=1 SKIP_PARITY_GATE=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 REALIZR_FREE_CPU_WEIGHTS=1 REALIZR_MAX_SEQ_LEN=2048 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q '\"inference\":\"ok\"'"
     depends_on: [model-gguf, apr-deploy]
 
   ollama-gpu:
