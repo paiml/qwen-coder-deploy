@@ -32,7 +32,7 @@ resources:
   sync-trueno:
     type: task
     machine: intel
-    command: "cd ~/src/trueno && git fetch origin && git checkout main && git reset --hard origin/main"
+    command: "cd ~/src/trueno && git fetch origin && git checkout gh-131-deferred-scale && git reset --hard origin/gh-131-deferred-scale"
     completion_check: "cd ~/src/trueno && git rev-parse HEAD"
 
   sync-realizar:

@@ -1,0 +1,51 @@
+version: "1.0"
+name: qwen-coder-deploy-gpu-realizr
+description: "Isolated realizr benchmark on 4090 — build CUDA realizar, kill competing services, start"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+machines:
+  gpu:
+    hostname: noah-Lambda-Vector
+    addr: 127.0.0.1
+    user: noah
+    arch: x86_64
+    transport: local
+
+resources:
+  realizr-build:
+    type: task
+    machine: gpu
+    command: "cd /home/noah/src/realizar && CARGO_TARGET_DIR=/mnt/nvme-raid0/targets/realizar cargo build --release --features cuda"
+    completion_check: "test -x /mnt/nvme-raid0/targets/realizar/release/realizar"
+    timeout: 600
+
+  stop-ollama:
+    type: task
+    machine: gpu
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sudo systemctl stop ollama.service 2>/dev/null || true"
+    completion_check: "! pgrep -f 'ollama serve' >/dev/null 2>&1"
+
+  stop-llamacpp:
+    type: task
+    machine: gpu
+    command: "pkill -f 'llama-server' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
+
+  stop-realizr:
+    type: task
+    machine: gpu
+    command: "pkill -f 'realizar serve' 2>/dev/null || true; sleep 2"
+    completion_check: "! pgrep -f 'realizar serve' >/dev/null 2>&1"
+
+  realizr-gpu:
+    type: task
+    machine: gpu
+    command: "BATCHED_PREFILL=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3 nohup /mnt/nvme-raid0/targets/realizar/release/realizar serve --model {{params.gguf_model}} --host 0.0.0.0 --port 8081 --gpu --openai-api > /tmp/realizr-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q 'gpu'"
+    depends_on: [realizr-build, stop-ollama, stop-llamacpp, stop-realizr]
+
+policy:
+  failure: stop_on_first
+  lock_file: true

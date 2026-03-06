@@ -56,10 +56,14 @@ OLLAMA_MODEL := qwen2.5-coder:1.5b-instruct
 
 GGUF_MODEL := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 
+# Qwen 1.5B transformer layers (for per-layer decode time comparison)
+QWEN_LAYERS := 28
+
 .PHONY: deploy teardown test load report nightly health \
         deploy-gpu teardown-gpu test-gpu load-gpu health-gpu nightly-gpu \
         deploy-jetson teardown-jetson test-jetson load-jetson health-jetson nightly-jetson \
         bench-jetson-serial bench-jetson-realizr bench-jetson-ollama bench-jetson-llamacpp \
+        bench-gpu-serial bench-gpu-realizr bench-gpu-llamacpp \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp
@@ -98,7 +102,7 @@ nightly: deploy health test load report
 # GPU targets (localhost, RTX 4090)
 # ============================================================================
 
-deploy-gpu:
+deploy-gpu: teardown-gpu  ## Teardown first, then deploy to 4090
 	forjar apply -f forjar-gpu.yaml
 
 teardown-gpu:
@@ -125,13 +129,56 @@ load-gpu:
 nightly-gpu: deploy-gpu health-gpu test-gpu load-gpu report
 
 # ============================================================================
+# GPU serial benchmarks (isolated — one runtime at a time, full GPU memory)
+# ============================================================================
+# Same methodology as Jetson serial benchmarks.
+# --num-layers reports per-layer decode time (µs/layer) for cross-runtime comparison.
+# This metric is overhead-free (derived from wall-clock ITL, not per-brick sync).
+
+bench-gpu-realizr:
+	@echo "=== teardown before realizr bench ==="
+	-forjar apply -f forjar-gpu-teardown.yaml --yes
+	@echo "=== realizr (isolated, CUDA) ==="
+	forjar apply -f forjar-gpu-realizr.yaml --yes --force
+	@echo "--- c=1 ---"
+	probador llm load --url $(GPU_REALIZAR) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name realizr-4090-c1 \
+		--output results/4090-serial-realizr-c1-$(DATE).json
+	-forjar apply -f forjar-gpu-teardown.yaml --yes
+
+bench-gpu-llamacpp:
+	@echo "=== teardown before llama.cpp bench ==="
+	-forjar apply -f forjar-gpu-teardown.yaml --yes
+	@echo "=== llama.cpp (isolated) ==="
+	forjar apply -f forjar-gpu-llamacpp.yaml --yes --force
+	@echo "--- c=1 ---"
+	probador llm load --url $(GPU_LLAMACPP) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name llamacpp-4090-c1 \
+		--output results/4090-serial-llamacpp-c1-$(DATE).json
+	-forjar apply -f forjar-gpu-teardown.yaml --yes
+
+bench-gpu-serial: bench-gpu-realizr bench-gpu-llamacpp
+	@echo ""
+	@echo "=== 4090 Serial Benchmark Complete ==="
+	@echo "Results in results/4090-serial-*-$(DATE).json"
+	@echo "Compare per-layer decode time:"
+	@jq '{runtime: .runtime_name, decode_tok_s: .decode_tok_per_sec, us_per_layer: .decode_us_per_layer, layers: .num_layers}' results/4090-serial-*-c1-$(DATE).json 2>/dev/null || true
+
+# ============================================================================
 # Jetson Orin targets (dedicated load testing — frees 4090 for QLoRA)
 # ============================================================================
 # Jetson Orin: aarch64, CUDA 12.6, 7.4 GB unified memory, JetPack R36.5
 # All load testing runs here. 4090 only used for deep profiling (nsys/ncu).
+#
+# Full pipeline is forjar-managed: sync repos on Intel → cross-compile → deploy → start services
+# See forjar-jetson.yaml for the declarative resource graph.
 
-deploy-jetson:
-	forjar apply -f forjar-jetson.yaml
+deploy-jetson: teardown-jetson  ## Teardown first, then build on Intel, deploy to Jetson, start all services
+	forjar apply -f forjar-jetson.yaml --yes
 
 teardown-jetson:
 	forjar apply -f forjar-jetson-teardown.yaml
@@ -160,6 +207,29 @@ load-jetson:
 
 nightly-jetson: deploy-jetson health-jetson test-jetson load-jetson report
 
+# Quick local cross-compile + deploy to Jetson (skips forjar sync, uses local sources)
+APR_CROSS_BIN := /tmp/cross-jetson/aarch64-unknown-linux-gnu/release/apr
+APR_CROSS_FEATURES := hf-hub,safetensors-compare,inference,cuda,zram
+
+quick-deploy-jetson:
+	@echo "=== Cross-compiling apr-cli for aarch64 ==="
+	cd ~/src/aprender && \
+	CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+	CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+	RUSTFLAGS="-A unsafe-op-in-unsafe-fn" \
+	cargo +nightly build --release \
+		--target aarch64-unknown-linux-gnu \
+		--target-dir /tmp/cross-jetson \
+		-p apr-cli \
+		--no-default-features \
+		--features "$(APR_CROSS_FEATURES)"
+	@echo "=== Stopping apr on Jetson ==="
+	-ssh jetson 'pkill -f "apr serve" 2>/dev/null; sleep 2; true'
+	@echo "=== Deploying binary ==="
+	scp $(APR_CROSS_BIN) jetson:~/.cargo/bin/apr
+	@echo "=== Starting apr with cuBLAS prefill ==="
+	ssh jetson 'SKIP_PARITY_GATE=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 CUBLAS_PREFILL=1 REALIZR_FREE_CPU_WEIGHTS=1 REALIZR_MAX_SEQ_LEN=2048 nohup apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || echo "FAILED"'
+
 # ============================================================================
 # Jetson serial benchmarks (isolated — one runtime at a time, full GPU/memory)
 # ============================================================================
@@ -178,6 +248,8 @@ BENCH_WARMUP   := 5s
 BENCH_PROFILE  := short
 
 bench-jetson-realizr:
+	@echo "=== teardown before realizr bench ==="
+	forjar apply -f forjar-jetson-teardown.yaml --yes
 	@echo "=== realizr (isolated) ==="
 	forjar apply -f forjar-jetson-realizr.yaml --yes --force
 	@echo "--- c=1 ---"
@@ -193,6 +265,8 @@ bench-jetson-realizr:
 	forjar apply -f forjar-jetson-teardown.yaml --yes
 
 bench-jetson-ollama:
+	@echo "=== teardown before ollama bench ==="
+	forjar apply -f forjar-jetson-teardown.yaml --yes
 	@echo "=== ollama (isolated) ==="
 	forjar apply -f forjar-jetson-ollama.yaml --yes --force
 	@echo "--- c=1 ---"
@@ -208,6 +282,8 @@ bench-jetson-ollama:
 	forjar apply -f forjar-jetson-teardown.yaml --yes
 
 bench-jetson-llamacpp:
+	@echo "=== teardown before llama.cpp bench ==="
+	forjar apply -f forjar-jetson-teardown.yaml --yes
 	@echo "=== llama.cpp (isolated) ==="
 	forjar apply -f forjar-jetson-llamacpp.yaml --yes --force
 	@echo "--- c=1 ---"
@@ -386,6 +462,27 @@ nsys-llamacpp:
 	wait; \
 	echo "=== nsys stats ===" ; \
 	nsys stats --report cuda_gpu_kern_sum results/nsys-llamacpp-gpu-$(DATE).nsys-rep 2>&1 | tee results/nsys-llamacpp-gpu-kernels-$(DATE).txt
+
+# ncu on Jetson: per-kernel bandwidth, register usage, occupancy
+# Requires CUDA_GRAPH=0 (ncu can't profile inside CUDA graphs)
+# Profiles a single decode inference request (~16 tokens)
+ncu-jetson:
+	@echo "=== Restarting apr on Jetson with CUDA_GRAPH=0 ==="
+	-ssh jetson 'pkill -f "apr serve" 2>/dev/null; sleep 2; true'
+	ssh jetson 'SKIP_PARITY_GATE=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 MWV_WARPS=3 CUDA_GRAPH=0 nohup /home/noah/.cargo/bin/apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-ncu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || (cat /tmp/apr-ncu.log | tail -20; echo "FAILED"; exit 1)'
+	@echo "=== Warmup ==="
+	@curl -sf -X POST $(JETSON_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":8}' > /dev/null
+	@echo "=== ncu profiling (single request, ~60s) ==="
+	ssh jetson 'ncu --set=roofline --kernel-name "mwv_dp4a_q4k_gemv|q6k_gemv|multi_warp" --launch-count 50 --target-processes all --force-overwrite -o /tmp/ncu-jetson-$(DATE) -- curl -sf -X POST http://127.0.0.1:8081/v1/chat/completions -H "Content-Type: application/json" -d '"'"'{"model":"default","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":16}'"'"' > /dev/null 2>&1'
+	scp jetson:/tmp/ncu-jetson-$(DATE).ncu-rep results/ncu-jetson-$(DATE).ncu-rep
+	@echo "=== Results ==="
+	ssh jetson 'ncu --import /tmp/ncu-jetson-$(DATE).ncu-rep --csv --page raw 2>&1 | head -100'
+	@echo ""
+	@echo "=== Restarting apr normally (with CUDA graphs) ==="
+	-ssh jetson 'pkill -f "apr serve" 2>/dev/null; sleep 2; true'
+	ssh jetson 'SKIP_PARITY_GATE=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 CUBLAS_PREFILL=1 REALIZR_FREE_CPU_WEIGHTS=1 REALIZR_MAX_SEQ_LEN=2048 MWV_WARPS=3 nohup /home/noah/.cargo/bin/apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || echo "FAILED"'
 
 # BrickProfiler + nsys combined: run both for cross-validation
 # BrickProfiler gives per-operation CPU-side timing (via --trace)

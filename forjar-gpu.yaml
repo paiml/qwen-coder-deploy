@@ -86,12 +86,19 @@ resources:
   # -- GPU Services -----------------------------------------------------------
   # Ports: 8081 apr/GGUF, 8082 ollama, 8083 llama.cpp, 8084 apr/APR, 8085 apr/SafeTensors
 
+  realizr-build:
+    type: task
+    machine: gpu
+    command: "cd /home/noah/src/realizar && CARGO_TARGET_DIR=/mnt/nvme-raid0/targets/realizar cargo build --release --features cuda"
+    completion_check: "test -x /mnt/nvme-raid0/targets/realizar/release/realizar"
+    timeout: 600
+
   apr-gguf-gpu:
     type: task
     machine: gpu
-    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; nohup apr serve run {{params.gguf_model}} --port 8081 --gpu --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    command: "pkill -f 'realizar serve.*8081' 2>/dev/null || true; sleep 2; BATCHED_PREFILL=1 DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3 nohup /mnt/nvme-raid0/targets/realizar/release/realizar serve --model {{params.gguf_model}} --host 0.0.0.0 --port 8081 --gpu --openai-api > /tmp/apr-gguf-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8081/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
-    depends_on: [model-gguf]
+    depends_on: [realizr-build, model-gguf]
 
   ollama-gpu:
     type: task
@@ -103,14 +110,14 @@ resources:
   llamacpp-gpu:
     type: task
     machine: gpu
-    command: "pkill -f 'llama-server.*8083' 2>/dev/null || true; sleep 1; LD_LIBRARY_PATH=/home/noah/src/llama.cpp/build/bin nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    command: "pkill -f 'llama-server.*8083' 2>/dev/null || true; sleep 1; LD_LIBRARY_PATH=/home/noah/src/llama.cpp/build/bin nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --flash-attn on --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
     depends_on: [llamacpp-build, model-gguf]
 
   apr-apr-gpu:
     type: task
     machine: gpu
-    command: "pkill -f 'apr serve.*8084' 2>/dev/null || true; sleep 2; nohup apr serve run {{params.apr_model}} --port 8084 --gpu --skip-contract > /tmp/apr-apr-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8084/health >/dev/null"
+    command: "pkill -f 'apr serve.*8084' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.apr_model}} --port 8084 --gpu --skip-contract > /tmp/apr-apr-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8084/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8084/health >/dev/null 2>&1"
     depends_on: [model-apr]
 

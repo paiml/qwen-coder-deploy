@@ -1,11 +1,21 @@
 version: "1.0"
 name: qwen-coder-deploy-jetson-realizr
-description: "Isolated realizr benchmark — stops ALL other servers first (serial testing)"
+description: "Isolated realizr benchmark — cross-compile on Intel, deploy to Jetson"
 
 params:
   gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+  apr_cross_bin: "/tmp/cross-jetson/aarch64-unknown-linux-gnu/release/apr"
+  apr_target: "aarch64-unknown-linux-gnu"
+  apr_features: "hf-hub,safetensors-compare,inference,cuda,zram"
 
 machines:
+  intel:
+    hostname: intel
+    addr: 192.168.50.100
+    user: noah
+    arch: x86_64
+    transport: ssh
+
   jetson:
     hostname: jetson
     addr: 192.168.50.53
@@ -14,6 +24,58 @@ machines:
     transport: ssh
 
 resources:
+  # -- Phase 1: Cross-compile on Intel (192 threads, fast NVMe) ----------------
+
+  sync-trueno:
+    type: task
+    machine: intel
+    command: "cd ~/src/trueno && git checkout -- . && git fetch origin && git checkout gh-131-deferred-scale && git reset --hard origin/gh-131-deferred-scale"
+    completion_check: "cd ~/src/trueno && git rev-parse HEAD"
+
+  sync-realizar:
+    type: task
+    machine: intel
+    command: "cd ~/src/realizar && git checkout -- . && git fetch origin && git checkout gh-176-hw-dp4a && git reset --hard origin/gh-176-hw-dp4a"
+    completion_check: "cd ~/src/realizar && git branch --show-current | grep -q gh-176-hw-dp4a"
+
+  sync-aprender:
+    type: task
+    machine: intel
+    command: "cd ~/src/aprender && git checkout -- . && git fetch origin && git checkout gh-176-real-brick-profiling && git reset --hard origin/gh-176-real-brick-profiling"
+    completion_check: "cd ~/src/aprender && git branch --show-current | grep -q gh-176-real-brick-profiling"
+
+  sync-entrenar:
+    type: task
+    machine: intel
+    command: "cd ~/src/entrenar && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/entrenar && git rev-parse HEAD"
+
+  sync-alimentar:
+    type: task
+    machine: intel
+    command: "cd ~/src/alimentar && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/alimentar && git rev-parse HEAD"
+
+  apr-cross-compile:
+    type: task
+    machine: intel
+    command: |
+      cd ~/src/aprender &&
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+      CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+      RUSTFLAGS="-A unsafe-op-in-unsafe-fn" \
+      cargo +nightly build --release \
+        --target {{params.apr_target}} \
+        --target-dir /tmp/cross-jetson \
+        -p apr-cli \
+        --no-default-features \
+        --features "{{params.apr_features}}"
+    completion_check: "test -x {{params.apr_cross_bin}}"
+    depends_on: [sync-trueno, sync-realizar, sync-aprender, sync-entrenar, sync-alimentar]
+    timeout: 1800
+
+  # -- Phase 2: Deploy binary to Jetson ----------------------------------------
+
   stop-ollama:
     type: task
     machine: jetson
@@ -26,12 +88,29 @@ resources:
     command: "pkill -f 'llama-server' 2>/dev/null || true"
     completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
 
+  apr-stop:
+    type: task
+    machine: jetson
+    command: "pkill -f 'apr serve' 2>/dev/null || true; sleep 2; pkill -9 -f 'apr serve' 2>/dev/null || true; sleep 1; true"
+    completion_check: "! pgrep -f 'apr serve' >/dev/null 2>&1"
+    depends_on: [apr-cross-compile]
+
+  apr-deploy:
+    type: task
+    machine: intel
+    command: "scp {{params.apr_cross_bin}} noah@192.168.50.53:~/.cargo/bin/apr"
+    completion_check: "ssh noah@192.168.50.53 'test -x ~/.cargo/bin/apr'"
+    depends_on: [apr-stop]
+    timeout: 120
+
+  # -- Phase 3: Start isolated realizr ----------------------------------------
+
   apr-gguf-gpu:
     type: task
     machine: jetson
-    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 DECODE_TIMING=1 DP4A_Q4K=1 MWV_Q6K=1 nohup apr serve -m {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
-    completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
-    depends_on: [stop-ollama, stop-llamacpp]
+    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 DECODE_TIMING=1 HW_DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3 BATCHED_PREFILL=1 CUBLAS_PREFILL=1 REALIZR_FREE_CPU_WEIGHTS=1 REALIZR_MAX_SEQ_LEN=2048 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q 'healthy'"
+    depends_on: [stop-ollama, stop-llamacpp, apr-deploy]
 
 policy:
   failure: stop_on_first

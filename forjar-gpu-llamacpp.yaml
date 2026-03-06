@@ -1,0 +1,51 @@
+version: "1.0"
+name: qwen-coder-deploy-gpu-llamacpp
+description: "Isolated llama.cpp benchmark on 4090 — kill competing services, start"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+machines:
+  gpu:
+    hostname: noah-Lambda-Vector
+    addr: 127.0.0.1
+    user: noah
+    arch: x86_64
+    transport: local
+
+resources:
+  llamacpp-build:
+    type: task
+    machine: gpu
+    command: "cmake --build /home/noah/src/llama.cpp/build --target llama-server -j$(nproc)"
+    completion_check: "test -x /home/noah/src/llama.cpp/build/bin/llama-server"
+    timeout: 600
+
+  stop-ollama:
+    type: task
+    machine: gpu
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sudo systemctl stop ollama.service 2>/dev/null || true"
+    completion_check: "! pgrep -f 'ollama serve' >/dev/null 2>&1"
+
+  stop-realizr:
+    type: task
+    machine: gpu
+    command: "pkill -f 'realizar serve' 2>/dev/null || true; sleep 2"
+    completion_check: "! pgrep -f 'realizar serve' >/dev/null 2>&1"
+
+  stop-llamacpp:
+    type: task
+    machine: gpu
+    command: "pkill -f 'llama-server' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
+
+  llamacpp-gpu:
+    type: task
+    machine: gpu
+    command: "LD_LIBRARY_PATH=/home/noah/src/llama.cpp/build/bin nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --flash-attn on --ctx-size 2048 --n-predict 128 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
+    depends_on: [llamacpp-build, stop-ollama, stop-realizr, stop-llamacpp]
+
+policy:
+  failure: stop_on_first
+  lock_file: true
