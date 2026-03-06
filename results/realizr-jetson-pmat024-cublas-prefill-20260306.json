@@ -1,0 +1,48 @@
+{
+  "benchmark": "PMAT-024 cuBLAS prefill GEMM",
+  "date": "2026-03-06",
+  "runtime": "realizr",
+  "host": "jetson-orin-nano-super",
+  "config": {
+    "DP4A_Q4K": 1,
+    "DP4A_Q6K": 1,
+    "MWV_Q6K": 1,
+    "BATCHED_PREFILL": 1,
+    "CUBLAS_PREFILL": "default (enabled)",
+    "CUBLAS_PREFILL_THRESHOLD": 4,
+    "MWV_WARPS": 3,
+    "clocks": "locked (jetson_clocks)"
+  },
+  "test_params": {
+    "duration_s": 60,
+    "concurrency": 1,
+    "warmup_s": 5,
+    "stream": true
+  },
+  "results": {
+    "decode_tokens_per_second": 21.4,
+    "prefill_tokens_per_second": 56.2,
+    "ttft_p50_ms": 1816,
+    "itl_p50_ms": 46.7,
+    "tpot_p50_ms": 46.7,
+    "latency_p50_ms": 7747,
+    "latency_p95_ms": 7755,
+    "output_tokens_dist": [128, 128, 128, 128],
+    "total_requests": 8,
+    "error_count": 0,
+    "throughput_rps": 0.1
+  },
+  "comparison_vs_baseline": {
+    "baseline": "GH-174 (no cuBLAS, Mar 6)",
+    "decode_change": "0% (21.4 → 21.4)",
+    "prefill_change": "+95% (28.8 → 56.2)",
+    "ttft_change": "-49% (3542 → 1816 ms)"
+  },
+  "notes": [
+    "cuBLAS GEMM only covers Q4K weights (Q, K, O, gate, up = 5/7 per layer)",
+    "Q6K weights (V, down, LM head) still use batched GEMV during prefill",
+    "PTX dispatch fix: Q4KDequant added to kernels_generate_gemm_cuda.rs",
+    "Previous attempt had 0 output tokens due to PTX falling through to empty string"
+  ],
+  "commit": "1aac7c6 (realizr gh-129-jetson-ptx-fix)"
+}

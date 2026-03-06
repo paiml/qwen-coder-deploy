@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.6.0
+**Version:** 2.7.0
 **Status:** ACTIVE
 **Date:** 2026-03-06
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -158,6 +158,29 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 | +GH-175 prefetch | 21.6 | +0.9% (noise) |
 | +GH-176 `.maxnreg 255` | 21.4 | **no impact** (kernel uses only 34 regs) |
 
+**PMAT-024 cuBLAS GEMM for prefill (Mar 6 2026):** Implemented dequant Q4K→FP32 + cuBLAS SGEMM for all Q4K weight projections during prefill (M >= 4). Q6K weights (attn_v, ffn_down, LM head) still use batched GEMV.
+
+**Jetson Orin Nano Super (Mar 6 2026 — PMAT-024 cuBLAS prefill, locked clocks, c=1, 60s streaming):**
+
+| Runtime | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Prefill tok/s |
+|---------|-------------|-------------|--------------|--------------|
+| llama.cpp | **33.1** | **30.2** | **41** | **2478** |
+| realizr (PMAT-024) | 21.4 | 46.7 | 1816 | 56.2 |
+| **Gap** | **1.55x** | **1.55x** | **44x** | **44x** |
+| *Previous (no cuBLAS)* | *21.4* | *46.8* | *3542* | *28.8* |
+
+**PMAT-024 impact:** Prefill throughput **1.95x improvement** (28.8→56.2 tok/s), TTFT **1.95x improvement** (3542→1816 ms). Decode unchanged (expected — cuBLAS only activates for M >= 4). Gap to llama.cpp narrowed from 86x to 44x. Remaining 44x gap: Q6K weights (2/7 per layer + LM head) still use batched GEMV, and cuBLAS dequant+SGEMM overhead on small Orin GPU.
+
+**Weight quantization types (Qwen2.5-Coder-1.5B Q4_K_M):**
+
+| Weight | Quant Type | cuBLAS? | Notes |
+|--------|-----------|---------|-------|
+| attn_q, attn_k, attn_output | Q4_K | Yes | 3/7 projections |
+| ffn_gate, ffn_up | Q4_K | Yes | 2/7 projections |
+| attn_v | Q6_K | No | Batched GEMV fallback |
+| ffn_down | Q6_K | No | Batched GEMV fallback |
+| output (LM head) | Q6_K | No | Largest single GEMV (n=151936) |
+
 **HARDWARE CORRECTION (v2.6.0):** Device is Jetson Orin Nano Super Dev Kit (NOT AGX/NX). Peak memory BW is **67 GB/s** (LPDDR5), not 102 or 204 GB/s. This changes BW utilization calculations: realizr ~20.5 GB/s = 30.6% of 67 GB/s; llama.cpp ~27.4 GB/s = 40.9% of 67 GB/s.
 
 **Jetson Orin (Mar 4 2026 — non-streaming v1, serial isolated benchmarks):**
@@ -265,15 +288,15 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **CRITICAL CORRECTION:** SSE streaming reveals the real bottleneck is **prefill**, not decode. Previous non-streaming measurement (7.8 vs 31.9 tok/s = "4.1x gap") blended both phases. After PMAT-023 (batched prefill default), prefill gap is 18.6x (was 148x with serial prefill).
 
-**Five-Whys: realizr 816ms prefill vs llama.cpp 44ms on Orin (18.6x gap, post-PMAT-023)**
+**Five-Whys: realizr 1816ms prefill vs llama.cpp 41ms on Orin (44x gap, post-PMAT-024)**
 
-1. Why 18.6x slower prefill? → realizr uses batched GEMV (M=8 tiles), llama.cpp uses cuBLAS GEMM
-2. Why GEMV for prefill? → `batched_gemv_with_fallback` dispatches to GEMV regardless of M value
-3. Why not GEMM? → TensorCoreQ4KGemmKernel is a stub (only thread0 computes); no production quantized GEMM
-4. Why no production GEMM? → M=1 decode was the optimization focus; prefill was hidden on 4090
-5. Why critical on Orin? → Orin's 67 GB/s BW makes repeated weight reads per M=8 tile unacceptably slow
+1. Why 44x slower prefill? → Q6K weights (attn_v, ffn_down, LM head) still use batched GEMV; Q4K fixed via cuBLAS
+2. Why only Q4K fixed? → PMAT-024 dequant kernel (`Q4KDequantKernel`) only handles Q4K super-blocks (144 bytes)
+3. Why not Q6K dequant too? → Q6K super-blocks (210 bytes, misaligned) need a separate dequant kernel
+4. Why is LM head dominant? → output.weight is Q6K with n=151936 — single largest GEMV call per prefill token
+5. Why critical on Orin? → Orin's 67 GB/s BW + 8 SMs make repeated weight reads per M=8 tile unacceptably slow
 
-**Resolution path:** cuBLAS GEMM integration for prefill when M > threshold, or implement fused quantized GEMM kernel in trueno.
+**Resolution path:** PMAT-026 — implement Q6K dequant kernel + cuBLAS SGEMM for V, down, and LM head projections.
 
 **Five-Whys: Serial prefill default in streaming path (148x → 18.6x, FIXED)**
 
@@ -363,8 +386,8 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - Default MWV 2-3 warps is optimal for Orin (vs 4090 default of 3-4 warps)
 - Q6K decode GEMV (442µs) is now the dominant decode bottleneck with DP4A enabled
 - **Decode gap is 1.55x** (21.4 vs 33.1 tok/s) after GH-173 parallel byte-masked scale + locked clocks (Mar 6 2026)
-- **Prefill is 86x slower** (3542 vs 41ms TTFT) — the dominant e2e bottleneck
-- **No GEMM kernel exists** — prefill routes through batched GEMV, O(seq_len) slower than GEMM
+- **Prefill gap narrowed from 86x to 44x** via PMAT-024 cuBLAS GEMM (Q4K only); Q6K still batched GEMV
+- **cuBLAS GEMM implemented** for Q4K prefill (PMAT-024): dequant Q4K→FP32 + cuBLAS SGEMM
 - **`.maxnreg 255` has no effect** — kernel uses only 34 registers, no spill (GH-176, Mar 6 2026)
 - **Locked clocks critical**: `sudo jetson_clocks` required for stable, reproducible benchmarks on Orin
 
@@ -378,8 +401,8 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 
 | Tier | Speedup Range | Items | Status |
 |------|---------------|-------|--------|
-| T0: Completed | Shipped | 6 fixes + PMAT-023 + GH-173/174/176 | ✅ Production |
-| **T0b: Prefill GEMM** | **~86x prefill** | **cuBLAS or fused Q4K GEMM for prefill** | **#1 PRIORITY** |
+| T0: Completed | Shipped | 6 fixes + PMAT-023/024 + GH-173/174/176 | ✅ Production |
+| **T0b: Prefill Q6K GEMM** | **~44x prefill** | **cuBLAS for Q6K weights (V, down, LM head)** | **#1 PRIORITY** |
 | **T0c: Decode BW** | **~1.55x decode** | **GEMV instruction reduction (compute-bound, 72%)** | **#2 PRIORITY** |
 | T1: Critical | 2-5x | SageAttention, EAGLE, CUDA graphs | Planned |
 | T2: High Impact | 1.5-2x | Marlin, DCA, KV quant, MInference | Mixed |
@@ -390,7 +413,8 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 | ID | PMAT | Optimization | Speedup | Status |
 |----|------|--------------|---------|--------|
 | — | PMAT-023 | **Batched prefill default** | **9x TTFT** | **✅ DONE (148x → 18.6x gap)** |
-| — | PMAT-024 | **Prefill GEMM kernel (cuBLAS)** | **~18x prefill** | **Planned (#1 priority)** |
+| — | PMAT-024 | **Prefill GEMM kernel (cuBLAS Q4K)** | **1.95x prefill** | **✅ DONE (86x→44x gap, Q4K only)** |
+| — | PMAT-026 | **Prefill GEMM for Q6K (cuBLAS dequant)** | **~10x prefill** | **NEW — #1 PRIORITY (44x gap)** |
 | GH #118 | PMAT-019 | **Q6K MWV GEMV kernel** | **2-4x Q6K** | **Planned (31.9% GPU time)** |
 | — | PMAT-022 | **Q6K MWV as default** | **1.3x decode** | ✅ Code done (env var MWV_Q6K=1) |
 | QWEN-015 | PMAT-018 | APR native GPU fix | N/A | ✅ Fixed |
@@ -514,8 +538,8 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | Q4K decode GEMV (Orin, DP4A) | 268µs | nsys Mar 5 |
 | Q6K decode GEMV (Orin) | 442µs (1.65x slower) | nsys Mar 5 |
 | **Decode gap (streaming)** | **1.55x** (21.4 vs 33.1 tok/s) | probador --stream Mar 6, locked clocks |
-| **Prefill gap** | **86x** (3542 vs 41ms TTFT) | probador --stream Mar 6, locked clocks |
-| **Prefill throughput** | 28.8 tok/s (vs 2478 llama.cpp) | probador --stream Mar 6, locked clocks |
+| **Prefill gap** | **44x** (1816 vs 41ms TTFT) | probador --stream Mar 6, PMAT-024 cuBLAS |
+| **Prefill throughput** | 56.2 tok/s (vs 2478 llama.cpp) | probador --stream Mar 6, PMAT-024 cuBLAS |
 | **BW utilization (realizr)** | 30.6% of 67 GB/s | ncu Mar 6 |
 | **BW utilization (llama.cpp)** | 40.9% of 67 GB/s | calculated |
 
@@ -713,6 +737,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.7.0 | 2026-03-06 | **PMAT-024: cuBLAS GEMM for prefill (Q4K).** Implemented dequant Q4K→FP32 + cuBLAS SGEMM for all Q4K weight projections during prefill (M >= 4). TTFT: 3542→1816ms (1.95x). Prefill tok/s: 28.8→56.2 (1.95x). Gap narrowed from 86x to 44x. Remaining gap: Q6K weights (attn_v, ffn_down, LM head = 2/7 + LM head) still use batched GEMV. PTX dispatch bug fixed: Q4KDequant was missing from `kernels_generate_gemm_cuda.rs` runtime dispatch chain. New ticket: PMAT-026 (Q6K cuBLAS dequant). |
 | 2.6.0 | 2026-03-06 | **GH-173/174/175/176 optimization sweep + hardware correction.** Decode narrowed from 1.8x to 1.55x (21.4 vs 33.1 tok/s) via GH-173 parallel byte-masked scale + locked clocks. GH-174 grid-stride, GH-175 prefetch, GH-176 `.maxnreg 255` all confirmed no impact — remaining gap is architectural. Hardware corrected: Jetson Orin Nano Super with 67 GB/s peak BW (was 102 GB/s). ncu profiling: kernel is COMPUTE-BOUND (72% compute, 36% memory). BW utilization recalculated: realizr 30.6%, llama.cpp 40.9% of 67 GB/s. PMAT-024 (cuBLAS prefill GEMM) remains #1 priority (86x gap). |
 | 2.5.0 | 2026-03-05 | **PMAT-023: Batched prefill default.** Root cause: generate_1.rs (streaming) defaulted BATCHED_PREFILL=false, causing 150 serial forward passes instead of 1 batched. Fix: default to true (matching generate_2.rs). TTFT improved 7.2s→816ms (9x). Remaining gap: 18.6x (batched GEMV M=8 tiles vs cuBLAS GEMM). New priority: PMAT-024 (cuBLAS prefill GEMM). |
 | 2.4.0 | 2026-03-05 | **SSE streaming reveals prefill bottleneck:** probador --stream separates TTFT from decode. Decode gap 1.9x (17 vs 32 tok/s), not 4.1x. Prefill 148x slower (7.2s vs 48ms). New #1 priority: GEMM kernel for prefill (PMAT-023). Q6K MWV default committed (PMAT-022). probador overhaul: 6 issues fixed (#25-#30): rate control, SLO/goodput, token batching robustness. |
