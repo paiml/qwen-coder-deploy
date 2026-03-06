@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.5.0
+**Version:** 2.6.0
 **Status:** ACTIVE
-**Date:** 2026-03-05
+**Date:** 2026-03-06
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -139,6 +139,27 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 | realizr (batched prefill) | 17.7 | 56.6 | 815.7 | 28.2 | 12.5 |
 | **Gap** | **1.8x** | **1.8x** | **18.6x** | **18.6x** | **2.6x** |
 
+**Jetson Orin Nano Super (Mar 6 2026 — GH-173/174, locked clocks, isolated, c=1, 60s streaming):**
+
+| Runtime | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Prefill tok/s |
+|---------|-------------|-------------|--------------|--------------|
+| llama.cpp | **33.1** | **30.2** | **41** | **2478** |
+| realizr (GH-174, locked clocks) | 21.4 | 46.8 | 3542 | 28.8 |
+| **Gap** | **1.55x** | **1.55x** | **86x** | **86x** |
+
+**GH-173/174/175/176 optimization history (Mar 6, locked clocks):**
+
+| Optimization | Decode tok/s | Delta |
+|---|---|---|
+| Baseline (DP4A, 3 warps) | 16.7 | - |
+| +GH-173 parallel byte-masked scale | 19.8 | +18.6% |
+| +locked clocks (`jetson_clocks`) | 21.4 | +28.1% total |
+| +GH-174 grid-stride LM head | 21.4 | no change |
+| +GH-175 prefetch | 21.6 | +0.9% (noise) |
+| +GH-176 `.maxnreg 255` | 21.4 | **no impact** (kernel uses only 34 regs) |
+
+**HARDWARE CORRECTION (v2.6.0):** Device is Jetson Orin Nano Super Dev Kit (NOT AGX/NX). Peak memory BW is **67 GB/s** (LPDDR5), not 102 or 204 GB/s. This changes BW utilization calculations: realizr ~20.5 GB/s = 30.6% of 67 GB/s; llama.cpp ~27.4 GB/s = 40.9% of 67 GB/s.
+
 **Jetson Orin (Mar 4 2026 — non-streaming v1, serial isolated benchmarks):**
 
 | Runtime | c=1 tok/s | c=1 decode | c=1 ITL (ms) | c=4 tok/s | c=4 decode | c=4 P50 (ms) |
@@ -163,7 +184,7 @@ Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5
 | Host | GPU | Memory BW | VRAM | Role |
 |------|-----|-----------|------|------|
 | noah-Lambda-Vector (4090) | RTX 4090 | 1,008 GB/s | 24 GB GDDR6X | QLoRA training (full-time) + deep profiling (nsys/ncu, occasional) |
-| jetson | Orin (nvgpu) | 102 GB/s | 7.4 GB unified | Continuous load testing + CI benchmarks (dedicated) |
+| jetson | Orin Nano Super (nvgpu, sm_87, 8 SMs) | **67 GB/s** | 8 GB LPDDR5 unified | Continuous load testing + CI benchmarks (dedicated) |
 
 **Architecture split (v2.3.0):** Load testing moves permanently to Jetson Orin, freeing the 4090 for full-time QLoRA fine-tuning. The 4090 is only used for inference during occasional deep GPU profiling (nsys/ncu). All `probador llm load` benchmarks target Jetson-hosted services.
 
@@ -250,7 +271,7 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 2. Why GEMV for prefill? → `batched_gemv_with_fallback` dispatches to GEMV regardless of M value
 3. Why not GEMM? → TensorCoreQ4KGemmKernel is a stub (only thread0 computes); no production quantized GEMM
 4. Why no production GEMM? → M=1 decode was the optimization focus; prefill was hidden on 4090
-5. Why critical on Orin? → Orin's 102 GB/s BW makes repeated weight reads per M=8 tile unacceptably slow
+5. Why critical on Orin? → Orin's 67 GB/s BW makes repeated weight reads per M=8 tile unacceptably slow
 
 **Resolution path:** cuBLAS GEMM integration for prefill when M > threshold, or implement fused quantized GEMM kernel in trueno.
 
@@ -262,25 +283,40 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 4. Why mismatch? → generate_2.rs already defaulted to `true`; generate_1.rs was not updated
 5. Why now? → Jetson SSE streaming benchmarks exposed the prefill bottleneck that 4090 masked
 
-**Five-Whys: realizr 59ms/token decode vs llama.cpp 31ms/token (1.9x gap)**
+**Five-Whys: realizr 46.8ms/token decode vs llama.cpp 30.2ms/token (1.55x gap) — UPDATED Mar 6 post GH-173/174/175/176**
 
-1. Why 1.9x slower decode? → GEMV kernels at 12% BW utilization vs llama.cpp ~31%
-2. Why low BW? → MWV Q4K avg 268µs (DP4A) on Orin, instruction overhead from 56-selp scale selection
-3. Why 56 selp? → Q4K/Q6K super-block scale lookup uses sequential predicated selection
-4. Why not binary tree? → Initial implementation prioritized correctness; not yet optimized for Orin
-5. Why not tuned for Orin? → Historical focus on 4090; Orin has 16x fewer SMs, different optimal strategy
+1. Why 1.55x slower decode? → Q4K GEMV is COMPUTE-BOUND (72% compute throughput vs 36% memory). GH-173 parallel byte-masked scale reduced instructions 56% — gap narrowed from 1.93x to 1.55x but remains.
+2. Why still 1.55x after GH-173? → Remaining instruction overhead: dequant arithmetic per super-block still ~40 instructions vs llama.cpp's ~25 (NVCC-optimized). Q6K GEMV unoptimized.
+3. Why can't .maxnreg 255 help? → Kernel uses only 34 registers (ncu confirmed). No spill pressure — `.maxnreg` is a no-op (GH-176, benchmarked: 21.4→21.4 tok/s).
+4. Why can't grid-stride help? → GH-174 grid-stride already applied. LM head was not the bottleneck for decode; it was already fast at 256 blocks.
+5. Why can't prefetch help? → GH-175 software prefetch was noise (+0.9%). Memory latency is hidden by compute — kernel is compute-bound.
+
+**Resolution (partial)**: GH-173 parallel byte-masked scale (df68820) + locked clocks: 16.7→21.4 tok/s (+28.1%). Gap 1.93x→1.55x. GH-174/175/176 confirmed no further gains — remaining gap is architectural (hand-written PTX instruction scheduling vs NVCC).
 
 **nsys Kernel Profiling (Ground Truth — NOT brick profiler):**
 
-| Kernel | Time % | Instances | Avg (µs) | Phase |
-|--------|--------|-----------|----------|-------|
-| batched_q4k_gemv_warp_reduce | 42% | 4,032 | 488 | Prefill |
-| mwv_q4k_gemv | 19% | 2,688 | 342 | Decode |
-| q6k_gemv_warp_reduce | 17% | 1,808 | 442 | Decode |
-| batched_q6k_gemv_warp_reduce | 16% | 336 | 2,297 | Prefill |
-| multi_warp_attention | 0.3% | 2,688 | 6 | Decode |
+*Post GH-173 (SKIP_CUDA_GRAPH=1, Mar 6 2026):*
 
-**Decode per-layer: ~3 Q4K (342µs) + ~2 Q6K (442µs) ≈ 1.9ms/layer × 28 = 53ms estimated.**
+| Kernel | Time % | Instances | Avg (µs) | Med (µs) | Phase |
+|--------|--------|-----------|----------|----------|-------|
+| mwv_dp4a_q4k_gemv | 47% | 11,424 | 179 | 69 | Decode |
+| dp4a_q6k_gemv | 28% | 2,280 | 544 | 26 | Decode (bimodal: layers 26µs, LM head ~17ms) |
+| batched_q4k_gemv_warp_reduce | 13% | 504 | 1,125 | 393 | Prefill |
+| batched_q6k_gemv_warp_reduce | 2% | 28 | 4,526 | 4,497 | Prefill |
+| flash_decoding_chunk | 2% | 1,904 | 64 | 63 | Decode |
+| q8_quantize | 1% | 13,704 | 5 | 4 | Both |
+
+**Decode per-token budget (~68 tokens):**
+
+| Component | Time (ms) | % of decode |
+|-----------|-----------|-------------|
+| Q4K GEMVs | 30.0 | 60% |
+| Q6K LM head | 17.4 | 35% |
+| Q6K layers | 0.7 | 1.5% |
+| Flash attention | 1.8 | 3.6% |
+| **Total** | **~50** | |
+
+**CRITICAL: LM head Q6K (n=151936) launches 151,936 blocks — fixed by GH-174 grid-stride (pending benchmark).**
 
 **CORRECTION:** Earlier brick profiling (`apr profile --granular`) claimed AttentionScore was 92% of time. nsys shows this was an artifact of CPU-side synchronization overhead. Actual attention is 0.3% of GPU time.
 
@@ -326,9 +362,11 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - DP4A Q4K is optimal kernel variant for Orin (11.2 vs 9.9 tok/s, +13%)
 - Default MWV 2-3 warps is optimal for Orin (vs 4090 default of 3-4 warps)
 - Q6K decode GEMV (442µs) is now the dominant decode bottleneck with DP4A enabled
-- **Decode gap is 1.9x, not 4.1x** (SSE streaming separates prefill from decode, Mar 5 2026)
-- **Prefill is 148x slower** (7.2s vs 48ms) — the dominant e2e bottleneck
+- **Decode gap is 1.55x** (21.4 vs 33.1 tok/s) after GH-173 parallel byte-masked scale + locked clocks (Mar 6 2026)
+- **Prefill is 86x slower** (3542 vs 41ms TTFT) — the dominant e2e bottleneck
 - **No GEMM kernel exists** — prefill routes through batched GEMV, O(seq_len) slower than GEMM
+- **`.maxnreg 255` has no effect** — kernel uses only 34 registers, no spill (GH-176, Mar 6 2026)
+- **Locked clocks critical**: `sudo jetson_clocks` required for stable, reproducible benchmarks on Orin
 
 For full analysis including the "impossible observation" (CPU outperforming GPU), see [root-cause-analysis.md](./components/root-cause-analysis.md).
 
@@ -336,13 +374,13 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 5 2026 — post PMAT-023 batched prefill fix)
+### Tier Summary (Updated Mar 6 2026 — post GH-173/174/175/176, locked clocks)
 
 | Tier | Speedup Range | Items | Status |
 |------|---------------|-------|--------|
-| T0: Completed | Shipped | 6 fixes + PMAT-023 | ✅ Production |
-| **T0b: Prefill GEMM** | **~18x prefill** | **cuBLAS or fused Q4K GEMM for prefill** | **#1 PRIORITY** |
-| **T0c: Decode BW** | **~1.8x decode** | **GEMV BW utilization (12% → 31%)** | **#2 PRIORITY** |
+| T0: Completed | Shipped | 6 fixes + PMAT-023 + GH-173/174/176 | ✅ Production |
+| **T0b: Prefill GEMM** | **~86x prefill** | **cuBLAS or fused Q4K GEMM for prefill** | **#1 PRIORITY** |
+| **T0c: Decode BW** | **~1.55x decode** | **GEMV instruction reduction (compute-bound, 72%)** | **#2 PRIORITY** |
 | T1: Critical | 2-5x | SageAttention, EAGLE, CUDA graphs | Planned |
 | T2: High Impact | 1.5-2x | Marlin, DCA, KV quant, MInference | Mixed |
 | T3: Incremental | 1.1-1.5x | 3-way fusion | ✅ Mostly done |
@@ -475,14 +513,39 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | Optimal kernel (Orin) | DP4A Q4K (+13%) | Variant sweep Mar 5 |
 | Q4K decode GEMV (Orin, DP4A) | 268µs | nsys Mar 5 |
 | Q6K decode GEMV (Orin) | 442µs (1.65x slower) | nsys Mar 5 |
-| **Decode gap (streaming)** | **1.9x** (17.0 vs 32.2 tok/s) | probador --stream Mar 5 |
-| **Prefill gap** | **148x** (7.2s vs 48ms TTFT) | probador --stream Mar 5 |
-| **Prefill throughput** | 14.2 tok/s (vs 2099 llama.cpp) | probador --stream Mar 5 |
+| **Decode gap (streaming)** | **1.55x** (21.4 vs 33.1 tok/s) | probador --stream Mar 6, locked clocks |
+| **Prefill gap** | **86x** (3542 vs 41ms TTFT) | probador --stream Mar 6, locked clocks |
+| **Prefill throughput** | 28.8 tok/s (vs 2478 llama.cpp) | probador --stream Mar 6, locked clocks |
+| **BW utilization (realizr)** | 30.6% of 67 GB/s | ncu Mar 6 |
+| **BW utilization (llama.cpp)** | 40.9% of 67 GB/s | calculated |
+
+### Nsight Compute Per-Kernel Profile (2026-03-06, Jetson Orin)
+
+**CRITICAL FINDING: Q4K GEMV is COMPUTE-BOUND, not memory-bound.**
+
+ncu profiling (basic set, 8 replay passes per kernel, CUDA_GRAPH=0):
+
+| Kernel | Grid | Block | Regs | Theo Occ | Achieved Occ | Mem BW % | Compute % |
+|--------|------|-------|------|----------|-------------|----------|-----------|
+| `mwv_dp4a_q4k_gemv` | 256 | 96 | 34 | 100% | 80% | 27% | 53% |
+| `mwv_dp4a_q4k_gemv` | 1,536 | 96 | 34 | 100% | 93% | 36% | **72%** |
+| `mwv_dp4a_q4k_gemv` | 8,960 | 96 | 34 | 100% | 95% | 39% | **75%** |
+| `dp4a_q6k_gemv` | 256 | 96 | 40 | 100% | 81% | 45% | 59% |
+| `batched_q4k_gemv` | 256 | 32 | 40 | 33% | 31% | 19% | 52% |
+
+**Analysis:**
+- Occupancy is NOT the bottleneck (80-95% achieved, 100% theoretical for MWV)
+- **Compute throughput (72-75%) >> Memory throughput (36-39%)**: excessive dequantization arithmetic
+- Scale extraction alone: ~57 instructions to decode all 16 values, then ~14 selp to select 4 = **71 instructions**
+- llama.cpp uses parallel byte masks (0x3F3F3F3F) for ~8 instruction scale extraction
+- BFE regression explained: kernel was already compute-bound, higher-latency BFE made it worse
+- **Fix (GH-173)**: Parallel byte-masked extraction reduces scale handling from 79 → 35 instructions (56%)
 
 ### Roofline Position
 
 ```
-GEMV (M=1):  ~2 FLOP/byte → MEMORY BOUND
+GEMV (M=1):  ~2 FLOP/byte → SHOULD BE MEMORY BOUND
+                              ACTUALLY COMPUTE BOUND due to dequant overhead (ncu Mar 6)
 GEMM (M>64): ~128 FLOP/byte → COMPUTE BOUND
 ```
 
@@ -562,7 +625,9 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-020 | — | Jetson Orin load test migration | **In Progress** |
 | PMAT-021 | GH #121 | **DP4A Q4K default on Orin sm_87** | **Validated (+13%)** |
 | PMAT-022 | GH #118 | Q6K MWV GEMV default (was 442µs single-warp) | ✅ Done (MWV default, Refs #118) |
-| PMAT-023 | — | **Prefill GEMM kernel (7.2s → target <500ms)** | **NEW — #1 PRIORITY (148x gap)** |
+| PMAT-023 | — | **Batched prefill default (DONE)** | ✅ DONE (148x → 86x gap) |
+| PMAT-024 | — | **Prefill GEMM kernel (cuBLAS, 3542ms → target <100ms)** | **NEW — #1 PRIORITY (86x gap)** |
+| PMAT-025 | GH-176 | `.maxnreg 255` PTX directive (no impact — 34 regs) | ✅ Done (no perf change) |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
@@ -648,6 +713,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.6.0 | 2026-03-06 | **GH-173/174/175/176 optimization sweep + hardware correction.** Decode narrowed from 1.8x to 1.55x (21.4 vs 33.1 tok/s) via GH-173 parallel byte-masked scale + locked clocks. GH-174 grid-stride, GH-175 prefetch, GH-176 `.maxnreg 255` all confirmed no impact — remaining gap is architectural. Hardware corrected: Jetson Orin Nano Super with 67 GB/s peak BW (was 102 GB/s). ncu profiling: kernel is COMPUTE-BOUND (72% compute, 36% memory). BW utilization recalculated: realizr 30.6%, llama.cpp 40.9% of 67 GB/s. PMAT-024 (cuBLAS prefill GEMM) remains #1 priority (86x gap). |
 | 2.5.0 | 2026-03-05 | **PMAT-023: Batched prefill default.** Root cause: generate_1.rs (streaming) defaulted BATCHED_PREFILL=false, causing 150 serial forward passes instead of 1 batched. Fix: default to true (matching generate_2.rs). TTFT improved 7.2s→816ms (9x). Remaining gap: 18.6x (batched GEMV M=8 tiles vs cuBLAS GEMM). New priority: PMAT-024 (cuBLAS prefill GEMM). |
 | 2.4.0 | 2026-03-05 | **SSE streaming reveals prefill bottleneck:** probador --stream separates TTFT from decode. Decode gap 1.9x (17 vs 32 tok/s), not 4.1x. Prefill 148x slower (7.2s vs 48ms). New #1 priority: GEMM kernel for prefill (PMAT-023). Q6K MWV default committed (PMAT-022). probador overhaul: 6 issues fixed (#25-#30): rate control, SLO/goodput, token batching robustness. |
 | 2.3.0 | 2026-03-04 | **Jetson Orin migration:** Load testing moves to dedicated Jetson Orin (aarch64, CUDA 12.6, 7.4 GB), freeing 4090 for full-time QLoRA. New forjar-jetson.yaml + Makefile targets. Q6K GEMV bottleneck identified (GH #118): 31.9% GPU time, 4x slower than Q4K MWV. Updated baselines: APR 40.8 tok/s decode (c=4) vs llama.cpp 233.5. PMAT-019 (Q6K MWV), PMAT-020 (Jetson migration) added. |
