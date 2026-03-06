@@ -1,0 +1,121 @@
+{
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+  "timestamp": "2026-01-12T18:12:51Z",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "cpu": "AMD Ryzen Threadripper 7960X 24-Cores",
+    "memory_gb": 125
+  },
+  "throughput": {
+    "tokens_per_sec": 78.94,
+    "ttft_ms": 403.87,
+    "cv_percent": 4.44,
+    "p50_us": 403873.00,
+    "p99_us": 445633.00
+  },
+  "brick_scores": [
+    {
+      "name": "AttentionScore",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 1902.07,
+      "actual_us": 67.93,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "RmsNorm",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 1575.26,
+      "actual_us": 27.64,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "DownProjection",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 1408.54,
+      "actual_us": 50.30,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "GateProjection",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 1365.62,
+      "actual_us": 48.77,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "QkvProjection",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 974.41,
+      "actual_us": 34.80,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "Activation",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 848.61,
+      "actual_us": 30.31,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "Residual2",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 794.54,
+      "actual_us": 28.38,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "RopeEmbedding",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 575.43,
+      "actual_us": 20.55,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "OutputProjection",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 575.32,
+      "actual_us": 20.55,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "LmHead",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 493.71,
+      "actual_us": 493.71,
+      "gap_factor": 1.000
+    },
+    {
+      "name": "Residual1",
+      "score": 100,
+      "grade": "A",
+      "budget_us": 459.65,
+      "actual_us": 16.42,
+      "gap_factor": 1.000
+    }
+  ],
+  "pmat_scores": {
+    "rust_project_score": 0.0,
+    "tdg_score": 0.0,
+    "cuda_tdg_score": 0.0,
+    "brick_score": 100,
+    "grade": "A"
+  },
+  "falsification": {
+    "total_points": 11,
+    "passed": 11,
+    "failed": 0,
+    "blocked": 0
+  },
+  "status": "PASS",
+  "ci_result": "green"
+}
