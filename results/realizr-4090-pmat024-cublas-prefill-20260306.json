@@ -1,0 +1,52 @@
+{
+  "benchmark": "PMAT-024 cuBLAS prefill on 4090",
+  "date": "2026-03-06",
+  "host": "noah-Lambda-Vector (RTX 4090, 24GB GDDR6X)",
+  "config": {
+    "DP4A_Q4K": 1,
+    "DP4A_Q6K": 1,
+    "MWV_Q6K": 1,
+    "BATCHED_PREFILL": 1,
+    "MWV_WARPS": 3
+  },
+  "realizr_c1": {
+    "decode_tok_s": 94.3,
+    "prefill_tok_s": 333.7,
+    "ttft_p50_ms": 305.7,
+    "itl_p50_ms": 10.6,
+    "latency_p50_ms": 1647.3,
+    "requests": 39,
+    "errors": 0,
+    "output_tokens_dist": [0, 128, 128, 128]
+  },
+  "llamacpp_c1": {
+    "decode_tok_s": 278.6,
+    "prefill_tok_s": 12015.4,
+    "ttft_p50_ms": 8.5,
+    "itl_p50_ms": 3.6,
+    "latency_p50_ms": 464.0,
+    "requests": 124,
+    "errors": 3,
+    "output_tokens_dist": [128, 128, 128, 128]
+  },
+  "realizr_c4": {
+    "decode_tok_s": 93.8,
+    "prefill_tok_s": 19.4,
+    "ttft_p50_ms": 5248.2,
+    "itl_p50_ms": 10.7,
+    "latency_p50_ms": 6593.0,
+    "requests": 36,
+    "errors": 0,
+    "output_tokens_dist": [64, 128, 128, 128]
+  },
+  "llamacpp_c4": {
+    "decode_tok_s": 161.0,
+    "prefill_tok_s": 9393.4,
+    "ttft_p50_ms": 10.9,
+    "itl_p50_ms": 6.2,
+    "latency_p50_ms": 799.2,
+    "requests": 295,
+    "errors": 3,
+    "output_tokens_dist": [128, 128, 128, 128]
+  }
+}
