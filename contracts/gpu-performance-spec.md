@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.11.0
+**Version:** 2.12.0
 **Status:** ACTIVE
 **Date:** 2026-03-06
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -323,17 +323,27 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **Resolution**: GH-176 half-warp DP4A Q4K: 16.7→27.8 tok/s (+66.5%). Gap 1.93x→1.19x. Remaining 1.19x gap dominated by LmHead Q6K GEMV (25.7% of decode). Next: optimize LmHead path (Q6K n=151936).
 
-**Five-Whys: RTX 4090 decode gap 2.70x per layer (334.3 vs 123.8 µs/layer) — Mar 6, probador --num-layers**
+**Five-Whys: RTX 4090 decode gap — 2.70x → 1.71x (80/20 fix: HW DP4A Q4K)**
 
-1. Why 2.70x slower per layer on 4090? → Gap is **pure kernel execution efficiency** — realizr kernels execute more instructions per byte of weight data than llama.cpp. Measured with identical methodology (probador SSE streaming, isolated serial c=1, --num-layers 28). No profiling overhead — wall-clock ITL.
-2. Why more instructions per byte? → ncu (Jetson, same kernel code) showed Q4K GEMV is compute-bound: 72% compute throughput, 36% memory throughput. The M=1 GEMV *should* be memory-bound (~2 FLOP/byte), but dequantization arithmetic makes it compute-bound.
-3. Why so much dequant arithmetic? → Q4K scale extraction in trueno PTX uses `shr`/`and`/`selp` chains: ~20 instructions to decode 6-bit packed scales per super-block. llama.cpp's CUDA C uses byte-mask ops (`& 0x3F3F3F3F`) compiled to ~5 instructions by NVCC.
-4. Why does trueno generate more instructions? → PTX builder API (`ptx/builder/`) emits explicit per-field extraction. No byte-mask primitive exists in the builder — it decomposes bitfield extraction into individual shift/mask/select sequences.
-5. **ROOT CAUSE:** trueno's PTX code generation lacks vectorized bitfield extraction primitives. Adding byte-mask-based scale extraction (`and.b32 + shr.b32` on packed 4-byte values) would reduce scale handling from ~20 to ~5 instructions per super-block, shifting the kernel from compute-bound to memory-bound.
+1. Why 2.70x slower per layer on 4090? → Forjar config used `DP4A_Q4K=1` (MWV, 32 threads/super-block, 12.4 insn/value) instead of `HW_DP4A_Q4K=1` (half-warp, 16 threads, 7.0 insn/value)
+2. Why does thread count matter? → MWV uses shfl-broadcast to distribute scales across 32 threads — high instruction overhead. HW DP4A has each thread load scales directly (L1 coalesced), eliminating broadcast instructions.
+3. Why 1.77x fewer instructions? → HW DP4A: 112 inner-loop instructions / 16 values = 7.0 insn/value. MWV: 396 / 32 = 12.4. Half the threads, each doing proportionally less work with no broadcast overhead.
+4. Why wasn't HW DP4A tested on 4090? → GH-176 was benchmarked only on Jetson; the 4090 serial pipeline (`bench-gpu-serial`) was created in the same session but used the pre-GH-176 env vars.
+5. **ROOT CAUSE:** Config drift — the 4090 forjar config wasn't updated to match the Jetson-proven optimization.
 
-**Resolution**: PMAT-029 — Vectorized byte-mask scale extraction for Q4K GEMV. Target: reduce instructions-per-value from 7.0 to ~5.0 (matching llama.cpp). The 2.70x per-layer gap suggests additional bottlenecks beyond Q4K scale extraction — likely Q6K GEMV, attention kernel, and norm/residual kernels all contribute. Full kernel audit needed.
+**80/20 Result (verified Mar 6, probador --num-layers 28, isolated serial c=1, 60s):**
 
-**Cross-platform insight**: The same kernel code runs on both Jetson (8 SM) and 4090 (128 SM). The gap is LARGER on 4090 (2.70x) than Jetson (1.19x), likely because 4090's higher SM count amplifies instruction-count overhead (more SMs waiting on compute, fewer hiding latency). Fixing instruction efficiency benefits both platforms but has disproportionate impact on 4090.
+| Config | Decode tok/s | µs/layer | Gap to llama.cpp |
+|--------|-------------|----------|-----------------|
+| llama.cpp | 278.1 | 128.4 | baseline |
+| **realizr HW DP4A** | **162.8** | **219.3** | **1.71x** |
+| *realizr MWV DP4A (before)* | *106.8* | *334.3* | *2.70x* |
+
+**+52% decode throughput from one env var change.** Gap reduced from 2.70x to 1.71x.
+
+**Remaining 1.71x gap**: Now dominated by Q6K GEMV (LM head + attn_v + ffn_down), attention kernels, and norm/residual overhead. Q4K instruction efficiency is close to parity — further gains require optimizing the Q6K path (PMAT-029).
+
+**Cross-platform insight**: Same kernel, both platforms improved. Jetson: 21.4→27.8 (+30%), 4090: 106.8→162.8 (+52%). 4090 benefits MORE because its 128 SMs amplify instruction-count savings (more warps running the more efficient kernel simultaneously).
 
 **Measurement methodology**: Per-layer decode time (`µs/layer = TPOT_ms * 1000 / num_layers`) is derived from wall-clock ITL, NOT per-brick sync. This makes it:
 - **Overhead-free**: no profiler sync artifacts
@@ -481,8 +491,8 @@ Corrected implied tok/s: 1,000,000 / 7,254 = **137.9 tok/s** — consistent with
 - Default MWV 2-3 warps is optimal for Orin (vs 4090 default of 3-4 warps)
 - Q6K decode GEMV (442µs) is now the dominant decode bottleneck with DP4A enabled
 - **Decode gap is 1.19x** (27.8 vs 33.1 tok/s) after GH-176 half-warp DP4A Q4K (Mar 6 2026)
-- **4090 decode gap is 2.70x per layer** (334.3 vs 123.8 µs/layer, probador `--num-layers 28`, isolated serial c=1, Mar 6)
-- **4090 decode tok/s: 106.8 vs 288.5** (realizr vs llama.cpp, same model/GPU/method)
+- **4090 decode gap closed 2.70x → 1.71x** by enabling HW DP4A Q4K (219.3 vs 128.4 µs/layer, +52% decode)
+- **4090 decode tok/s: 162.8 vs 278.1** (realizr HW DP4A vs llama.cpp, isolated serial c=1, Mar 6)
 - **4090 BrickProfiler profile differs from Jetson**: LmHead 4.5% (vs 25.7%), Norms+Res 31.0% (vs 8.5%) — SM scaling + per-brick sync overhead
 - **Per-brick sync overhead ~12µs on 4090** (PCIe round-trip) inflates small kernel times; corrected total: ~7.3ms/tok = 137.9 tok/s
 - **Prefill gap narrowed from 86x to 25x** via PMAT-024/026 cuBLAS GEMM + HW DP4A
@@ -856,8 +866,9 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | **BW utilization (llama.cpp)** | 40.9% of 67 GB/s | calculated |
 | **LmHead % of decode** | 25.7% (10,948µs per call) | BrickProfiler Immediate sync, Jetson, Mar 6 |
 | **FFN (gate+down) % of decode** | 48.5% | BrickProfiler Immediate sync, Jetson, Mar 6 |
-| **4090 decode gap** | 2.70x per layer (334.3 vs 123.8 µs/layer) | probador --num-layers 28, isolated serial c=1, Mar 6 |
-| **4090 decode tok/s** | 106.8 vs 288.5 (realizr vs llama.cpp) | probador --stream, isolated serial c=1, Mar 6 |
+| **4090 decode gap** | **1.71x** per layer (219.3 vs 128.4 µs/layer) | HW DP4A, probador --num-layers 28, serial c=1, Mar 6 |
+| **4090 decode tok/s** | **162.8 vs 278.1** (realizr HW DP4A vs llama.cpp) | probador --stream, isolated serial c=1, Mar 6 |
+| *4090 decode gap (before)* | *2.70x per layer (334.3 vs 123.8 µs/layer)* | *MWV DP4A, same methodology* |
 | **4090 LmHead % of decode** | 4.5% (493.7µs per call) | BrickProfiler Immediate sync, 4090, Mar 6 |
 | **4090 Norms+Res % of decode** | 31.0% (raw), 23.0% (sync-corrected) | BrickProfiler 4090, Mar 6 |
 | **4090 FFN % of decode** | 33.0% (raw), 35.1% (sync-corrected) | BrickProfiler 4090, Mar 6 |
@@ -1060,6 +1071,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.12.0 | 2026-03-06 | **80/20 fix: HW DP4A Q4K on 4090.** Five-Whys root cause: forjar config used MWV DP4A (`DP4A_Q4K=1`) instead of half-warp DP4A (`HW_DP4A_Q4K=1`). Single env var change: decode 106.8→162.8 tok/s (+52%), gap 2.70x→1.71x per layer (219.3 vs 128.4 µs/layer). Remaining 1.71x gap: Q6K GEMV (LmHead + attn_v + ffn_down), attention, norms. Updated forjar-gpu-realizr.yaml + forjar-gpu.yaml. |
 | 2.11.0 | 2026-03-06 | **4090 per-layer benchmark + Five-Whys.** Added probador `--num-layers` for overhead-free cross-runtime comparison (µs/layer from wall-clock ITL, not per-brick sync). Verified 4090 gap: **2.70x per layer** (334.3 vs 123.8 µs/layer, isolated serial c=1). Prior BrickProfiler estimate (1.29-1.57x) was misleading due to sync overhead artifacts. Added forjar-gpu-realizr.yaml + forjar-gpu-llamacpp.yaml for isolated 4090 benchmarks. BrickProfiler 4090 breakdown: Attention 31.5%, FFN 33.0%, Norms+Res 31.0%, LmHead 4.5%. Five-Whys root cause: trueno PTX instruction overhead (7.0 insn/val vs llama.cpp ~4-5). New tickets: PMAT-029 (byte-mask scale extraction), GH-8. |
 | 2.10.0 | 2026-03-06 | **First Principles: System Component Anatomy.** New section tracing every layer of the inference stack from HTTP request (probador→axum→SSE) through tokenization, CUDA graph capture/replay, per-brick transformer execution (28 layers + LmHead), GEMV kernel internals (half-warp DP4A PTX, Q6K MWV), down to Orin hardware (8 SMs, 67 GB/s LPDDR5, DP4A units). Full 36ms per-token breakdown across 6 layers with real BrickProfiler data. Shows path to parity: 6.9ms LmHead Q6K excess + 5.6ms FFN dequant overhead = the 1.19x gap. |
 | 2.9.0 | 2026-03-06 | **GH-176: Half-warp DP4A Q4K + real BrickProfiler.** (1) Half-warp DP4A Q4K GEMV: 16 threads/SB (vs 32 MWV), 7.0 insn/val (vs 12.4), matching llama.cpp's QI4_K architecture. Decode: 21.4→27.8 tok/s (+66.5%), gap narrowed 1.55x→1.19x. (2) Fixed `apr cbtop` to output real GPU timing via BrickProfiler `Immediate` sync mode (was measuring CPU-side launch latency only). (3) Real decode breakdown: LmHead 25.7% (n=151936 Q6K), FFN Down 25.4%, FFN Gate 23.1%. Top 3 bricks = 74.2% of decode. New #1 priority: LmHead Q6K GEMV optimization (PMAT-028). |
