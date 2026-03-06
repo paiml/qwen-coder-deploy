@@ -227,8 +227,8 @@ quick-deploy-jetson:
 	-ssh jetson 'pkill -f "apr serve" 2>/dev/null; sleep 2; true'
 	@echo "=== Deploying binary ==="
 	scp $(APR_CROSS_BIN) jetson:~/.cargo/bin/apr
-	@echo "=== Starting apr with cuBLAS prefill ==="
-	ssh jetson 'SKIP_PARITY_GATE=1 CUBLAS_PREFILL=1 REALIZR_FREE_CPU_WEIGHTS=1 REALIZR_MAX_SEQ_LEN=2048 nohup apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || echo "FAILED"'
+	@echo "=== Starting apr ==="
+	ssh jetson 'SKIP_PARITY_GATE=1 nohup apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || echo "FAILED"'
 
 # ============================================================================
 # Jetson serial benchmarks (isolated — one runtime at a time, full GPU/memory)
@@ -482,7 +482,7 @@ ncu-jetson:
 	@echo ""
 	@echo "=== Restarting apr normally (with CUDA graphs) ==="
 	-ssh jetson 'pkill -f "apr serve" 2>/dev/null; sleep 2; true'
-	ssh jetson 'SKIP_PARITY_GATE=1 CUBLAS_PREFILL=1 REALIZR_FREE_CPU_WEIGHTS=1 REALIZR_MAX_SEQ_LEN=2048 nohup /home/noah/.cargo/bin/apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || echo "FAILED"'
+	ssh jetson 'SKIP_PARITY_GATE=1 nohup /home/noah/.cargo/bin/apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null && echo "HEALTHY" || echo "FAILED"'
 
 # BrickProfiler + nsys combined: run both for cross-validation
 # BrickProfiler gives per-operation CPU-side timing (via --trace)
