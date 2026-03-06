@@ -51,34 +51,83 @@
 
 ## Jetson Orin (sm_87, Qwen2.5-Coder-1.5B Q4_K_M)
 
-### Load Test Results (2026-03-06, c=1, 60s, 5s warmup)
+### Load Test Results (2026-03-06, c=1, 60s, locked clocks, isolated)
 
 | Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Tok/s |
 |---------|-------------|--------------|---------------|-------------|-------|
-| realizr | 16.7 | 25.8 | 3,956 | 60 | 11.1 |
-| llama.cpp | 32.3 | 2,092 | 49 | 31 | 32.1 |
-| ollama | 12.5 | 227 | 449 | 80 | 10.1 |
+| realizr | 21.4 | 28.8 | 3,542 | 46.8 | 14.3 |
+| llama.cpp | 33.1 | 2,478 | 41 | 30.2 | 32.8 |
 
-**Gap vs llama.cpp:** Decode 1.93x, Prefill 81x (GEMV vs cuBLAS GEMM), TTFT 81x
+**Gap vs llama.cpp:** Decode 1.55x, Prefill 86x, TTFT 86x
 
-### Config: `DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3`
+### Config: `DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 MWV_WARPS=3`
+
+### Optimization History (GH-131/173/174)
+
+| Step | Decode tok/s | Delta |
+|------|-------------|-------|
+| Baseline (DP4A) | 16.7 | — |
+| +BFI unaligned Q6K | 16.9 | +1.2% |
+| +deferred scale Q4K | 18.1 | +8.4% |
+| +GH-173 parallel byte-masked scale | 19.8 | +18.6% |
+| +locked clocks (jetson\_clocks) | **21.4** | **+28.1%** |
 
 ### Optimization Sweeps
 
 **DP4A impact:**
 - No DP4A: 12.6 tok/s (baseline)
-- +DP4A_Q4K: 14.5 (+15%)
-- +DP4A_Q4K +DP4A_Q6K: **16.7** (+33%)
+- +DP4A\_Q4K: 14.5 (+15%)
+- +DP4A\_Q4K +DP4A\_Q6K: **16.7** (+33%)
 
-**Warp count (MWV_WARPS):**
-- 2 warps: 14.5, **3 warps: 16.7**, 4 warps: 15.2
+**Warp count (MWV\_WARPS, locked clocks):**
+- 2 warps: 17.9, **3 warps: 21.4**, 4 warps: 18.2
 
-### Decode Timing (GRAPH-TIMING, per token)
-- h2d async: 40µs, graph launch: 18µs, argmax+sync: **57,300µs** (99.8%)
-- Effective bandwidth: 14.8 GB/s (7.2% of 204 GB/s peak)
-- Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
+### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
-## GPU Profiling (2026-03-04, Nsight Systems)
+| Runtime | BW (GB/s) | % of Peak |
+|---------|----------|-----------|
+| realizr Q4K GEMV | 20.5 | 30.6% |
+| realizr total decode | 18.2 | 27.1% |
+| llama.cpp total decode | 27.4 | 40.9% |
+
+Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
+
+## GPU Profiling — BrickProfiler (2026-03-06, C-GDP-001 Contract)
+
+### Corrected Brick Breakdown (RTX 4090, Immediate Sync, CUDA\_GRAPH\_DISABLE=1)
+
+After fixing 18 hardcoded values in the cbtop pipeline ([aprender#426](https://github.com/paiml/aprender/pull/426)),
+BrickProfiler now reports real per-kernel GPU timing:
+
+| Brick | Per-Call (µs) | Per-Decoded-Token (µs) | % of Decode |
+|-------|--------------|----------------------|-------------|
+| AttentionScore | 67.5 | 1,891 | 17.7% |
+| GateProjection | 53.2 | 1,489 | 13.9% |
+| RmsNorm | 25.2 | 1,434 | 13.4% |
+| DownProjection | 42.1 | 1,178 | 11.0% |
+| QkvProjection | 35.1 | 982 | 9.2% |
+| Activation | 30.6 | 856 | 8.0% |
+| Residual2 | 24.2 | 678 | 6.3% |
+| LmHead | 594.2 | 594 | 5.6% |
+| OutputProjection | 21.0 | 587 | 5.5% |
+| RopeEmbedding | 19.6 | 549 | 5.1% |
+| Residual1 | 15.9 | 446 | 4.2% |
+
+Contract: `gpu-decode-profiling-v1` v2.0.0 — 15 falsification tests, all PASS.
+
+Fixes:
+- [realizar#137](https://github.com/paiml/realizar/pull/137): Force eager decode when profiler active (CUDA graphs hide brick timing)
+- [aprender#426](https://github.com/paiml/aprender/pull/426): 18 hardcoded BrickScore values replaced with real profiler data
+
+### Serial Baseline (2026-03-06, c=1, isolated, CUDA\_GRAPH\_DISABLE=1)
+
+| Runtime | Decode tok/s |
+|---------|-------------|
+| realizar | 162.7 |
+| llama.cpp | 262.7 |
+| **Gap** | **1.61x** |
+
+## GPU Profiling — Nsight Systems (2026-03-04)
 
 ### CUDA Kernel Time Distribution
 
