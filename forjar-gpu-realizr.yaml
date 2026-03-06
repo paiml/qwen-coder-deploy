@@ -42,7 +42,7 @@ resources:
   realizr-gpu:
     type: task
     machine: gpu
-    command: "BATCHED_PREFILL=1 HW_DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3 nohup /mnt/nvme-raid0/targets/realizar/release/realizar serve --model {{params.gguf_model}} --host 0.0.0.0 --port 8081 --gpu --openai-api > /tmp/realizr-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    command: "nohup /mnt/nvme-raid0/targets/realizar/release/realizar serve --model {{params.gguf_model}} --host 0.0.0.0 --port 8081 --gpu --openai-api > /tmp/realizr-gpu.log 2>&1 & sleep 12; curl -sf http://127.0.0.1:8081/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q 'gpu'"
     depends_on: [realizr-build, stop-ollama, stop-llamacpp, stop-realizr]
 
