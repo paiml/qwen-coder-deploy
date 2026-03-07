@@ -1,0 +1,63 @@
+{
+  "test": "HGEMM prefill (tensor cores) vs SGEMM vs batched GEMV",
+  "date": "2026-03-07",
+  "device": "Jetson Orin Nano Super",
+  "clocks": "locked (jetson_clocks)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "notes": "HGEMM runs isolated (no llama.cpp). Memory: 175MB headroom after cache build.",
+  "results": {
+    "realizr_hgemm": {
+      "label": "HGEMM (FP16 cached + tensor cores)",
+      "env": "SKIP_PARITY_GATE=1",
+      "decode_tok_s": 33.8,
+      "prefill_tok_s": 447.4,
+      "ttft_p50_ms": 228.0,
+      "itl_p50_ms": 29.6,
+      "latency_p50_ms": 3990.9,
+      "requests": 16,
+      "errors": 0
+    },
+    "realizr_sgemm": {
+      "label": "SGEMM (per-request dequant, HGEMM_PREFILL=0)",
+      "env": "SKIP_PARITY_GATE=1 HGEMM_PREFILL=0",
+      "decode_tok_s": 33.7,
+      "prefill_tok_s": 151.9,
+      "ttft_p50_ms": 671.5,
+      "itl_p50_ms": 29.6,
+      "latency_p50_ms": 4434.8,
+      "requests": 14,
+      "errors": 0
+    },
+    "realizr_batched_gemv": {
+      "label": "Batched GEMV (CUBLAS_PREFILL=0)",
+      "env": "SKIP_PARITY_GATE=1 CUBLAS_PREFILL=0",
+      "decode_tok_s": 33.7,
+      "prefill_tok_s": 30.0,
+      "ttft_p50_ms": 3399.5,
+      "itl_p50_ms": 29.6,
+      "latency_p50_ms": 7164.5,
+      "requests": 9,
+      "errors": 0
+    },
+    "llamacpp": {
+      "label": "llama.cpp baseline",
+      "decode_tok_s": 33.0,
+      "prefill_tok_s": 2488.9,
+      "ttft_p50_ms": 41.0,
+      "itl_p50_ms": 30.3,
+      "latency_p50_ms": 3885.3,
+      "requests": 16,
+      "errors": 0
+    }
+  },
+  "summary": {
+    "prefill_speedup_hgemm_vs_sgemm": "2.95x (447.4 vs 151.9 tok/s)",
+    "prefill_speedup_hgemm_vs_gemv": "14.9x (447.4 vs 30.0 tok/s)",
+    "ttft_speedup_hgemm_vs_sgemm": "2.94x (228ms vs 671ms)",
+    "remaining_gap_vs_llamacpp": "5.6x prefill, decode at PARITY"
+  }
+}
