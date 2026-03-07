@@ -1,0 +1,41 @@
+{
+  "test": "PMAT-037: HGEMM decode (cuBLAS FP16) vs Q4K GEMV on 4090",
+  "date": "2026-03-07",
+  "device": "RTX 4090 (128 SMs, sm_89)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "results": {
+    "hgemm_decode": {
+      "label": "cuBLAS HGEMM decode (FP16 cached weights, M=1)",
+      "env": "SKIP_PARITY_GATE=1 hgemm_decode=true (auto-detect)",
+      "decode_tok_s": 109.1,
+      "prefill_tok_s": 1535.8,
+      "ttft_p50_ms": 66.4,
+      "itl_p50_ms": 9.2,
+      "latency_p50_ms": 1228.2,
+      "gpu_memory_mb": 5768,
+      "requests": 49,
+      "errors": 0
+    },
+    "baseline_gemv": {
+      "label": "Q4K HW-DP4A GEMV (previous baseline)",
+      "decode_tok_s": 199.6,
+      "prefill_tok_s": 127.3,
+      "ttft_p50_ms": 180.7,
+      "itl_p50_ms": 5.0,
+      "latency_p50_ms": 777.0,
+      "gpu_memory_mb": 1400,
+      "note": "From 4090-serial-realizr-c1-20260307.json"
+    }
+  },
+  "analysis": {
+    "decode_regression": "1.83x SLOWER (109.1 vs 199.6 tok/s)",
+    "prefill_improvement": "12.1x FASTER (1535.8 vs 127.3 tok/s)",
+    "memory_overhead": "4.1x more VRAM (5768 vs 1400 MB) — FP16 cache ~3 GB",
+    "root_cause": "M=1 cuBLAS HGEMM reads 3.56x more data (FP16 vs Q4K) but cuBLAS BW utilization gain doesn't compensate at M=1. cuBLAS launch overhead also hurts at M=1.",
+    "conclusion": "HGEMM decode is net-negative for M=1. Keep HGEMM for prefill only (M>=4). The 4090 decode gap (1.47x vs llama.cpp) must be closed via kernel-level instruction count reduction, not cuBLAS."
+  }
+}

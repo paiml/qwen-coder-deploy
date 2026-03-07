@@ -1,0 +1,32 @@
+{
+  "test": "4090 realizr isolated (no competing GPU processes)",
+  "date": "2026-03-07",
+  "device": "RTX 4090 (128 SMs, sm_89)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "env": "SKIP_PARITY_GATE=1, hgemm_decode=false",
+  "results": {
+    "decode_tok_s": 287.4,
+    "prefill_tok_s": 1754.9,
+    "ttft_p50_ms": 58.1,
+    "itl_p50_ms": 3.5,
+    "latency_p50_ms": 500.3,
+    "requests": 122,
+    "errors": 0,
+    "avg_tok_per_req": 123.7
+  },
+  "comparison": {
+    "llamacpp_decode_tok_s": 293.4,
+    "gap": "1.02x (287.4 vs 293.4 — PARITY)",
+    "previous_baseline": "199.6 tok/s (measured with QLoRA + apr using 22 GB VRAM)",
+    "improvement": "1.44x from eliminating GPU memory contention"
+  },
+  "verification": {
+    "run2_decode_tok_s": 288.6,
+    "run2_itl_p50_ms": 3.5,
+    "consistent": true
+  }
+}
