@@ -32,20 +32,32 @@ resources:
   sync-trueno:
     type: task
     machine: intel
-    command: "cd ~/src/trueno && git fetch origin && git checkout gh-131-deferred-scale && git reset --hard origin/gh-131-deferred-scale"
+    command: "cd ~/src/trueno && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
     completion_check: "cd ~/src/trueno && git rev-parse HEAD"
 
   sync-realizar:
     type: task
     machine: intel
-    command: "cd ~/src/realizar && git fetch origin && git checkout gh-129-jetson-ptx-fix && git reset --hard origin/gh-129-jetson-ptx-fix"
-    completion_check: "cd ~/src/realizar && git branch --show-current | grep -q gh-129-jetson-ptx-fix"
+    command: "cd ~/src/realizar && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/realizar && git rev-parse HEAD"
 
   sync-aprender:
     type: task
     machine: intel
-    command: "cd ~/src/aprender && git fetch origin && git checkout gh-129-jetson-support && git reset --hard origin/gh-129-jetson-support"
-    completion_check: "cd ~/src/aprender && git branch --show-current | grep -q gh-129-jetson-support"
+    command: "cd ~/src/aprender && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/aprender && git rev-parse HEAD"
+
+  sync-entrenar:
+    type: task
+    machine: intel
+    command: "cd ~/src/entrenar && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/entrenar && git rev-parse HEAD"
+
+  sync-alimentar:
+    type: task
+    machine: intel
+    command: "cd ~/src/alimentar && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/alimentar && git rev-parse HEAD"
 
   apr-cross-compile:
     type: task
@@ -54,6 +66,7 @@ resources:
       cd ~/src/aprender &&
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
       CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+      RUSTFLAGS="-A unsafe-op-in-unsafe-fn" \
       cargo +nightly build --release \
         --target {{params.apr_target}} \
         --target-dir /tmp/cross-jetson \
@@ -61,7 +74,7 @@ resources:
         --no-default-features \
         --features "{{params.apr_features}}"
     completion_check: "test -x {{params.apr_cross_bin}}"
-    depends_on: [sync-trueno, sync-realizar, sync-aprender]
+    depends_on: [sync-trueno, sync-realizar, sync-aprender, sync-entrenar, sync-alimentar]
     timeout: 1800
 
   # -- Phase 2: Deploy binary to Jetson ----------------------------------------
@@ -134,7 +147,7 @@ resources:
   apr-gguf-gpu:
     type: task
     machine: jetson
-    command: "pkill -f '[a]pr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    command: "pkill -f '[a]pr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 HGEMM_PREFILL=0 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q '\"inference\":\"ok\"'"
     depends_on: [model-gguf, apr-deploy]
 

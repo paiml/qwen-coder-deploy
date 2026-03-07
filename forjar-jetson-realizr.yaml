@@ -29,20 +29,20 @@ resources:
   sync-trueno:
     type: task
     machine: intel
-    command: "cd ~/src/trueno && git checkout -- . && git fetch origin && git checkout gh-131-deferred-scale && git reset --hard origin/gh-131-deferred-scale"
+    command: "cd ~/src/trueno && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
     completion_check: "cd ~/src/trueno && git rev-parse HEAD"
 
   sync-realizar:
     type: task
     machine: intel
-    command: "cd ~/src/realizar && git checkout -- . && git fetch origin && git checkout gh-176-hw-dp4a && git reset --hard origin/gh-176-hw-dp4a"
-    completion_check: "cd ~/src/realizar && git branch --show-current | grep -q gh-176-hw-dp4a"
+    command: "cd ~/src/realizar && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/realizar && git rev-parse HEAD"
 
   sync-aprender:
     type: task
     machine: intel
-    command: "cd ~/src/aprender && git checkout -- . && git fetch origin && git checkout gh-176-real-brick-profiling && git reset --hard origin/gh-176-real-brick-profiling"
-    completion_check: "cd ~/src/aprender && git branch --show-current | grep -q gh-176-real-brick-profiling"
+    command: "cd ~/src/aprender && git checkout -- . && git fetch origin && git checkout main && git reset --hard origin/main"
+    completion_check: "cd ~/src/aprender && git rev-parse HEAD"
 
   sync-entrenar:
     type: task
@@ -108,7 +108,7 @@ resources:
   apr-gguf-gpu:
     type: task
     machine: jetson
-    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 DECODE_TIMING=1 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
+    command: "pkill -f 'apr serve.*8081' 2>/dev/null || true; sleep 2; SKIP_PARITY_GATE=1 HGEMM_PREFILL=0 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 --skip-contract > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q 'healthy'"
     depends_on: [stop-ollama, stop-llamacpp, apr-deploy]
 
