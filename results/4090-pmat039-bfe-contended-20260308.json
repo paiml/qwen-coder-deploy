@@ -1,0 +1,31 @@
+{
+  "test": "PMAT-039: BFE byte extraction + contended 4090 comparison",
+  "date": "2026-03-08",
+  "device": "RTX 4090 (128 SMs, sm_89)",
+  "concurrency": 1,
+  "duration_s": 30,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "contention": "QLoRA training at 94% GPU util (9.6 GB VRAM)",
+  "env": "SKIP_PARITY_GATE=1, fused_gate_up=true, hgemm_decode=false",
+  "results": {
+    "decode_tok_s": 154.6,
+    "prefill_tok_s": 884.0,
+    "ttft_p50_ms": 115.4,
+    "itl_p50_ms": 6.5,
+    "requests": 34
+  },
+  "comparison": {
+    "pmat038_graphs_fused": {"decode_tok_s": 154.7, "note": "shr+and, identical"},
+    "pmat038_graphs_no_fused": {"decode_tok_s": 151.9},
+    "pmat038_no_graphs": {"decode_tok_s": 140.9},
+    "bfe_impact": "No measurable change under contention (154.6 ≈ 154.7 tok/s)",
+    "note": "Contention from QLoRA (94% GPU util) dominates. Isolated test needed."
+  },
+  "optimization": {
+    "hw_dp4a_q4k_insn_per_sb": "108 → 103 (4.6% reduction)",
+    "fused_insn_per_sb": "193 → 177 (8.3% reduction)",
+    "technique": "PTX bfe.u32 with register start replaces shr_u32 + and_u32_imm(0xFF)"
+  }
+}
