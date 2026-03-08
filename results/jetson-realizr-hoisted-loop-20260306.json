@@ -1,0 +1,14 @@
+{
+  "test": "jetson-realizr-hoisted-loop",
+  "date": "2026-03-06",
+  "config": "DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 MWV_WARPS=3 BATCHED_PREFILL=1 CUBLAS_PREFILL=1",
+  "optimization": "Q4K DP4A inner loop: 136→99 PTX instructions (hoisted constants+invariants)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "decode_tok_s": 22.1,
+  "prefill_tok_s": 56.3,
+  "ttft_p50_ms": 1812.0,
+  "itl_p50_ms": 45.3,
+  "llamacpp_decode_tok_s": 33.0,
+  "decode_gap": "1.49x"
+}

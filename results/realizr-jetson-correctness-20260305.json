@@ -1,0 +1,63 @@
+{
+  "runtime_name": "realizr-jetson",
+  "timestamp": "2026-03-05T17:15:46.103666715+00:00",
+  "results": [
+    {
+      "name": "basic_math",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'prefill_all_layers_gpu' not supported: Batched prefill failed: CUDA module loading failed: CUDA driver error: CUDA_ERROR_UNKNOWN (code: 716) (JIT target: sm_87)\"}"
+      ]
+    },
+    {
+      "name": "python_fibonacci",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'init_prefill_workspace' not supported: Prefill workspace init failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_UNKNOWN (code: 716)\"}"
+      ]
+    },
+    {
+      "name": "rust_hello",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'prefill_all_layers_gpu' not supported: Batched prefill failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_UNKNOWN (code: 716)\"}"
+      ]
+    },
+    {
+      "name": "explain_code",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'init_prefill_workspace' not supported: Prefill workspace init failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_UNKNOWN (code: 716)\"}"
+      ]
+    },
+    {
+      "name": "json_output",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'init_prefill_workspace' not supported: Prefill workspace init failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_UNKNOWN (code: 716)\"}"
+      ]
+    },
+    {
+      "name": "sql_query",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'init_prefill_workspace' not supported: Prefill workspace init failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_UNKNOWN (code: 716)\"}"
+      ]
+    }
+  ],
+  "passed": 0,
+  "failed": 6,
+  "total": 6
+}

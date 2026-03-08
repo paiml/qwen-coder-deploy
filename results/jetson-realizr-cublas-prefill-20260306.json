@@ -1,0 +1,43 @@
+{
+  "test": "PMAT-026 cuBLAS prefill (Q4K+Q6K dequant)",
+  "date": "2026-03-06",
+  "host": "Jetson Orin Nano Super",
+  "gpu": "sm_87, 1024 CUDA cores, 67 GB/s",
+  "clocks": "locked (jetson_clocks)",
+  "config": {
+    "CUBLAS_PREFILL": 1,
+    "BATCHED_PREFILL": 1,
+    "DP4A_Q4K": 1,
+    "DP4A_Q6K": 1,
+    "MWV_Q6K": 1,
+    "MWV_WARPS": 3
+  },
+  "realizr_cublas": {
+    "decode_tps": 21.4,
+    "prefill_tps": 56.3,
+    "ttft_p50_ms": 1811.8,
+    "itl_p50_ms": 46.7,
+    "requests": 8,
+    "duration": "60s",
+    "concurrency": 1
+  },
+  "realizr_no_cublas": {
+    "decode_tps": 21.4,
+    "prefill_tps": 28.8,
+    "ttft_p50_ms": 3542,
+    "itl_p50_ms": 46.8,
+    "note": "from prior session baseline"
+  },
+  "llamacpp": {
+    "decode_tps": 33.1,
+    "prefill_tps": 2491.3,
+    "ttft_p50_ms": 40.9,
+    "itl_p50_ms": 30.2
+  },
+  "improvement": {
+    "prefill_speedup": "1.95x (28.8 → 56.3 tok/s)",
+    "ttft_speedup": "1.95x (3542 → 1812 ms)",
+    "remaining_prefill_gap": "44x (was 86x)",
+    "remaining_decode_gap": "1.55x (unchanged)"
+  }
+}

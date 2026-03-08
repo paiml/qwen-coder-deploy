@@ -1,0 +1,130 @@
+
+[1;36m=== apr profile (Real Per-Operation Telemetry) ===[0m
+
+  [1;37mModel[0m: /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+  [1;37mFormat[0m: gguf
+
+[2mLoading model for GPU generation profiling...[0m
+[2mGPU warmup: 3 passes x 32 tokens...[0m
+[2mGPU measurement: 10 passes x 32 tokens...[0m
+[2m  Pass 0: 32 tokens in 124.4ms (prefill: 22.9ms, decode: 101.5ms = 315.2 tok/s)[0m
+[2mPer-operation profiling pass (no CUDA graph)...[0m
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+╭──────────────┬────────────────────────────────────────────────╮
+│ Architecture │ qwen2 (28 layers, hidden=1,536, vocab=151,936) │
+├──────────────┼────────────────────────────────────────────────┤
+│      Backend │ CUDA                                           │
+│       Warmup │ 3 passes                                       │
+│      Measure │ 10 passes                                      │
+╰──────────────┴────────────────────────────────────────────────╯
+
+  [1;32m✓[0m [1;32mREAL PER-OPERATION TELEMETRY[0m
+
+
+  [2m───[0m [36mPer-Operation Hotspots[0m
+
+╭─────┬──────────────────┬─────────┬───────┬───────┬────────────┬────────────────────────┬───────────────────────────────────────────────────────────╮
+│ #   │ Operation        │ Time    │ %     │ Calls │ Bottleneck │ Bar                    │ Detail                                                    │
+├─────┼──────────────────┼─────────┼───────┼───────┼────────────┼────────────────────────┼───────────────────────────────────────────────────────────┤
+│ #1  │ AttentionScore   │ 51117µs │ 65.2% │ 560   │ MEMORY     │ [█████████████░░░░░░░] │ avg=91.3µs, min=22.8µs, max=811.7µs, bw=0.3GB/s, eff=0%   │
+│ #2  │ RmsNorm          │ 17188µs │ 21.9% │ 1140  │ MEMORY     │ [████░░░░░░░░░░░░░░░░] │ avg=15.1µs, min=1.2µs, max=15457.0µs, bw=1.2GB/s, eff=0%  │
+│ #3  │ QkvProjection    │ 2617µs  │ 3.3%  │ 560   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=4.7µs, min=4.1µs, max=10.9µs                          │
+│ #4  │ GateProjection   │ 1732µs  │ 2.2%  │ 560   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=3.1µs, min=2.8µs, max=7.8µs                           │
+│ #5  │ RopeEmbedding    │ 1536µs  │ 2.0%  │ 560   │ COMPUTE    │ [░░░░░░░░░░░░░░░░░░░░] │ avg=2.7µs, min=2.4µs, max=8.7µs, bw=4.5GB/s, eff=0%       │
+│ #6  │ DownProjection   │ 898µs   │ 1.1%  │ 560   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=1.6µs, min=1.3µs, max=3.8µs                           │
+│ #7  │ OutputProjection │ 884µs   │ 1.1%  │ 560   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=1.6µs, min=1.4µs, max=8.6µs, bw=83566.5GB/s, eff=100% │
+│ #8  │ Residual1        │ 791µs   │ 1.0%  │ 560   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=1.4µs, min=1.3µs, max=4.4µs                           │
+│ #9  │ Activation       │ 787µs   │ 1.0%  │ 560   │ COMPUTE    │ [░░░░░░░░░░░░░░░░░░░░] │ avg=1.4µs, min=1.2µs, max=6.7µs                           │
+│ #10 │ Residual2        │ 787µs   │ 1.0%  │ 560   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=1.4µs, min=1.3µs, max=5.2µs                           │
+│ #11 │ LmHead           │ 122µs   │ 0.2%  │ 20    │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=6.1µs, min=4.2µs, max=11.7µs                          │
+╰─────┴──────────────────┴─────────┴───────┴───────┴────────────┴────────────────────────┴───────────────────────────────────────────────────────────╯
+
+
+  [2m───[0m [36mCategory Summary[0m
+
+  Attention:  71.6%  [36m████████████████████████████[0m
+  FFN:         4.5%  [32m█[0m
+  Norm:       21.9%  [33m████████[0m
+  Other:       2.0%  [2m[0m
+
+
+  [2m───[0m [36mKernel Launch Overhead (F-PROFILE-009)[0m
+
+  Overhead: 28976µs (27.0% of decode time)
+  [31mWARNING: >20% overhead — consider kernel fusion[0m
+
+
+  [2m───[0m [36mRoofline Analysis[0m
+
+  Hardware:       NVIDIA GeForce RTX 4090 (peak 82580.0 GFLOPS, 1008.0 GB/s)
+  Achieved:       768.7 GFLOPS, 192.2 GB/s
+  Compute eff:    0.9%
+  Memory eff:     19.1%
+  Arithmetic int: 4.00 (threshold=82.0)
+  [34mℹ[0m [34mMEMORY BOUND[0m
+
+[34m[INFO][0m Decode is memory-bandwidth limited. Matmul operations transfer
+[34m[INFO][0m more bytes than FLOPs computed. Focus on memory access patterns.
+
+
+  [2m───[0m [36mPerformance Grade[0m
+
+  Grade: [1mC[0m  —  Fair — room for improvement
+  Efficiency: 19.1%
+
+
+  [2m───[0m [36mNaive Implementation Detection[0m
+
+  [1;32m✓[0m [1;32mOK[0m No obvious naive implementations detected
+
+
+  [2m───[0m [36mGeneration Performance[0m
+
+╭────────────────────┬─────────────╮
+│  Decode throughput │ 297.9 tok/s │
+├────────────────────┼─────────────┤
+│ Prefill throughput │ 241.9 tok/s │
+│   Tokens generated │ 320         │
+╰────────────────────┴─────────────╯
+
+
+  [2m───[0m [36mLatency Distribution (decode pass)[0m
+
+╭──────────────┬──────────╮
+│ p50 (median) │ 104.6 ms │
+├──────────────┼──────────┤
+│          p95 │ 113.4 ms │
+│          p99 │ 113.4 ms │
+│          min │ 101.1 ms │
+│          max │ 126.8 ms │
+╰──────────────┴──────────╯
+
+
+  [2m───[0m [36mSummary[0m
+
+  [2mAvg forward pass[0m: [1;37m148769.0µs (148.77ms)[0m
+  [2mThroughput[0m: [1;37m297.86[0m [2mtok/s[0m
+  [2mTokens per pass[0m: [1;37m32[0m
+  [2mOperations profiled[0m: [1;37m11[0m
+
+
+[2mProfile completed in 4.05s[0m
