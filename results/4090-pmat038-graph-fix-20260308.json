@@ -1,0 +1,42 @@
+{
+  "test": "PMAT-038: CUDA graph capture fix + fused gate+up+SwiGLU",
+  "date": "2026-03-08",
+  "device": "RTX 4090 (128 SMs, sm_89)",
+  "concurrency": 1,
+  "duration_s": 30,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "contention": "QLoRA training at 94% GPU util (9.6 GB VRAM)",
+  "env": "SKIP_PARITY_GATE=1, fused_gate_up=true, hgemm_decode=false",
+  "results": {
+    "graphs_fused": {
+      "decode_tok_s": 154.7,
+      "prefill_tok_s": 889.4,
+      "ttft_p50_ms": 114.7,
+      "itl_p50_ms": 6.5,
+      "requests": 34
+    },
+    "graphs_no_fused": {
+      "decode_tok_s": 151.9,
+      "prefill_tok_s": 918.4,
+      "ttft_p50_ms": 111.1,
+      "itl_p50_ms": 6.6,
+      "requests": 37
+    },
+    "no_graphs": {
+      "decode_tok_s": 140.9,
+      "prefill_tok_s": 909.4,
+      "ttft_p50_ms": 112.2,
+      "itl_p50_ms": 7.1,
+      "requests": 32
+    }
+  },
+  "analysis": {
+    "graph_fix_improvement": "1.08x (151.9 vs 140.9 — 8% from working CUDA graphs)",
+    "fused_improvement": "1.02x (154.7 vs 151.9 — marginal, noise)",
+    "note": "Improvements masked by 94% GPU util from QLoRA. Isolated test needed.",
+    "bug_fixed": "HW DP4A Q4K modules not preloaded → graph capture error 901 → eager fallback",
+    "modules_preloaded": 49
+  }
+}

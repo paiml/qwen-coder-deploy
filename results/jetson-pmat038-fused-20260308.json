@@ -1,0 +1,31 @@
+{
+  "test": "PMAT-038: Fused gate+up+SwiGLU + graph preloading on Jetson",
+  "date": "2026-03-08",
+  "device": "Jetson Orin Nano Super (8 SMs, sm_87)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "env": "SKIP_PARITY_GATE=1, fused_gate_up=true, jetson_clocks=locked",
+  "isolated": true,
+  "results": {
+    "decode_tok_s": 33.6,
+    "prefill_tok_s": 450.1,
+    "ttft_p50_ms": 226.6,
+    "itl_p50_ms": 29.8,
+    "latency_p50_ms": 4006.1,
+    "requests": 15,
+    "errors": 0,
+    "avg_tok_per_req": 128.0
+  },
+  "comparison": {
+    "previous_decode_tok_s": 33.8,
+    "previous_prefill_tok_s": 447.4,
+    "llamacpp_decode_tok_s": 33.0,
+    "llamacpp_prefill_tok_s": 2488.9,
+    "decode_gap": "1.02x (PARITY)",
+    "prefill_gap": "5.6x",
+    "fused_impact": "No measurable change — Jetson is memory-bound, not compute-bound"
+  }
+}
