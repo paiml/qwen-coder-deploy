@@ -474,3 +474,23 @@ roadmap:
   - gpu-fix
   - tier0
   notes: null
+- id: PMAT-019
+  github_issue: null
+  item_type: task
+  title: Fix generate_cuda prefill/decode split (GH-7)
+  status: inprogress
+  priority: critical
+  assigned_to: null
+  created: 2026-03-04T16:31:56Z
+  updated: 2026-03-04T16:32:00.316252287+00:00
+  spec: null
+  acceptance_criteria:
+  - 'generate_cuda passes all tokens on every iteration, bypassing the fast indexed decode path. Fix: use prefill+decode pattern.'
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - gpu
+  - decode
+  - fast-path
+  notes: null
