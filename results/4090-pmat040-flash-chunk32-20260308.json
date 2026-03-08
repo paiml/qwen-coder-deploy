@@ -1,0 +1,30 @@
+{
+  "test": "PMAT-040: Flash Decode chunk_size 128→32 — decode gap 1.64x→1.06x",
+  "date": "2026-03-08",
+  "device": "RTX 4090 (128 SMs, sm_89)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "isolated": true,
+  "env": "SKIP_PARITY_GATE=1, fused_gate_up=true, hgemm_decode=false, chunk_size=32",
+  "results": {
+    "decode_tok_s": 411.7,
+    "prefill_tok_s": 1734.0,
+    "ttft_p50_ms": 58.8,
+    "itl_p50_ms": 2.4,
+    "latency_p50_ms": 368.1,
+    "requests": 163,
+    "errors": 0,
+    "avg_tok_per_req": 128.0
+  },
+  "comparison": {
+    "previous_decode_tok_s": 266.3,
+    "llamacpp_decode_tok_s": 436.9,
+    "llamacpp_prefill_tok_s": 17620,
+    "decode_gap": "1.06x (near parity, was 1.64x)",
+    "improvement": "1.55x (266→412 tok/s)",
+    "root_cause": "FLASH_DECODE_CHUNK_SIZE 128→32: at avg_tok=128, old chunk_size gave 1 chunk = zero parallelism. New chunk_size gives 4 chunks = 4x SM utilization for attention."
+  }
+}

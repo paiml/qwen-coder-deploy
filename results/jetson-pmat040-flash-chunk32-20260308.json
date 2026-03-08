@@ -1,0 +1,29 @@
+{
+  "test": "PMAT-040: Flash Decode chunk_size 128→32 on Jetson",
+  "date": "2026-03-08",
+  "device": "Jetson Orin Nano Super (8 SMs, sm_87)",
+  "concurrency": 1,
+  "duration_s": 60,
+  "warmup_s": 5,
+  "stream": true,
+  "model": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "env": "SKIP_PARITY_GATE=1, fused_gate_up=true, jetson_clocks=locked, chunk_size=32",
+  "isolated": true,
+  "results": {
+    "decode_tok_s": 36.2,
+    "prefill_tok_s": 447.7,
+    "ttft_p50_ms": 227.8,
+    "itl_p50_ms": 27.6,
+    "latency_p50_ms": 3734.6,
+    "requests": 17,
+    "errors": 0,
+    "avg_tok_per_req": 128.0
+  },
+  "comparison": {
+    "previous_decode_tok_s": 32.7,
+    "llamacpp_decode_tok_s": 33.0,
+    "decode_gap": "0.91x (realizr 10% FASTER than llama.cpp)",
+    "improvement": "10.7% (32.7→36.2 tok/s)",
+    "root_cause": "Flash Decode split-K parallelism: 2-4 chunks on 8 SMs vs 1 chunk with chunk_size=128"
+  }
+}
