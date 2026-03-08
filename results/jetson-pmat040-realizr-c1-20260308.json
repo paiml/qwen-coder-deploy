@@ -1,0 +1,29 @@
+{
+  "date": "2026-03-08",
+  "runtime": "realizr",
+  "device": "jetson-orin-nano-super",
+  "config": {
+    "concurrency": 1,
+    "duration_s": 60,
+    "warmup_s": 5,
+    "stream": true,
+    "model": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+    "binary": "apr (GGUF mode)",
+    "clocks": "locked",
+    "profile": "auto (sm_87: HwDp4a Q4K, HwDp4a Q6K, 3 warps, batched_prefill)"
+  },
+  "results": {
+    "requests": 15,
+    "throughput_rps": 0.3,
+    "latency_p50_ms": 3734.6,
+    "latency_p95_ms": 3735.8,
+    "latency_p99_ms": 3736.0,
+    "ttft_p50_ms": 227.0,
+    "tokens_per_sec": 36.3,
+    "prefill_tok_s": 449.3,
+    "decode_tok_s": 36.3,
+    "itl_p50_ms": 27.6,
+    "tpot_p50_ms": 27.6,
+    "error_rate": 0.0
+  }
+}

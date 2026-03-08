@@ -49,38 +49,40 @@
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 13 |
 | 2026-03-01 | realizar-gguf | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 45 |
 
-## Jetson Orin (sm_87, Qwen2.5-Coder-1.5B Q4_K_M)
+## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — PMAT-040, 2026-03-08
 
-### Load Test Results (2026-03-06, c=1, 60s, locked clocks, isolated)
+### RTX 4090 (128 SMs, sm_89)
 
-| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Tok/s |
-|---------|-------------|--------------|---------------|-------------|-------|
-| realizr | 21.4 | 28.8 | 3,542 | 46.8 | 14.3 |
-| llama.cpp | 33.1 | 2,478 | 41 | 30.2 | 32.8 |
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Latency P50 (ms) |
+|---------|-------------|--------------|---------------|-------------|-----------------|
+| realizr | **411.7** | 1,734 | 58.8 | 2.4 | 368.1 |
+| llama.cpp | 436.9 | 17,620 | 5.8 | 2.3 | — |
 
-**Gap vs llama.cpp:** Decode 1.55x, Prefill 86x, TTFT 86x
+**Decode gap: 1.06x (near parity).** Improvement: 1.55x (266→412 tok/s) via Flash Decode chunk\_size 128→32.
+Prefill gap: 10.2x (HGEMM FP16 reads vs llama.cpp fused Q4K GEMM).
 
-### Config: `DP4A_Q4K=1 DP4A_Q6K=1 MWV_Q6K=1 BATCHED_PREFILL=1 MWV_WARPS=3`
+### Jetson Orin Nano Super (8 SMs, sm_87, locked clocks)
 
-### Optimization History (GH-131/173/174)
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Latency P50 (ms) |
+|---------|-------------|--------------|---------------|-------------|-----------------|
+| realizr | **36.3** | 449.3 | 227.0 | 27.6 | 3,734.6 |
+| llama.cpp | 33.1 | 2,492.3 | 40.9 | 30.2 | 3,878.3 |
 
-| Step | Decode tok/s | Delta |
-|------|-------------|-------|
-| Baseline (DP4A) | 16.7 | — |
-| +BFI unaligned Q6K | 16.9 | +1.2% |
-| +deferred scale Q4K | 18.1 | +8.4% |
-| +GH-173 parallel byte-masked scale | 19.8 | +18.6% |
-| +locked clocks (jetson\_clocks) | **21.4** | **+28.1%** |
+**Decode: realizr 10% FASTER than llama.cpp (0.91x).** Improvement: 10.7% (32.7→36.3 tok/s).
+Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 
-### Optimization Sweeps
+### Config: GpuProfile auto-detect (no env vars), fused\_gate\_up=true, FLASH\_DECODE\_CHUNK\_SIZE=32
 
-**DP4A impact:**
-- No DP4A: 12.6 tok/s (baseline)
-- +DP4A\_Q4K: 14.5 (+15%)
-- +DP4A\_Q4K +DP4A\_Q6K: **16.7** (+33%)
+### Optimization History (GH-131/173/174/176, PMAT-033→040)
 
-**Warp count (MWV\_WARPS, locked clocks):**
-- 2 warps: 17.9, **3 warps: 21.4**, 4 warps: 18.2
+| Step | Jetson Decode | 4090 Decode | Date |
+|------|--------------|-------------|------|
+| Baseline (MWV DP4A) | 16.7 | 128.4 | Mar 5 |
+| +locked clocks | 21.4 | — | Mar 6 |
+| +HW DP4A Q4K (GH-176) | 27.8 | 162.8 | Mar 6 |
+| +grid 16 blocks/SM | 33.7 | — | Mar 7 |
+| +HGEMM prefill + graph | 32.7 | 266.3 | Mar 7 |
+| +Flash Decode chunk=32 | **36.3** | **411.7** | Mar 8 |
 
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
@@ -126,6 +128,8 @@ Fixes:
 | realizar | 162.7 |
 | llama.cpp | 262.7 |
 | **Gap** | **1.61x** |
+
+**Note:** This was before Flash Decode chunk\_size=32 (PMAT-040). Current graph-mode decode: 411.7 tok/s (1.06x gap).
 
 ## GPU Profiling — Nsight Systems (2026-03-04)
 

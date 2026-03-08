@@ -859,9 +859,9 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | Optimal kernel (Orin) | DP4A Q4K (+13%) | Variant sweep Mar 5 |
 | Q4K decode GEMV (Orin, DP4A) | 268µs | nsys Mar 5 |
 | Q6K decode GEMV (Orin) | 442µs (1.65x slower) | nsys Mar 5 |
-| **Decode gap (streaming)** | **1.19x** (27.8 vs 33.1 tok/s) | probador --stream Mar 6, GH-176 HW DP4A |
-| **Prefill gap** | **25x** (1045 vs 41ms TTFT) | probador --stream Mar 6, GH-176 + cuBLAS |
-| **Prefill throughput** | 97.8 tok/s (vs 2478 llama.cpp) | probador --stream Mar 6, GH-176 |
+| *Decode gap (pre-040)* | *1.19x (27.8 vs 33.1 tok/s)* | *probador --stream Mar 6, GH-176 HW DP4A* |
+| *Prefill gap (pre-HGEMM)* | *25x (1045 vs 41ms TTFT)* | *probador --stream Mar 6, GH-176 + cuBLAS* |
+| **Jetson prefill throughput** | **447.7 tok/s** (vs 2488.9 llama.cpp, **5.6x**) | HGEMM prefill, Mar 8 |
 | **BW utilization (realizr)** | 35.2% of 67 GB/s | HW DP4A, Mar 6 |
 | **BW utilization (llama.cpp)** | 40.9% of 67 GB/s | calculated |
 | **LmHead % of decode** | 25.7% (10,948µs per call) | BrickProfiler Immediate sync, Jetson, Mar 6 |
