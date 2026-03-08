@@ -1,0 +1,70 @@
+version: "1.0"
+name: qwen-coder-deploy-yoga-ollama
+description: "Isolated ollama benchmark on yoga (RTX 4060 Laptop)"
+
+machines:
+  yoga:
+    hostname: yoga
+    addr: 192.168.50.38
+    user: noah
+    arch: x86_64
+    transport: ssh
+
+resources:
+  stop-apr:
+    type: task
+    machine: yoga
+    command: "pkill -f 'apr serve' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'apr serve' >/dev/null 2>&1"
+
+  stop-llamacpp:
+    type: task
+    machine: yoga
+    command: "pkill -f 'llama-server' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
+
+  stop-ollama:
+    type: task
+    machine: yoga
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sudo systemctl stop ollama.service 2>/dev/null || true; sleep 2"
+    completion_check: "! pgrep -f 'ollama serve' >/dev/null 2>&1"
+
+  ollama-install:
+    type: task
+    machine: yoga
+    command: "/usr/local/bin/ollama --version 2>/dev/null || (curl -fsSL -o /tmp/ollama-install.sh https://ollama.com/install.sh && bash /tmp/ollama-install.sh && rm -f /tmp/ollama-install.sh)"
+    completion_check: "test -x /usr/local/bin/ollama"
+    timeout: 300
+
+  ollama-model:
+    type: task
+    machine: yoga
+    command: "OLLAMA_HOST=0.0.0.0:8082 ollama serve &>/dev/null & sleep 3; OLLAMA_HOST=http://127.0.0.1:8082 ollama pull qwen2.5-coder:1.5b-instruct; pkill -f 'ollama serve' 2>/dev/null || true"
+    completion_check: "ollama list 2>/dev/null | grep -q 'qwen2.5-coder:1.5b'"
+    depends_on: [ollama-install]
+    timeout: 600
+
+  # Provable contract: benchmark ports open for LAN access
+  ufw-bench-ports:
+    type: task
+    machine: yoga
+    command: "sudo ufw status | grep -q '8081:8084' || sudo ufw allow from 192.168.50.0/24 to any port 8081:8084 proto tcp"
+    completion_check: "sudo ufw status | grep -q '8081:8084'"
+
+  lock-clocks:
+    type: task
+    machine: yoga
+    command: "sudo nvidia-smi -lgc 1500,1500 2>/dev/null || true"
+    completion_check: "nvidia-smi --query-gpu=clocks.current.graphics --format=csv,noheader 2>/dev/null | grep -q '[0-9]'"
+    depends_on: [stop-apr, stop-llamacpp, stop-ollama, ufw-bench-ports]
+
+  ollama-gpu:
+    type: task
+    machine: yoga
+    command: "OLLAMA_HOST=0.0.0.0:8082 nohup /usr/local/bin/ollama serve > /tmp/ollama-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8082/api/tags >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8082/api/tags >/dev/null 2>&1"
+    depends_on: [ollama-model, lock-clocks]
+
+policy:
+  failure: stop_on_first
+  lock_file: true

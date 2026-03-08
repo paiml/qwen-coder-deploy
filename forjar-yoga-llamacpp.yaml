@@ -1,0 +1,83 @@
+version: "1.0"
+name: qwen-coder-deploy-yoga-llamacpp
+description: "Isolated llama.cpp benchmark on yoga (RTX 4060 Laptop)"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+machines:
+  yoga:
+    hostname: yoga
+    addr: 192.168.50.38
+    user: noah
+    arch: x86_64
+    transport: ssh
+
+resources:
+  stop-apr:
+    type: task
+    machine: yoga
+    command: "pkill -f 'apr serve' 2>/dev/null || true"
+    completion_check: "! pgrep -f 'apr serve' >/dev/null 2>&1"
+
+  stop-ollama:
+    type: task
+    machine: yoga
+    command: "pkill -f 'ollama serve' 2>/dev/null || true; sudo systemctl stop ollama.service 2>/dev/null || true"
+    completion_check: "! pgrep -f 'ollama serve' >/dev/null 2>&1"
+
+  stop-llamacpp:
+    type: task
+    machine: yoga
+    command: "pkill -f 'llama-server' 2>/dev/null || true; sleep 2"
+    completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
+
+  # Provable contract: CUDA >= 12 at /usr/local/cuda (paiml/infra#1)
+  cuda-version-check:
+    type: task
+    machine: yoga
+    command: "/usr/local/cuda/bin/nvcc --version 2>/dev/null | grep -qE 'release (12|13)' || (echo 'CONTRACT FAIL: CUDA >= 12 required at /usr/local/cuda. Run: ssh yoga sudo apt-get install -y cuda-toolkit-12-6' >&2; exit 1)"
+    completion_check: "/usr/local/cuda/bin/nvcc --version 2>/dev/null | grep -qE 'release (12|13)'"
+
+  llamacpp-build:
+    type: task
+    machine: yoga
+    command: |
+      set -e
+      export PATH=/usr/local/cuda/bin:$PATH
+      if [ ! -d /home/noah/src/llama.cpp ]; then
+        git clone --depth 1 https://github.com/ggerganov/llama.cpp.git /home/noah/src/llama.cpp
+      fi
+      rm -rf /home/noah/src/llama.cpp/build
+      mkdir -p /home/noah/src/llama.cpp/build
+      cd /home/noah/src/llama.cpp/build
+      cmake .. -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc
+      cmake --build . --target llama-server -j$(nproc)
+    completion_check: "test -x /home/noah/src/llama.cpp/build/bin/llama-server"
+    depends_on: [cuda-version-check]
+    timeout: 1200
+
+  # Provable contract: benchmark ports open for LAN access
+  ufw-bench-ports:
+    type: task
+    machine: yoga
+    command: "sudo ufw status | grep -q '8081:8084' || sudo ufw allow from 192.168.50.0/24 to any port 8081:8084 proto tcp"
+    completion_check: "sudo ufw status | grep -q '8081:8084'"
+
+  lock-clocks:
+    type: task
+    machine: yoga
+    command: "sudo nvidia-smi -lgc 1500,1500 2>/dev/null || true"
+    completion_check: "nvidia-smi --query-gpu=clocks.current.graphics --format=csv,noheader 2>/dev/null | grep -q '[0-9]'"
+    depends_on: [stop-apr, stop-ollama, stop-llamacpp, ufw-bench-ports]
+
+  llamacpp-gpu:
+    type: task
+    machine: yoga
+    command: "nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --flash-attn on --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
+    depends_on: [llamacpp-build, lock-clocks]
+
+policy:
+  failure: stop_on_first
+  lock_file: true

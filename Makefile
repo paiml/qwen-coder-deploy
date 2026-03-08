@@ -51,6 +51,13 @@ JETSON_OLLAMA     := http://$(JETSON_HOST):8082
 JETSON_LLAMACPP   := http://$(JETSON_HOST):8083
 JETSON_APR_NATIVE := http://$(JETSON_HOST):8084
 
+# --- Yoga (primary benchmark target, RTX 4060 Laptop) ---
+YOGA_HOST := 192.168.50.38
+# NOTE: Use IP not hostname — yoga only resolves via SSH config, not DNS
+YOGA_REALIZAR := http://$(YOGA_HOST):8081
+YOGA_OLLAMA   := http://$(YOGA_HOST):8082
+YOGA_LLAMACPP := http://$(YOGA_HOST):8083
+
 # Ollama requires exact model tag (not "default")
 OLLAMA_MODEL := qwen2.5-coder:1.5b-instruct
 
@@ -64,6 +71,8 @@ QWEN_LAYERS := 28
         deploy-jetson teardown-jetson test-jetson load-jetson health-jetson nightly-jetson \
         bench-jetson-serial bench-jetson-realizr bench-jetson-ollama bench-jetson-llamacpp \
         bench-gpu-serial bench-gpu-realizr bench-gpu-llamacpp \
+        deploy-yoga-realizr deploy-yoga-llamacpp deploy-yoga-ollama teardown-yoga health-yoga \
+        bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama bench-yoga-serial \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp
@@ -497,6 +506,108 @@ profile-kernels-gpu: nsys-gpu
 	@echo ""
 	@echo "Compare: results/nsys-apr-gpu-kernels-$(DATE).txt (GPU kernel time)"
 	@echo "     vs: BrickProfiler output above (CPU-side time including launch overhead)"
+
+# ============================================================================
+# Yoga targets (PRIMARY benchmark target — RTX 4060 Laptop, ssh yoga)
+# ============================================================================
+# Spec: docs/specifications/perf-parity-spec.md
+# Method: forjar setup/teardown, one runtime at a time, locked clocks
+#
+# Usage:
+#   make bench-yoga-serial                  # All 3 runtimes, c=1 and c=4
+#   make bench-yoga-realizr                 # realizr only (isolated)
+#   make bench-yoga-llamacpp                # llama.cpp only (isolated)
+#   make bench-yoga-ollama                  # ollama only (isolated)
+
+deploy-yoga-realizr:
+	forjar apply -f forjar-yoga-realizr.yaml --yes
+
+deploy-yoga-llamacpp:
+	forjar apply -f forjar-yoga-llamacpp.yaml --yes
+
+deploy-yoga-ollama:
+	forjar apply -f forjar-yoga-ollama.yaml --yes
+
+teardown-yoga:
+	forjar apply -f forjar-yoga-teardown.yaml --yes
+
+health-yoga:
+	@echo "Checking realizr (yoga)..."
+	@curl -sf $(YOGA_REALIZAR)/health && echo " OK" || echo " FAIL"
+	@echo "Checking ollama (yoga)..."
+	@curl -sf $(YOGA_OLLAMA)/api/tags >/dev/null 2>&1 && echo " OK" || echo " FAIL"
+	@echo "Checking llama.cpp (yoga)..."
+	@curl -sf $(YOGA_LLAMACPP)/health && echo " OK" || echo " FAIL"
+
+bench-yoga-realizr:
+	@echo "=== teardown before realizr bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== realizr (isolated, yoga) ==="
+	forjar apply -f forjar-yoga-realizr.yaml --yes --force
+	@echo "--- c=1 ---"
+	probador llm load --url $(YOGA_REALIZAR) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name realizr-yoga-c1 \
+		--output results/yoga-serial-realizr-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(YOGA_REALIZAR) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name realizr-yoga-c4 \
+		--output results/yoga-serial-realizr-c4-$(DATE).json
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-llamacpp:
+	@echo "=== teardown before llama.cpp bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== llama.cpp (isolated, yoga) ==="
+	forjar apply -f forjar-yoga-llamacpp.yaml --yes --force
+	@echo "--- c=1 ---"
+	probador llm load --url $(YOGA_LLAMACPP) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name llamacpp-yoga-c1 \
+		--output results/yoga-serial-llamacpp-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(YOGA_LLAMACPP) --model $(OLLAMA_MODEL) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name llamacpp-yoga-c4 \
+		--output results/yoga-serial-llamacpp-c4-$(DATE).json
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-ollama:
+	@echo "=== teardown before ollama bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== ollama (isolated, yoga) ==="
+	forjar apply -f forjar-yoga-ollama.yaml --yes --force
+	@echo "--- c=1 ---"
+	probador llm load --url $(YOGA_OLLAMA) --model $(OLLAMA_MODEL) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name ollama-yoga-c1 \
+		--output results/yoga-serial-ollama-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(YOGA_OLLAMA) --model $(OLLAMA_MODEL) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name ollama-yoga-c4 \
+		--output results/yoga-serial-ollama-c4-$(DATE).json
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-serial: bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama
+	@echo ""
+	@echo "=== Yoga Serial Benchmark Complete ==="
+	@echo "Results in results/yoga-serial-*-$(DATE).json"
+	@echo "Compare c=1 decode:"
+	@jq '{runtime: .runtime_name, decode_tok_s: .decode_tok_per_sec, ttft_p50_ms: .ttft_p50_ms, itl_p50_ms: .itl_p50_ms}' results/yoga-serial-*-c1-$(DATE).json 2>/dev/null || true
 
 # ============================================================================
 # Shared targets
