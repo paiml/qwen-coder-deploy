@@ -94,6 +94,21 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 
 Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
 
+## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — PMAT-043, 2026-03-08
+
+### Jetson Orin Nano Super (8 SMs, sm_87, locked clocks)
+
+| Runtime | Aggregate tok/s | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Latency P50 (ms) |
+|---------|----------------|-------------|--------------|---------------|-------------|-----------------|
+| llama.cpp | **76.4** | 19.2 | 1,417.7 | 71.9 | 52.2 | 6,702.8 |
+| realizr | 34.3 | 36.3 | 8.9 | 11,413.4 | 27.6 | 14,915.2 |
+
+**Aggregate gap: 2.2x.** realizr serializes requests via `RwLock::write()` — one generation at a time.
+llama.cpp runs 4 slots in parallel, each at lower per-request decode (19.2 vs 33.1 solo) but 2.2x aggregate.
+
+**Root cause:** No continuous batching scheduler. Batched GEMV executor (PAR-111) exists but HTTP handler doesn't use it.
+**Next:** Implement slot-based scheduler with batched decode (PMAT-044).
+
 ## GPU Profiling — BrickProfiler (2026-03-06, C-GDP-001 Contract)
 
 ### Corrected Brick Breakdown (RTX 4090, Immediate Sync, CUDA\_GRAPH\_DISABLE=1)
