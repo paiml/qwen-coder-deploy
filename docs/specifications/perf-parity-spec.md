@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.12.0
+**Version:** 3.13.0
 **Date:** 2026-03-09
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -287,28 +287,29 @@ capture are 7x slower than eager cuBLAS (541ms vs 78ms for S=125). TTFT 561→78
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|----------------|-------------|---------------|-------------|
 | **vLLM** | **562.6** | **152.2** | **24.5** | **6.6** |
-| llama.cpp | 303.8 | 76.3 | 22.1 | 13.1 |
-| **realizr** | **137.0** | **42.8** | 659.7 | **23.4** |
+| llama.cpp | 303.9 | 76.4 | 20.5 | 13.1 |
+| **realizr** | **149.2** | **42.8** | 357.5 | **23.4** |
 
 **Parity check (realizr vs llama.cpp, c=4):**
-- Decode: 42.8 / 76.3 = **0.56x** (FAIL — SGEMM prefill starves decode)
-- Aggregate: 137.0 / 303.8 = **0.45x** (FAIL — target >= 3x c=1 = 420)
+- Decode: 42.8 / 76.4 = **0.56x** (FAIL — batched GEMV compute-bound at M=4)
+- Aggregate: 149.2 / 303.9 = **0.49x** (FAIL — target >= 3x c=1 = 420)
 - ITL: 23.4 / 13.1 = **1.79x** (FAIL — target <= 1.5x)
-- TTFT: 659.7 / 22.1 = **29.9x** (FAIL — target <= 2x)
+- TTFT: 357.5 / 20.5 = **17.4x** (FAIL — target <= 2x, PMAT-060 improved 1.85x)
 
 **Parity check (realizr vs vLLM, c=4):**
 - Decode: 42.8 / 152.2 = **0.28x** (FAIL — 3.6x gap)
-- Aggregate: 137.0 / 562.6 = **0.24x** (FAIL — 4.1x gap)
+- Aggregate: 149.2 / 562.6 = **0.27x** (FAIL — 3.8x gap)
 - ITL: 23.4 / 6.6 = **3.5x** (FAIL)
-- TTFT: 659.7 / 24.5 = **26.9x** (FAIL)
+- TTFT: 357.5 / 24.5 = **14.6x** (FAIL)
 
 **Notes:**
 - vLLM c=4: continuous batching, decode barely degrades from c=1 (160→152 tok/s, -5%)
 - llama.cpp c=4: true parallel slots, 2.13x aggregate vs c=1
-- realizr c=4: 0.99x aggregate vs c=1 (serial SGEMM prefill blocks decode pipeline)
-- c=4 decode regression (60→43): FP16 cache cleared for batched KV → SGEMM prefill
-  consumes ~660ms TTFT, reducing effective decode window per batch cycle
-- PMAT-058: c=1 after c=4 fully recovers (138.4 tok/s)
+- realizr c=4: 1.08x aggregate vs c=1 (PMAT-060 improved 0.45x→0.49x)
+- PMAT-060: HGEMM prefill during batched decode — FP16+batched KV fit in 8GB VRAM
+  (4690 MB total, 2.8 GB headroom). TTFT 660→358ms (1.85x). GH-141 ILLEGAL_ADDRESS
+  was from stale graph pointers, not VRAM pressure.
+- PMAT-058: c=1 after c=4 fully recovers (138.8 tok/s)
 - PMAT-056: Fixed multi-stream graph capture (conditional stream: capture→self.stream, eager→compute_stream)
 - Graph disabled by default (capture 25% slower than eager), enable with BATCHED_GRAPH=1
 - Fused QKV DP4A — quantize Q8_1 once, 3x GEMV reuse (56 fewer launches/step)
@@ -320,10 +321,10 @@ capture are 7x slower than eager cuBLAS (541ms vs 78ms for S=125). TTFT 561→78
    HGEMM reads FP16 (3.56x more data). Fix: fused Q4K GEMM kernel.
 2. **c=4 decode 0.56x gap** — 42.8 vs 76.3 tok/s. Root cause: M=4 DP4A GEMV compute-bound +
    SGEMM prefill overhead. M=1→M=4 ITL: 3.25x (realizr) vs 1.87x (llama.cpp).
-3. **c=4 aggregate 0.45x llama.cpp** — 137.0 vs 303.8. Driven by SGEMM prefill (660ms TTFT)
-   + decode gap (0.56x). Serial SGEMM blocks the decode pipeline.
-4. **c=4 TTFT 29.9x gap** — 659.7ms vs 22.1ms. Root cause: FP16 cache cleared for batched KV
-   (VRAM constraint) → SGEMM prefill. Confirmed: keeping FP16 causes CUDA_ERROR_ILLEGAL_ADDRESS.
+3. **c=4 aggregate 0.49x llama.cpp** — 149.2 vs 303.9. Driven by decode gap (0.56x) +
+   sequential HGEMM prefill (237ms). PMAT-060 improved 0.45x→0.49x via HGEMM prefill.
+4. **c=4 TTFT 17.4x gap** — 357.5ms vs 20.5ms. PMAT-060 improved 29.9x→17.4x by keeping
+   FP16 during prefill (fits in 8GB VRAM). Remaining gap: sequential HGEMM vs parallel Q4K GEMM.
 4. ~~**c=1 regression after c=4**~~ **FIXED (PMAT-058)** — Was 140→124 tok/s. Root cause: FP16 weight cache cleared during batch decode, not rebuilt. Fix: `free_batched_kv_caches()` + `warmup_hgemm_cache()` + `clear_workspace()` at end of `generate_batched_streaming`. c=1 now recovers to 138.5 tok/s (baseline: 139.0).
 5. **PMAT-056: Multi-stream graph capture fixed** — scatter/attention use self.stream during capture, compute_stream for eager. Removes PMAT-055 correctness bug. Graph replay still 25% slower than eager (capture overhead), default=eager.
 6. **PMAT-054A: Fused QKV Q8_1 quantization** — Q8_1 quantize once, 3 GEMV reuse for Q/K/V projections. Saves 56 launches/step. Gate+up fusion (GH-141) saves 28/step. Total: 84 fewer launches/step.
@@ -383,6 +384,11 @@ Key milestones:
   secondary bugs: (a) separated prefill_graph_capture_failed from shared flag (prefill
   failure was blocking decode graph capture), (b) graph replay always allowed for
   already-captured S values. TTFT P50: 561→78.8ms (7.1x improvement).
+- PMAT-060: HGEMM prefill during batched decode — disproved GH-141 VRAM assumption.
+  FP16 (2944 MB) + batched KV (896 MB) + Q4K (850 MB) = 4690 MB, fits in 8GB VRAM
+  with 2.8 GB headroom. The GH-141 ILLEGAL_ADDRESS was from stale decode graph pointers,
+  not VRAM pressure. Also fixed init_prefill_workspace arg order bug (PMAT-045).
+  c=4 TTFT: 660→358ms (1.85x). Prefill 145→285 tok/s (2x). Aggregate 137→149 (+9%).
 
 ---
 
@@ -406,39 +412,37 @@ Key milestones:
 **Status:** PMAT-059 improved 7.1x (561→78.8ms) by disabling prefill graph. Remaining 6.4x
 gap requires fused Q4K GEMM kernel (~12ms target).
 
-### c=4 decode 0.56x gap (realizr 42.8 vs llama.cpp 76.3 tok/s)
+### c=4 decode 0.56x gap (realizr 42.8 vs llama.cpp 76.4 tok/s)
 
 1. **Why is c=4 decode 0.56x?** ITL 23.4ms vs 13.1ms per token step at M=4.
-2. **Why 23.4ms at M=4?** Two factors: (a) DP4A GEMV compute-bound at M=4, (b) SGEMM prefill
-   consumes ~660ms TTFT per batch, reducing decode throughput in pipeline.
-3. **Why worse M-scaling than llama.cpp?** realizr uses batched GEMV (one block per output row,
-   loops over M activations). llama.cpp uses tiled GEMM that tiles both M and N.
+2. **Why 23.4ms at M=4?** DP4A GEMV compute-bound at M=4 — kernel processes M activations
+   sequentially per weight read (one block per output row, loops over M).
+3. **Why worse M-scaling than llama.cpp?** llama.cpp uses tiled GEMM that tiles both M and N.
    M=1→M=4 ITL ratio: 3.25x (realizr) vs 1.87x (llama.cpp).
 4. **Why batched GEMV instead of GEMM?** DP4A GEMV was designed for M=1 decode (GH-176).
    M>1 batching was added by repeating M=1 kernel. No proper GEMM tiling for small M (2-8).
 5. **Why does vLLM maintain near-c=1 decode (160→152, -5%)?** Marlin INT4 GEMM kernel
    processes M requests in single fused kernel with proper tiling.
 
-**Root cause:** DP4A GEMV kernel designed for M=1, suboptimal at M=4. SGEMM prefill overhead.
-**Fix needed:** Small-M GEMM kernel tiling + fused Q4K prefill to eliminate SGEMM dependency.
+**Root cause:** DP4A GEMV kernel designed for M=1, suboptimal at M=4.
+**Fix needed:** Small-M GEMM kernel tiling for M=2..8 (proper M×N tiling).
 **Status:** Eager batched path: 42.8 tok/s, ITL 23.4ms.
 
-### c=4 TTFT 29.9x gap (realizr 659.7ms vs llama.cpp 22.1ms)
+### c=4 TTFT 17.4x gap (realizr 357.5ms vs llama.cpp 20.5ms)
 
-1. **Why is TTFT 29.9x?** 4 sequential prefills at ~165ms each = 660ms.
-2. **Why 165ms per prefill?** SGEMM prefill (FP32 per-call dequant), not HGEMM.
-3. **Why SGEMM?** FP16 weight cache (2944 MB) + batched KV (~940 MB) + Q4K (~850 MB)
-   exceeds 8GB VRAM → CUDA_ERROR_ILLEGAL_ADDRESS. Must clear FP16 before batch alloc.
-   Confirmed: keeping FP16 causes CUDA_ERROR_ILLEGAL_ADDRESS (code 700).
-4. **Why not prefill before allocating batched KV?** Current code order: clear FP16 →
-   allocate batched KV → prefill. Reordering to prefill-first (HGEMM) → clear FP16 →
-   allocate batched KV would use ~58ms/slot (232ms total) but requires D2H/H2D KV scatter.
-5. **Why is llama.cpp 22.1ms?** Fused Q4K GEMM (no FP16 cache needed) + parallel slots.
+1. **Why is TTFT 17.4x?** 4 sequential HGEMM prefills at ~59ms each = 237ms + overhead.
+2. **Why 59ms per prefill?** HGEMM reads FP16 weights (2 B/elem) via cuBLAS.
+3. **Why not fused Q4K GEMM?** GH-182 fused Q4K GEMM is 16x SLOWER than cuBLAS HGEMM at
+   M=125 on sm_89 due to serial accumulation without proper tiling.
+4. **Why sequential prefills?** Each slot prefills into single KV cache, then D2D scatters
+   to batched KV slot. No multi-prompt batched prefill yet (PMAT-051).
+5. **Why is llama.cpp 20.5ms?** Fused Q4K GEMM (0.5625 B/elem, 3.56x less BW) + parallel slots.
 
-**Root cause:** VRAM constraint forces FP16 clear → SGEMM fallback (3x slower than HGEMM).
-**Fixes:** (a) Reorder: HGEMM prefill before batched KV alloc → ~232ms (2.8x improvement).
-(b) Fused Q4K GEMM prefill → no FP16 dependency, ~50ms target.
-(c) PMAT-051 chunked/batched prefill → fused multi-slot prefill.
+**Root cause:** Sequential HGEMM prefill (3.56x more BW than Q4K) + no multi-slot parallelism.
+**PMAT-060 improvement:** Disproved GH-141 VRAM assumption — FP16 + batched KV fit in 8GB.
+  Kept FP16 during prefill → HGEMM (59ms/slot) instead of SGEMM (165ms/slot). TTFT 660→358ms.
+**Fixes remaining:** (a) Fused Q4K GEMM prefill → ~15ms/slot target.
+(b) PMAT-051 multi-slot batched prefill → all 4 slots in single pass.
 
 ### c=4 aggregate 0.36x gap (realizr 203.6 vs vLLM 562.6 tok/s)
 
