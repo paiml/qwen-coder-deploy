@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.5.0
+**Version:** 3.9.0
 **Date:** 2026-03-09
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -83,6 +83,10 @@ forjar apply -f forjar-yoga-teardown.yaml --yes
 forjar apply -f forjar-yoga-ollama.yaml --yes --force
 probador llm load --url http://192.168.50.38:8082 --model qwen2.5-coder:1.5b-instruct --duration 60 --concurrency 1 --warmup 5 --stream true
 forjar apply -f forjar-yoga-teardown.yaml --yes
+
+forjar apply -f forjar-yoga-vllm.yaml --yes --force
+probador llm load --url http://192.168.50.38:8084 --model Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ --duration 60 --concurrency 1 --warmup 5 --stream true
+forjar apply -f forjar-yoga-teardown.yaml --yes
 ```
 
 ### Concurrency Levels
@@ -116,6 +120,82 @@ At c=4 (continuous batching):
 
 - Aggregate decode tok/s >= 3x single-request decode tok/s
 - No request returns empty or garbage output
+
+---
+
+## Profiling Methodology — `apr profile` Integration
+
+**Principle:** Every performance gap must have a root cause identified via `apr profile`
+before optimization work begins. probador measures the gap; apr profile explains it.
+
+### Two-Tool Workflow
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `probador llm load` | Measure throughput, latency, TTFT | Establish parity gaps (external) |
+| `apr profile` | Roofline analysis, per-brick hotspots, bottleneck classification | Diagnose root cause (internal) |
+
+### apr profile Capabilities (Current)
+
+| Feature | Command | Output |
+|---------|---------|--------|
+| Roofline analysis | `apr profile <model> --perf-grade` | Compute-bound vs memory-bound, efficiency % |
+| Per-brick hotspots | `apr profile <model> --granular` | Time/% per operation (attention, FFN, norm) |
+| Ollama comparison | `apr profile <model> --ollama` | Side-by-side decode/prefill tok/s |
+| Baseline comparison | `apr profile <model> --baseline-url URL --baseline-name NAME` | Side-by-side vs any OpenAI-compat runtime (PMAT-056) |
+| CI assertions | `apr profile <model> --ci --assert-throughput 140` | Pass/fail with threshold |
+| Flamegraph | `apr profile <model> --format flamegraph -o flame.svg` | Interactive SVG |
+| Per-layer timing | `apr profile <model> --granular --json` | Per-layer variance detection (CV%) |
+| Kernel overhead | `apr profile <model> --granular` | Kernel launch overhead % (F-PROFILE-009) |
+| Live trace | `curl -H "X-Trace-Level: brick" /v1/chat/completions` | Per-brick timing in response JSON |
+
+### Profiling Workflow Per Gap
+
+```bash
+# Step 1: Measure the gap (probador)
+probador llm load --url http://yoga:8081 --concurrency 1 --stream true --duration 60s
+
+# Step 2: Profile the realizr side (apr profile, run ON yoga)
+ssh yoga 'apr profile /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf \
+  --perf-grade --granular --json --warmup 3 --measure 10 --tokens 32'
+
+# Step 3: Compare against any baseline (PMAT-056, --baseline-url)
+ssh yoga 'apr profile /path/to/model.gguf \
+  --baseline-url http://127.0.0.1:8083 --baseline-model default --baseline-name llama.cpp \
+  --perf-grade --granular --warmup 3 --measure 10 --tokens 32'
+
+# Step 3b: Compare against vLLM
+ssh yoga 'apr profile /path/to/model.gguf \
+  --baseline-url http://127.0.0.1:8084 --baseline-model Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ --baseline-name vLLM \
+  --perf-grade --granular --warmup 3 --measure 10 --tokens 32'
+
+# Step 4: Live trace for per-request debugging
+curl -s -X POST http://yoga:8081/v1/chat/completions \
+  -H "Content-Type: application/json" -H "X-Trace-Level: brick" \
+  -d '{"model":"default","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":16}'
+```
+
+### Gaps in Current Profiling (to be addressed)
+
+| Gap | Impact | Fix |
+|-----|--------|-----|
+| No c>1 per-request profiling | Can't diagnose per-slot bottlenecks at c=4 | PMAT-055: `apr profile --concurrent 4 --per-request` |
+| ~~No llama.cpp/vLLM comparison~~ | ~~Only `--ollama` comparison exists~~ | **DONE** PMAT-056: `--baseline-url` + `--baseline-model` + `--baseline-name` |
+| No batch scheduler overhead | Can't measure scheduling vs kernel time | PMAT-055: Timer around scheduler + GEMV phases |
+| No prefill/decode split at c>1 | Can't tell which phase dominates at c=4 | PMAT-055: Per-phase timing in batched path |
+| BrickProfiler aggregates all slots | Per-slot attention/FFN time invisible | PMAT-055: `profiler.record_slot(brick, slot_id, ns)` |
+
+### Make Targets for Profiling
+
+```bash
+make profile-yoga            # apr profile on yoga (roofline + hotspots + grade)
+make profile-yoga-ci         # CI assertion mode (threshold-gated)
+make profile-yoga-trace      # Live brick trace via X-Trace-Level header
+make profile-yoga-compare    # Profile + compare against ollama
+make profile-yoga-vs-llamacpp # Profile + compare against llama.cpp (PMAT-056)
+make profile-yoga-vs-vllm    # Profile + compare against vLLM (PMAT-056)
+make profile-yoga-full       # Full pipeline: deploy, profile, trace, teardown
+```
 
 ---
 
@@ -182,44 +262,62 @@ apr-cli (HTTP server, /v1/chat/completions)
 
 | Runtime | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Prefill tok/s |
 |---------|-------------|---------------|--------------|---------------|
-| **realizr** | **138.3** | 64.5 | **7.2** | 1,580.4 |
-| llama.cpp | 134.7 | **17.4** | 7.4 | **5,850.6** |
+| **vLLM** | **160.1** | 13.7 | **6.2** | 1,673.0 |
+| ollama | 150.9 | 71.8 | 6.6 | 320.2 |
+| **realizr** | 140.3 | 64.5 | 7.1 | 1,580.4 |
+| llama.cpp | 143.6 | **11.0** | 7.0 | **2,096.7** |
 
 **Parity check (realizr vs llama.cpp):**
-- Decode: 138.3 / 134.7 = **1.03x** (PASS — realizr 3% faster)
-- ITL: 7.2 / 7.4 = **0.97x** (PASS — realizr 3% faster)
-- TTFT: 64.5 / 17.4 = **3.7x** (FAIL — target <= 2x, improved from 4.5x via PMAT-050)
-- Prefill: 1580.4 / 5850.6 = **0.27x** (3.7x gap — drives TTFT)
+- Decode: 140.3 / 143.6 = **0.98x** (PASS — within 2%)
+- ITL: 7.1 / 7.0 = **1.01x** (PASS)
+- TTFT: 64.5 / 11.0 = **5.9x** (FAIL — target <= 2x)
+- Prefill: 1580.4 / 2096.7 = **0.75x** (drives TTFT gap)
+
+**Parity check (realizr vs vLLM):**
+- Decode: 140.3 / 160.1 = **0.88x** (FAIL — 12% gap)
+- ITL: 7.1 / 6.2 = **1.15x** (PASS)
+- TTFT: 64.5 / 13.7 = **4.7x** (FAIL)
 
 ### Yoga Baselines — c=4 (concurrent, 60s, streaming, isolated, ~102 prompt tokens)
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|----------------|-------------|---------------|-------------|
-| llama.cpp | **310.0** | **77.3** | **21.5** | **12.9** |
-| **realizr** | 186.6 | 51.3 | 260.4 | 19.5 |
+| **vLLM** | **562.6** | **152.2** | **24.5** | **6.6** |
+| llama.cpp | 317.0 | 79.7 | 21.5 | 12.9 |
+| **realizr** | **202.3** | **60.2** | 401.4 | **16.6** |
 
 **Parity check (realizr vs llama.cpp, c=4):**
-- Aggregate: 186.6 / 310.0 = **0.60x** (FAIL — target >= 3x c=1 = 420)
-- ITL: 19.5 / 12.9 = **1.51x** (NEAR PASS — target <= 1.5x)
-- TTFT: 260.4 / 21.5 = **12.1x** (FAIL — target <= 2x)
+- Decode: 60.2 / 79.7 = **0.76x** (FAIL — improved from 0.64x via GH-141 + PMAT-055)
+- Aggregate: 202.3 / 317.0 = **0.64x** (FAIL — target >= 3x c=1 = 420)
+- ITL: 16.6 / 12.9 = **1.29x** (PASS — target <= 1.5x)
+- TTFT: 401.4 / 21.5 = **18.7x** (FAIL — target <= 2x)
+
+**Parity check (realizr vs vLLM, c=4):**
+- Decode: 60.2 / 152.2 = **0.40x** (FAIL — 2.5x gap)
+- Aggregate: 202.3 / 562.6 = **0.36x** (FAIL — 2.8x gap)
+- ITL: 16.6 / 6.6 = **2.5x** (FAIL)
+- TTFT: 401.4 / 24.5 = **16.4x** (FAIL)
 
 **Notes:**
-- llama.cpp c=4: true parallel slots, 2.30x aggregate vs c=1
-- realizr c=4: 1.34x aggregate vs c=1, improved from 1.19x via PMAT-046 batched bias/rope/Q6K
-- Decode and ITL at parity (c=1). Only TTFT and c=4 aggregate remain.
+- vLLM c=4: continuous batching, decode barely degrades from c=1 (160→152 tok/s, -5%)
+- llama.cpp c=4: true parallel slots, 2.21x aggregate vs c=1
+- realizr c=4: 1.44x aggregate vs c=1, improved from 1.34x via GH-141 batched DP4A
+- PMAT-055: Disabled batched CUDA graph (multi-stream capture bug), 0% failures (was 25%)
+- PMAT-054A: Fused QKV DP4A — quantize Q8_1 once, 3x GEMV reuse (56 fewer launches/step)
+- vLLM uses AWQ INT4 quantization (efficient for batch serving), not GGUF
 
 ### Known Issues
 
-1. **c=4 ITL 1.51x gap** — 19.5ms vs llama.cpp 12.9ms. Batched KV scatter deployed, 334 launches cut (PMAT-046). Remaining gap: batch scheduler serialization (GH-141) — single `model.write()` lock means most batches are m=1.
-2. **c=4 aggregate 0.60x llama.cpp** — 186.6 vs 310.0. Root cause: batch scheduler serialization (GH-141). 10ms accumulation window + exclusive lock. llama.cpp uses per-slot parallelism with independent CUDA streams.
-3. **TTFT 3.7x gap** — 64.5ms vs 17.4ms at c=1. PMAT-050 graph capture reduced from 4.5x (78ms). Root cause now **GPU compute time**, not CPU launch overhead. cuBLAS HGEMM reads FP16 (2 B/elem) vs llama.cpp fused Q4K (0.5625 B/elem) = 3.56x bandwidth gap. Graph capture eliminated ~21ms CPU overhead; remaining 64.5ms is GPU-bound.
+1. **c=4 decode 0.76x gap** — 60.2 vs 79.7 tok/s. PMAT-055 fixed correctness (was 35.9 with graph bug), PMAT-054A saves 56 kernel launches/step. Remaining gap: Q8_1 quantize overhead (140 launches/step), instruction density.
+2. **c=4 aggregate 0.64x llama.cpp** — 202.3 vs 317.0. Root cause: per-request decode gap + serial prefill at c=4 (4 sequential prefills = 1600ms). No batched CUDA graph (PMAT-055 disabled due to multi-stream bug).
+3. **TTFT 3.7x gap** — 64.5ms vs 17.4ms at c=1. Root cause: **GPU compute time** — cuBLAS HGEMM reads FP16 (2 B/elem) vs llama.cpp fused Q4K (0.5625 B/elem) = 3.56x bandwidth gap.
 4. **Fused Q4K GEMM (GH-182) validated** — works correctly but 16x SLOWER than cuBLAS HGEMM at M=125 on RTX 4060 (sm_89). Not viable for TTFT improvement. Needs complete tiling rewrite.
-5. **CUDA graph capture blocked for batched decode** — per-layer KV cache pointer updates break static graph capture. Needs flat contiguous KV cache layout. True blocker for c=4 latency parity.
-6. **FP16 cold-start eliminated (PMAT-037)** — eagerly warm FP16 weight cache at model init. No first-request penalty.
-7. **PMAT-046: Batched bias/rope/Q6K** — Cut 334 kernel launches/step (784→450). ITL 20.0→19.3ms. Aggregate 166.6→186.6 tok/s (+12%).
-8. **c=2 zero decode tokens** — batch scheduler bug at c=2. Does not affect c=1 or c=4.
+5. **PMAT-055: Batched CUDA graph disabled** — multi-stream graph capture (compute_stream + main stream) causes identical token_ids across decode steps. Scatter and QKV projection run on different streams; graph replay doesn't enforce ordering. Root cause confirmed: disabling graph fixed correctness (35.9→60.2 tok/s, 0→0% failure). Re-enable when paged KV (PMAT-052) eliminates per-step pointer updates.
+6. **PMAT-054A: Fused QKV Q8_1 quantization** — Q8_1 quantize once, 3 GEMV reuse for Q/K/V projections. Saves 2 quantize launches per layer × 28 layers = 56 per token. Gate+up fusion (GH-141) also saves 28/step. Total: 84 fewer launches/step.
+7. **PMAT-046: Batched bias/rope/Q6K** — Cut 334 kernel launches/step (784→450). ITL 20.0→19.3ms.
+8. **GH-141: Batched HW DP4A Q4K GEMV** — Replaces cuBLAS SGEMM for M=2..8 decode. Q4K (0.5625 B/elem) + Q8_1 (1.125 B/elem) vs FP32 (8 B/elem). Decode 51.1→60.2 (+17.8%).
 9. **Parity gate false positive** — GPU parity check fails (cosine sim -0.28) but GPU output is correct. CPU reference diverges. Set `SKIP_PARITY_GATE=1` to bypass.
-10. **PMAT-050: Prefill CUDA graph capture** — captures 728 kernel launches into 1 graph. TTFT 85.2→64.5ms (24% improvement). First request for each unique S captures graph (~143ms one-time cost). Subsequent requests replay. Disable with `PREFILL_GRAPH=0`.
+10. **PMAT-050: Prefill CUDA graph capture** — captures 728 kernel launches into 1 graph. TTFT 85.2→64.5ms (24% improvement). First request for each unique S captures graph (~380ms one-time cost). Subsequent requests replay. Disable with `PREFILL_GRAPH=0`.
 
 ---
 
@@ -248,6 +346,13 @@ Key milestones:
   cuBLAS HGEMM at M=125 on sm_89 (needs complete tiling rewrite).
 - PMAT-050: Prefill CUDA graph capture — 728 kernel launches → 1 graph. TTFT 85→64.5ms (24%).
   Root cause shifts from CPU launch overhead to GPU compute (FP16 bandwidth 3.56x vs Q4K).
+- vLLM baseline added (Mar 9): AWQ INT4, 160.1 tok/s c=1, 562.6 aggregate c=4.
+  New benchmark ceiling for continuous batching throughput.
+- PMAT-054A: Fused QKV Q8_1 quantization — quantize once, 3x GEMV reuse (56 fewer
+  launches/step). Provable contract validated (Grade B, binding coverage 1.00).
+- PMAT-055: Disabled batched CUDA graph — multi-stream capture bug caused identical
+  token_ids across decode steps. Eager batched path: c=4 decode 35.9→60.2 (+68%),
+  aggregate 97→202 (+108%), zero-token failures 25%→0%.
 
 ---
 
@@ -274,16 +379,145 @@ within the graph (still ~0.08ms per cuBLAS call even with graph replay).
 engineering effort — effectively building llama.cpp's mul_mat_q4_K equivalent.
 **Status:** Graph capture deployed (PMAT-050). CPU overhead eliminated. GPU compute is the bottleneck.
 
-### c=4 aggregate 0.60x gap (realizr 186.6 vs llama.cpp 310.0 tok/s)
+### c=4 aggregate 0.36x gap (realizr 202.3 vs vLLM 562.6 tok/s)
 
-1. **Why is c=4 aggregate 0.60x?** Batch scheduler serializes request processing.
-2. **Why serialized?** `model.write()` lock held for entire generation (~2.7s for batch of 4).
-3. **Why held so long?** Sequential per-slot prefills (4×260ms=1040ms) + decode loop (1660ms).
-4. **Why not release between phases?** CudaExecutor owns all GPU state — KV cache, graphs,
-   scratch buffers — and requires exclusive access.
-5. **Why not per-slot parallelism?** Architectural: weight buffers shared, KV caches per-slot
-   but pointers updated per-layer (breaks CUDA graph capture). llama.cpp solves this with
-   independent slots, separate CUDA streams, and paged attention.
+1. **Why is c=4 aggregate 0.36x vLLM?** Per-request decode 60.2 vs 152.2 tok/s (0.40x),
+   and no true continuous batching (prefills block decode).
+2. **Why 0.40x per-request decode?** No CUDA graph at c>1 (PMAT-055: disabled due to
+   multi-stream capture bug). Eager batched path has full kernel launch overhead at 16.6ms ITL.
+3. **Why no graph at c>1?** Graph capture records ops on 3 streams (compute, transfer, main).
+   Replay topology doesn't enforce ordering between KV scatter (compute_stream) and QKV
+   projection (main stream). Result: identical token_ids, zero-length outputs, 25% failure rate.
+   PMAT-055 five-whys: scatter reads stale K/V because graph replays scatter before projection.
+4. **Why 3 streams?** Historical design — compute_stream for GEMV/attention, main stream for
+   norms/residuals. Paged KV cache (PMAT-052) would eliminate per-step pointer updates,
+   making graph capture feasible with single-stream execution.
+5. **Why does vLLM's decode barely degrade (160→152, -5%)?** Marlin GEMM processes M requests
+   in a single kernel, PagedAttention handles variable-length KV via block tables, CUDA graph
+   replays the entire forward pass. Adding 3 more decode requests adds ~5% overhead vs 3x.
 
-**Root cause:** Architectural serialization in batch scheduler. Fix requires Phase 1-3 of realizr GH-141.
-**Status:** Batched KV scatter deployed, batched bias/rope/Q6K deployed. Lock scope is the bottleneck.
+**Root cause:** Multi-stream architecture prevents correct graph capture. Eager path works but
+has kernel launch overhead. Fix: PMAT-052 (paged KV) + single-stream execution → graph capture.
+**Status:** PMAT-055 fixed correctness. Eager batched path: 202.3 aggregate tok/s, 0% failures.
+
+---
+
+## vLLM Source Analysis — Replication Plan
+
+vLLM achieves 160.1 tok/s c=1 decode and 562.6 aggregate c=4 on the same RTX 4060L hardware.
+Source code analysis (Mar 9) identified 5 architectural advantages to replicate.
+
+### 1. Unified Scheduler — No Prefill/Decode Phase Split
+
+**vLLM approach:** Single token budget per step. Running requests scheduled first (FCFS),
+then waiting requests fill remaining budget. Each request tracks `num_computed_tokens` —
+no separate "prefill queue" vs "decode queue". Mixed prefill+decode tokens processed in
+one forward pass.
+
+**realizr current:** `CudaBatchScheduler` has 10ms accumulation window, separate prefill
+then decode phases. Prefill blocks the decode loop — 4 sequential prefills at c=4 = 1040ms
+before first decode token.
+
+**Replication (PMAT-051):**
+- Track `num_computed_tokens` per slot in batch scheduler
+- Token budget = max_batch_tokens (e.g., 4096)
+- Each step: schedule running requests first (1 token each for decode), then fill remaining
+  budget with waiting requests' prefill chunks
+- Chunked prefill: split long prompts across steps (e.g., 128 tokens/step max per request)
+- Result: first decode token for request 0 emitted while request 3 still prefilling
+
+### 2. Paged KV Cache with Block Tables
+
+**vLLM approach:** KV cache organized as fixed-size pages (block_size=16). Per-request
+block table maps logical position → physical page. No contiguous allocation required.
+Eliminates fragmentation, enables prefix sharing (same KV blocks reused across requests
+with shared prefixes). Block table shape: `[max_num_reqs, max_num_blocks]`.
+
+**realizr current:** Per-slot contiguous KV cache with stride-based layout. KV scatter via
+D2D memcpy from single prefill to batched slot. Breaks CUDA graph capture because pointers
+change per-layer.
+
+**Replication (PMAT-052):**
+- Allocate KV cache as `[num_blocks, 2, block_size, num_kv_heads, head_dim]`
+- Per-request block table: `Vec<u32>` of block IDs
+- Block allocator: free list of block IDs, allocate on prefill, free on request completion
+- Slot mapping kernel: `slot = block_table[req][pos / block_size] * block_size + pos % block_size`
+- **Critical benefit:** Graph-compatible — block table is a fixed-size tensor, only values change
+  (no pointer updates per layer). Single graph captures entire forward pass.
+
+### 3. Single-Kernel Batched Attention (FlashInfer/FlashAttention)
+
+**vLLM approach:** One attention kernel launch processes ALL requests in the batch.
+Split into decode path (M=1 query per request, optimized for long KV) and prefill path
+(M>1 queries, full attention). Per-request metadata:
+- `paged_kv_indptr`: cumulative block counts (shape `[num_reqs+1]`)
+- `paged_kv_indices`: flat array of all block IDs
+- `seq_lens`: KV cache length per request
+
+**realizr current:** `batched_incremental_attention_into` processes M requests but with
+stride-based KV layout. Flash Decoding splits KV into chunks across threadblocks.
+
+**Replication (PMAT-053):**
+- Modify attention kernel to accept block table + indptr instead of stride offset
+- Decode: each threadblock handles one request's attention (grid = num_reqs × num_chunks)
+- Prefill: per-request full attention with paged KV reads
+- Key change: attention kernel reads KV via `kv_cache[block_table[block_idx]]` not
+  `kv_cache[slot * stride + layer * layer_stride]`
+
+### 4. Marlin-Style Quantized GEMM (c=1 decode gap)
+
+**vLLM approach:** Marlin kernel achieves 10.9x speedup over naive AWQ. Key techniques:
+- Tile-optimized INT4 weight layout (16×64 tiles, offline reshuffled)
+- In-kernel INT4→FP16 dequant via bit manipulation (no materialization)
+- Tensor core HMMA for the actual multiply-accumulate
+- Weight bypasses L2 (direct to SMEM), preserves activation cache
+- 8 threads per warp read 128-byte cache lines (coalesced)
+
+**realizr current:** HW DP4A Q4K GEMV — reads Q4K weights, quantizes activations to Q8_1,
+then integer dot product. CUDA cores only, no tensor cores for decode. 140.3 vs 160.1 = 0.88x.
+
+**Analysis of the 12% c=1 gap:**
+- vLLM Marlin reads INT4 (0.5 B/elem) + FP16 activations (2 B/elem)
+- realizr reads Q4K (0.5625 B/elem) + Q8_1 activations (1.125 B/elem)
+- Bandwidth similar, but Marlin uses tensor cores (HMMA) for compute
+- DP4A uses CUDA cores — fewer FLOPS/cycle at M=1
+- Q8_1 quantize overhead: 196 calls/step (28 layers × 7 GEMV)
+
+**Replication options (PMAT-054):**
+- **Option A:** Fused Q8_1 quantize — quantize once at layer entry, reuse for all 7 GEMV
+  (already partially done for gate+up, extend to all projections)
+- **Option B:** INT4→FP16 dequant + tensor core HMMA for M=1 (Marlin-style)
+  Requires: offline weight reshuffling, FP16 activation path, HMMA PTX
+- **Option C:** Reduce DP4A instruction count — current Q4K dequant is 20+ instructions
+  per super-block vs llama.cpp's ~5 bitmask ops. Halving instructions = ~10% throughput gain
+
+### 5. CUDA Graph Strategy — Full Graph for Decode, Piecewise for Mixed
+
+**vLLM approach:** Two modes:
+- **Uniform decode** (all requests at M=1): Full CUDA graph captures entire forward pass
+  including Marlin GEMM. Zero launch overhead.
+- **Mixed/prefill batches:** Piecewise graphs — attention stays eager (variable seq lengths),
+  GEMM layers captured. Reduces memory vs full graph per batch shape.
+
+**realizr current:** CUDA graph captures full decode at c=1. Batched decode (c>1) has
+`BATCHED_GRAPH=0` workaround — per-layer KV pointer updates break graph capture.
+
+**Replication (depends on PMAT-052):**
+- With paged KV cache: block table is a fixed tensor, only values change → graph-compatible
+- Capture full forward pass for M=1..8 decode (pre-capture common batch sizes)
+- For mixed batches: capture GEMV/GEMM layers only, attention stays eager
+- Estimate: eliminating kernel launch overhead at c=4 could recover 10-15% (16.8→~14.5ms ITL)
+
+### Prioritized Replication Roadmap
+
+| # | Task | Impact | Effort | Depends On |
+|---|------|--------|--------|------------|
+| 1 | ~~PMAT-054A: Fused Q8_1 quantize (QKV + gate+up)~~ | ~~+5-8% c=1 decode~~ | ~~Low~~ | **DONE** — saves 84 kernel launches/step |
+| 2 | PMAT-051: Chunked prefill scheduler | 3-5x TTFT at c=4 | Medium | None |
+| 3 | PMAT-052: Paged KV cache with block tables | Enables #4, #5 | High | None |
+| 4 | PMAT-053: Paged attention kernel | Enables graph capture at c>1 | High | PMAT-052 |
+| 5 | PMAT-052+graphs: Full graph capture at c>1 | 10-15% ITL at c=4 | Medium | PMAT-052 |
+| 6 | PMAT-054B: Marlin-style HMMA decode | +12% c=1 decode | Very High | New kernel |
+
+**Target after items 1-5:** realizr c=4 aggregate >= llama.cpp (317 tok/s), TTFT <= 2x llama.cpp.
+**Target after item 6:** realizr c=1 decode >= vLLM (160 tok/s).
