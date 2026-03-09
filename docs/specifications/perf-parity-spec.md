@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.2.0
+**Version:** 3.3.0
 **Date:** 2026-03-09
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -214,7 +214,7 @@ apr-cli (HTTP server, /v1/chat/completions)
 
 1. **c=4 ITL 1.44x gap** — 19.3ms vs llama.cpp 13.4ms. Batched KV scatter IS deployed (`realizr/src/cuda/executor/batch.rs`), reducing per-step launches from 224→56. Remaining gap: batch scheduler serialization (GH-141) — single `RwLock` blocks concurrent dispatch.
 2. **c=4 aggregate 0.61x llama.cpp** — 177.7 vs 291.7. Root cause: batch scheduler serialization (realizr GH-141). The 10ms accumulation window + exclusive `model.write()` lock means most batches are m=1 under load. llama.cpp uses per-slot parallelism with independent KV caches and concurrent CUDA streams. Fix: Phase 1 adaptive window → Phase 2 interleaved prefill/decode → Phase 3 per-slot KV + concurrent streams.
-3. **Prefill 4.9x TTFT gap** — realizr reads FP16 (2 B/elem) via HGEMM vs llama.cpp fused Q4K GEMM (0.5625 B/elem). Fused Q4K GEMM kernel exists in trueno (`fused_gemm.rs`) but has **critical scale extraction bug** for sub-blocks 4-7 (trueno GH-182) AND lacks tiling (reads weights M× for M rows). Requires both correctness fix + tiled implementation.
+3. **Prefill 4.9x TTFT gap** — realizr reads FP16 (2 B/elem) via HGEMM vs llama.cpp fused Q4K GEMM (0.5625 B/elem). **Tiled fused Q4K GEMM kernel now exists** (trueno `3935551`, GH-182): correct GGML super-block format, TILE_M weight reuse, 3.56x bandwidth reduction. Wired into realizr prefill dispatch via `FUSED_Q4K_PREFILL=1` (realizr `f59dfd2`). **Awaiting benchmark validation.**
 4. **CUDA graph capture blocked for batched decode** — per-layer KV cache pointer updates break static graph capture. Needs flat contiguous KV cache layout refactor. This is the true blocker for c=4 latency parity.
 5. **FP16 cold-start eliminated (PMAT-037)** — eagerly warm FP16 weight cache at model init. No first-request penalty.
 6. **PMAT-046: Batched bias/rope/Q6K** — Cut 334 kernel launches/step (784→450). ITL 20.0→19.3ms. Aggregate 166.6→177.7 tok/s (+7%).
@@ -242,6 +242,8 @@ Key milestones:
 - PMAT-046: Batched bias broadcast, NEOX RoPE, Q6K GEMV — cut 334 launches/step
 - GH-182: Fused Q4K GEMM rewrite — fixed 4 bugs (cross-row reduction, scale extraction,
   normalization, qs mapping). Correct serial accumulation, needs tiling for performance.
+- GH-182: Tiled fused Q4K GEMM — TILE_M weight reuse, reads Q4K directly (0.5625 B/elem).
+  Wired into realizr prefill via FUSED_Q4K_PREFILL=1.
 
 ---
 
@@ -259,8 +261,9 @@ Key milestones:
 5. **What's needed?** Tiled fused Q4K GEMM: load one super-block into shared memory, process
    all M rows from shared memory. Would close the 3.56x bandwidth gap.
 
-**Root cause:** No tiled fused Q4K GEMM kernel exists yet.
-**Status:** Correctness bugs fixed (trueno `2648239`). Tiled variant tracked as trueno GH-182.
+**Root cause:** Prefill reads FP16 weights (3.56x more data than Q4K).
+**Status:** Tiled fused Q4K GEMM implemented (trueno `3935551`), wired into realizr
+prefill dispatch (realizr `f59dfd2`). Enable: `FUSED_Q4K_PREFILL=1`. Awaiting benchmark.
 
 ### c=4 aggregate 0.61x gap (realizr 177.7 vs llama.cpp 291.7 tok/s)
 
