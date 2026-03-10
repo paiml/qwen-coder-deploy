@@ -494,3 +494,27 @@ roadmap:
   - decode
   - fast-path
   notes: null
+- id: PMAT-044
+  github_issue: null
+  item_type: task
+  title: PTX target parity — eliminate hardcoded sm_70 PTX targets
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-08T00:00:00Z
+  updated: 2026-03-08T20:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: GpuProfile::detect() sets sm_target from compute_capability() — DONE'
+  - 'AC2: Zero hardcoded emit_ptx() calls in executor/ — DONE (contract-falsify passes)'
+  - 'AC3: JIT compilation succeeds on all targets (sm_75/87/89) — DONE'
+  - 'AC4: Yoga (sm_89) decode parity with llama.cpp — DONE: 0.98x (140.3 vs 143.6)'
+  phases: []
+  subtasks: []
+  estimated_effort: 2d
+  labels:
+  - ptx
+  - gpu-profile
+  - target-parity
+  - tier0
+  notes: 'Cross-platform verified: Jetson sm_87 (36.3 tok/s, 0.91x faster), 4090 sm_89 (411.7 tok/s, 1.06x), 4060L sm_89 (140.3 tok/s, 0.98x). Provable contract: ptx-target-parity-v1.yaml, 3 bindings in binding.yaml.'

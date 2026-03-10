@@ -29,12 +29,18 @@ resources:
     command: "pkill -f 'llama-server' 2>/dev/null || true"
     completion_check: "! pgrep -f 'llama-server' >/dev/null 2>&1"
 
+  stop-vllm:
+    type: task
+    machine: yoga
+    command: "pkill -f 'vllm' 2>/dev/null || true; pkill -f 'VLLM' 2>/dev/null || true; sleep 2; pkill -9 -f 'vllm' 2>/dev/null || true; pkill -9 -f 'VLLM' 2>/dev/null || true; sleep 1; true"
+    completion_check: "! pgrep -f 'vllm' >/dev/null 2>&1 && ! pgrep -f 'VLLM' >/dev/null 2>&1"
+
   unlock-clocks:
     type: task
     machine: yoga
     command: "sudo nvidia-smi -rgc 2>/dev/null || true"
     completion_check: "true"
-    depends_on: [stop-apr, stop-ollama, stop-llamacpp]
+    depends_on: [stop-apr, stop-ollama, stop-llamacpp, stop-vllm]
 
 policy:
   failure: continue_independent

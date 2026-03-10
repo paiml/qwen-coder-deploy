@@ -49,7 +49,18 @@
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 13 |
 | 2026-03-01 | realizar-gguf | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 45 |
 
-## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — PMAT-040, 2026-03-08
+## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — PMAT-044, 2026-03-08
+
+### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM)
+
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | µs/layer | Latency P50 (ms) |
+|---------|-------------|--------------|---------------|-------------|----------|-----------------|
+| ollama | **150.9** | 320.2 | 71.8 | 6.6 | 236.6 | 277.2 |
+| llama.cpp | 143.6 | **2,096.7** | **11.0** | 7.0 | 248.7 | 226.9 |
+| **realizr** | 140.3 | 452.0 | 50.9 | 7.1 | 254.6 | 271.9 |
+
+**Decode: 3-way parity.** realizr 140.3 vs llama.cpp 143.6 = **0.98x** (within noise). Ollama leads at 150.9.
+Prefill gap: 4.6x (452 vs 2097 tok/s) — HGEMM FP16 reads vs llama.cpp fused Q4K GEMM.
 
 ### RTX 4090 (128 SMs, sm_89)
 
@@ -73,16 +84,25 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 
 ### Config: GpuProfile auto-detect (no env vars), fused\_gate\_up=true, FLASH\_DECODE\_CHUNK\_SIZE=32
 
-### Optimization History (GH-131/173/174/176, PMAT-033→040)
+### Optimization History (GH-131/173/174/176, PMAT-033→044)
 
-| Step | Jetson Decode | 4090 Decode | Date |
-|------|--------------|-------------|------|
-| Baseline (MWV DP4A) | 16.7 | 128.4 | Mar 5 |
-| +locked clocks | 21.4 | — | Mar 6 |
-| +HW DP4A Q4K (GH-176) | 27.8 | 162.8 | Mar 6 |
-| +grid 16 blocks/SM | 33.7 | — | Mar 7 |
-| +HGEMM prefill + graph | 32.7 | 266.3 | Mar 7 |
-| +Flash Decode chunk=32 | **36.3** | **411.7** | Mar 8 |
+| Step | Jetson Decode | 4090 Decode | 4060L Decode | Date |
+|------|--------------|-------------|-------------|------|
+| Baseline (MWV DP4A) | 16.7 | 128.4 | — | Mar 5 |
+| +locked clocks | 21.4 | — | — | Mar 6 |
+| +HW DP4A Q4K (GH-176) | 27.8 | 162.8 | — | Mar 6 |
+| +grid 16 blocks/SM | 33.7 | — | — | Mar 7 |
+| +HGEMM prefill + graph | 32.7 | 266.3 | — | Mar 7 |
+| +Flash Decode chunk=32 | **36.3** | **411.7** | — | Mar 8 |
+| +PMAT-044 PTX parity | — | — | **140.3** | Mar 8 |
+
+### Cross-Platform Decode Summary (c=1, isolated)
+
+| Platform | realizr | llama.cpp | Gap |
+|----------|---------|-----------|-----|
+| **RTX 4060 Laptop** (24 SMs) | 140.3 | 143.6 | **0.98x (parity)** |
+| RTX 4090 (128 SMs) | 411.7 | 436.9 | 1.06x |
+| Jetson Orin (8 SMs) | **36.3** | 33.1 | **0.91x (faster)** |
 
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
@@ -94,7 +114,18 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 
 Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
 
-## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — PMAT-043, 2026-03-08
+## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — PMAT-044, 2026-03-08
+
+### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM)
+
+| Runtime | Aggregate tok/s | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Latency P50 (ms) |
+|---------|----------------|-------------|--------------|---------------|-------------|-----------------|
+| llama.cpp | **291.9** | 74.9 | **970.1** | **23.7** | 13.4 | 437.7 |
+| ollama | 143.6 | **145.7** | 34.0 | 677.4 | **6.9** | 890.3 |
+| realizr | 86.8 | 50.0 | 26.9 | 854.1 | 20.0 | 1,473.9 |
+
+**Aggregate gap: 3.4x (realizr vs llama.cpp).** realizr serializes via `RwLock::write()` — one generation at a time.
+llama.cpp runs 4 slots in parallel. Ollama maintains decode speed but prefill serializes.
 
 ### Jetson Orin Nano Super (8 SMs, sm_87, locked clocks)
 
@@ -103,11 +134,8 @@ Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
 | llama.cpp | **76.4** | 19.2 | 1,417.7 | 71.9 | 52.2 | 6,702.8 |
 | realizr | 34.3 | 36.3 | 8.9 | 11,413.4 | 27.6 | 14,915.2 |
 
-**Aggregate gap: 2.2x.** realizr serializes requests via `RwLock::write()` — one generation at a time.
-llama.cpp runs 4 slots in parallel, each at lower per-request decode (19.2 vs 33.1 solo) but 2.2x aggregate.
-
 **Root cause:** No continuous batching scheduler. Batched GEMV executor (PAR-111) exists but HTTP handler doesn't use it.
-**Next:** Implement slot-based scheduler with batched decode (PMAT-044).
+**Next:** Implement slot-based scheduler with batched decode ([realizr#141](https://github.com/paiml/realizar/issues/141)).
 
 ## GPU Profiling — BrickProfiler (2026-03-06, C-GDP-001 Contract)
 

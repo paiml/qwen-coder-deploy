@@ -57,9 +57,13 @@ YOGA_HOST := 192.168.50.38
 YOGA_REALIZAR := http://$(YOGA_HOST):8081
 YOGA_OLLAMA   := http://$(YOGA_HOST):8082
 YOGA_LLAMACPP := http://$(YOGA_HOST):8083
+YOGA_VLLM     := http://$(YOGA_HOST):8084
 
 # Ollama requires exact model tag (not "default")
 OLLAMA_MODEL := qwen2.5-coder:1.5b-instruct
+
+# vLLM uses AWQ INT4 model (not GGUF — poor perf in vLLM)
+VLLM_MODEL := Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ
 
 GGUF_MODEL := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 
@@ -71,11 +75,13 @@ QWEN_LAYERS := 28
         deploy-jetson teardown-jetson test-jetson load-jetson health-jetson nightly-jetson \
         bench-jetson-serial bench-jetson-realizr bench-jetson-ollama bench-jetson-llamacpp \
         bench-gpu-serial bench-gpu-realizr bench-gpu-llamacpp \
-        deploy-yoga-realizr deploy-yoga-llamacpp deploy-yoga-ollama teardown-yoga health-yoga \
-        bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama bench-yoga-serial \
+        deploy-yoga-realizr deploy-yoga-llamacpp deploy-yoga-ollama deploy-yoga-vllm teardown-yoga health-yoga \
+        bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama bench-yoga-vllm bench-yoga-serial \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
-        nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp
+        nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
+        profile-yoga profile-yoga-ci profile-yoga-trace profile-yoga-compare profile-yoga-full \
+        contract-lint contract-validate contract-score contract-falsify
 
 # ============================================================================
 # Intel (CPU) targets
@@ -528,6 +534,9 @@ deploy-yoga-llamacpp:
 deploy-yoga-ollama:
 	forjar apply -f forjar-yoga-ollama.yaml --yes
 
+deploy-yoga-vllm:
+	forjar apply -f forjar-yoga-vllm.yaml --yes
+
 teardown-yoga:
 	forjar apply -f forjar-yoga-teardown.yaml --yes
 
@@ -538,6 +547,8 @@ health-yoga:
 	@curl -sf $(YOGA_OLLAMA)/api/tags >/dev/null 2>&1 && echo " OK" || echo " FAIL"
 	@echo "Checking llama.cpp (yoga)..."
 	@curl -sf $(YOGA_LLAMACPP)/health && echo " OK" || echo " FAIL"
+	@echo "Checking vLLM (yoga)..."
+	@curl -sf $(YOGA_VLLM)/v1/models >/dev/null 2>&1 && echo " OK" || echo " FAIL"
 
 bench-yoga-realizr:
 	@echo "=== teardown before realizr bench ==="
@@ -602,12 +613,147 @@ bench-yoga-ollama:
 		--output results/yoga-serial-ollama-c4-$(DATE).json
 	-forjar apply -f forjar-yoga-teardown.yaml --yes
 
-bench-yoga-serial: bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama
+bench-yoga-vllm:
+	@echo "=== teardown before vLLM bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== vLLM (isolated, yoga) ==="
+	forjar apply -f forjar-yoga-vllm.yaml --yes --force
+	@echo "--- c=1 ---"
+	probador llm load --url $(YOGA_VLLM) --model $(VLLM_MODEL) --concurrency 1 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name vllm-yoga-c1 \
+		--output results/yoga-serial-vllm-c1-$(DATE).json
+	@echo "--- c=4 ---"
+	probador llm load --url $(YOGA_VLLM) --model $(VLLM_MODEL) --concurrency 4 \
+		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
+		--stream true \
+		--num-layers $(QWEN_LAYERS) \
+		--runtime-name vllm-yoga-c4 \
+		--output results/yoga-serial-vllm-c4-$(DATE).json
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-serial: bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama bench-yoga-vllm
 	@echo ""
 	@echo "=== Yoga Serial Benchmark Complete ==="
 	@echo "Results in results/yoga-serial-*-$(DATE).json"
 	@echo "Compare c=1 decode:"
 	@jq '{runtime: .runtime_name, decode_tok_s: .decode_tok_per_sec, ttft_p50_ms: .ttft_p50_ms, itl_p50_ms: .itl_p50_ms}' results/yoga-serial-*-c1-$(DATE).json 2>/dev/null || true
+
+# ============================================================================
+# Yoga profiling (apr profile — internal roofline + hotspot analysis)
+# ============================================================================
+# Run ON yoga via SSH (apr profile needs direct GPU access, not HTTP)
+# Complements probador (external latency) with internal bottleneck analysis
+
+YOGA_GGUF := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+PROFILE_WARMUP := 3
+PROFILE_MEASURE := 10
+PROFILE_TOKENS := 32
+
+profile-yoga: ## Roofline + hotspots + perf grade on yoga (requires realizr deployed)
+	@echo "=== apr profile (yoga, roofline + hotspots) ==="
+	ssh yoga 'apr profile $(YOGA_GGUF) \
+		--perf-grade --granular --json \
+		--warmup $(PROFILE_WARMUP) --measure $(PROFILE_MEASURE) --tokens $(PROFILE_TOKENS) \
+		--output /tmp/profile-yoga-$(DATE).json' 2>&1 | tee results/profile-yoga-$(DATE).txt
+	scp yoga:/tmp/profile-yoga-$(DATE).json results/profile-yoga-$(DATE).json 2>/dev/null || true
+	@echo "=== flamegraph ==="
+	ssh yoga 'apr profile $(YOGA_GGUF) --format flamegraph \
+		--warmup $(PROFILE_WARMUP) --measure $(PROFILE_MEASURE) --tokens $(PROFILE_TOKENS) \
+		--output /tmp/flamegraph-yoga-$(DATE).svg'
+	scp yoga:/tmp/flamegraph-yoga-$(DATE).svg results/flamegraph-yoga-$(DATE).svg 2>/dev/null || true
+	@echo "Results: results/profile-yoga-$(DATE).json, results/flamegraph-yoga-$(DATE).svg"
+
+profile-yoga-ci: ## CI assertion mode — fail if below thresholds
+	@echo "=== apr profile CI gate (yoga) ==="
+	ssh yoga 'apr profile $(YOGA_GGUF) \
+		--ci --assert-throughput 130 --assert-p99 50 \
+		--warmup $(PROFILE_WARMUP) --measure $(PROFILE_MEASURE) --tokens $(PROFILE_TOKENS)'
+
+profile-yoga-trace: ## Live brick trace via X-Trace-Level header (requires realizr running)
+	@echo "=== Brick-level trace ==="
+	@curl -s -X POST $(YOGA_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-H "X-Trace-Level: brick" \
+		-d '{"model":"default","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":16}' | python3 -m json.tool
+	@echo ""
+	@echo "=== Layer-level trace ==="
+	@curl -s -X POST $(YOGA_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-H "X-Trace-Level: layer" \
+		-d '{"model":"default","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":16}' | python3 -m json.tool
+
+profile-yoga-compare: ## Profile + compare against ollama baseline
+	@echo "=== apr profile with ollama comparison ==="
+	ssh yoga 'apr profile $(YOGA_GGUF) \
+		--perf-grade --granular --ollama --json \
+		--warmup $(PROFILE_WARMUP) --measure $(PROFILE_MEASURE) --tokens $(PROFILE_TOKENS)' \
+		2>&1 | tee results/profile-yoga-compare-$(DATE).txt
+
+profile-yoga-vs-llamacpp: ## Profile + compare against llama.cpp baseline (PMAT-056)
+	@echo "=== apr profile with llama.cpp comparison ==="
+	ssh yoga 'apr profile $(YOGA_GGUF) \
+		--perf-grade --granular \
+		--baseline-url http://127.0.0.1:8083 --baseline-model default --baseline-name llama.cpp \
+		--warmup $(PROFILE_WARMUP) --measure $(PROFILE_MEASURE) --tokens $(PROFILE_TOKENS)' \
+		2>&1 | tee results/profile-yoga-vs-llamacpp-$(DATE).txt
+
+profile-yoga-vs-vllm: ## Profile + compare against vLLM baseline (PMAT-056)
+	@echo "=== apr profile with vLLM comparison ==="
+	ssh yoga 'apr profile $(YOGA_GGUF) \
+		--perf-grade --granular \
+		--baseline-url http://127.0.0.1:8084 --baseline-model $(VLLM_MODEL) --baseline-name vLLM \
+		--warmup $(PROFILE_WARMUP) --measure $(PROFILE_MEASURE) --tokens $(PROFILE_TOKENS)' \
+		2>&1 | tee results/profile-yoga-vs-vllm-$(DATE).txt
+
+# Full profiling pipeline: deploy realizr, profile, trace, teardown
+profile-yoga-full: deploy-yoga-realizr profile-yoga profile-yoga-trace teardown-yoga
+	@echo "=== Full Yoga Profiling Complete ==="
+
+# ============================================================================
+# Provable contract gates
+# ============================================================================
+# Contracts: paged-kv-cache-v1, continuous-batching-v1, ptx-target-parity-v1,
+#            kv-cache-equivalence-v1, performance-grading-v1, inference-pipeline-v1
+
+contract-lint: ## Validate provable contracts (min-score 0.25, binding-aware)
+	pv lint ../provable-contracts/contracts/ --binding ../provable-contracts/contracts/realizar/binding.yaml --min-score 0.25
+
+contract-validate: ## Validate new paged KV + continuous batching contracts
+	pv validate ../provable-contracts/contracts/paged-kv-cache-v1.yaml
+	pv validate ../provable-contracts/contracts/continuous-batching-v1.yaml
+	pv validate ../provable-contracts/contracts/performance-grading-v1.yaml
+
+contract-score: ## Score realizr-relevant contracts
+	@echo "=== Paged KV Cache ==="
+	@pv score ../provable-contracts/contracts/paged-kv-cache-v1.yaml
+	@echo "=== Continuous Batching ==="
+	@pv score ../provable-contracts/contracts/continuous-batching-v1.yaml
+	@echo "=== KV Cache Equivalence ==="
+	@pv score ../provable-contracts/contracts/kv-cache-equivalence-v1.yaml
+	@echo "=== Performance Grading ==="
+	@pv score ../provable-contracts/contracts/performance-grading-v1.yaml
+	@echo "=== Inference Pipeline ==="
+	@pv score ../provable-contracts/contracts/inference-pipeline-v1.yaml
+
+# Run static falsification tests from ptx-target-parity-v1.yaml
+contract-falsify: ## PMAT-044: verify no hardcoded emit_ptx() in executor
+	@echo "FALSIFY-PTP-001: No hardcoded emit_ptx in executor runtime path"
+	@HITS=$$(grep -r '\.emit_ptx()' ../realizar/src/cuda/executor/ 2>/dev/null | wc -l); \
+	if [ "$$HITS" -ne 0 ]; then echo "FAIL: $$HITS occurrences of .emit_ptx() in executor/"; exit 1; fi; \
+	echo "  PASS (0 occurrences)"
+	@echo "FALSIFY-PTP-002: CudaKernels uses device target"
+	@HITS=$$(grep -c 'CudaKernels::new()' ../realizar/src/cuda/executor/core.rs 2>/dev/null); HITS=$${HITS:-0}; \
+	if [ "$$HITS" != "0" ]; then echo "FAIL: CudaKernels::new() found in core.rs (should use with_target)"; exit 1; fi; \
+	echo "  PASS (CudaKernels::with_target in use)"
+	@echo "FALSIFY-PTP-003: generate_ptx threads target"
+	@HITS=$$(grep -c 'fn generate_.*_ptx(kernel_type: &KernelType)' ../realizar/src/cuda/kernels_generate_gemm_cuda.rs 2>/dev/null); HITS=$${HITS:-0}; \
+	if [ "$$HITS" != "0" ]; then echo "FAIL: $$HITS functions missing target param"; exit 1; fi; \
+	echo "  PASS (all generate helpers accept target param)"
+	@echo ""
+	@echo "All static falsification tests passed."
 
 # ============================================================================
 # Shared targets

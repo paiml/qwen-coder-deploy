@@ -1,10 +1,9 @@
 version: "1.0"
 name: qwen-coder-deploy
-description: "Deploy Qwen2.5-Coder-1.5B-Instruct across realizar, ollama, llama.cpp"
+description: "Deploy Qwen2.5-Coder-1.5B-Instruct across realizar, ollama, llama.cpp (CPU)"
 
 params:
-  model_id: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-  model_dir: "/home/noah/models/qwen-coder-1.5b"
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
   realizar_port: "8081"
   ollama_port: "8082"
   llamacpp_port: "8083"
@@ -19,82 +18,103 @@ machines:
     transport: ssh
 
 resources:
-  # 1. Create model directory
-  model-dir:
-    type: file
-    machine: intel
-    path: "{{params.model_dir}}"
-    state: directory
-    owner: noah
+  # ── Prerequisites ─────────────────────────────────────────
 
-  # 2. Download model (SafeTensors from HuggingFace)
-  model-safetensors:
-    type: model
+  ufw-bench-ports:
+    type: task
     machine: intel
-    name: qwen-coder-1.5b-instruct
-    source: "{{params.model_id}}"
-    path: "{{params.model_dir}}/safetensors/"
-    format: safetensors
-    depends_on: [model-dir]
+    tags: [infra, firewall]
+    command: |
+      sudo ufw allow 8081/tcp >/dev/null 2>&1
+      sudo ufw allow 8082/tcp >/dev/null 2>&1
+      sudo ufw allow 8083/tcp >/dev/null 2>&1
+    completion_check: "sudo ufw status | grep -q 8081"
 
-  # 3. Convert to GGUF (via llama.cpp convert script)
+  openblas-install:
+    type: task
+    machine: intel
+    tags: [infra, deps]
+    command: "dpkg -l libopenblas-dev >/dev/null 2>&1 || sudo apt-get install -y libopenblas-dev"
+    completion_check: "dpkg -l libopenblas-dev >/dev/null 2>&1"
+    timeout: 120
+
   model-gguf:
-    type: file
+    type: task
     machine: intel
-    path: "{{params.model_dir}}/qwen-coder-1.5b-q4_k_m.gguf"
-    source: "scripts/convert-gguf.sh"
-    depends_on: [model-safetensors]
+    tags: [model, setup]
+    command: |
+      mkdir -p /home/noah/models
+      test -f {{params.gguf_model}} || wget -q -O {{params.gguf_model}} \
+        "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+    completion_check: "test -f {{params.gguf_model}}"
+    timeout: 300
 
-  # 4. Convert to APR (via aprender)
-  model-apr:
-    type: file
+  apr-update:
+    type: task
     machine: intel
-    path: "{{params.model_dir}}/qwen-coder-1.5b.apr"
-    source: "scripts/convert-apr.sh"
-    depends_on: [model-safetensors]
+    tags: [runtime, realizr]
+    command: "cargo install apr-cli 2>&1 || true"
+    completion_check: "apr --version >/dev/null 2>&1"
+    timeout: 600
 
-  # 5. Install/update ollama
-  ollama-install:
-    type: package
+  llamacpp-build:
+    type: task
     machine: intel
-    packages: [ollama]
-    provider: script
+    tags: [runtime, llamacpp]
+    command: |
+      test -d /home/noah/src/llama.cpp || git clone --depth 1 https://github.com/ggerganov/llama.cpp.git /home/noah/src/llama.cpp
+      cd /home/noah/src/llama.cpp
+      mkdir -p build
+      cd build
+      cmake .. -DCMAKE_BUILD_TYPE=Release -DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS 2>/dev/null
+      cmake --build . --target llama-server -j"$(nproc)"
+    completion_check: "test -x /home/noah/src/llama.cpp/build/bin/llama-server"
+    depends_on: [openblas-install]
+    timeout: 600
 
-  # 6. Install/update llama.cpp (llama-server)
-  llamacpp-install:
-    type: package
-    machine: intel
-    packages: [llama-cpp]
-    provider: cargo
+  # ── Services ──────────────────────────────────────────────
 
-  # 7. Systemd service: realizar serve
-  realizar-serve:
-    type: service
-    machine: intel
-    name: qwen-realizar
-    enabled: true
-    state: running
-    depends_on: [model-gguf, model-apr, model-safetensors]
-
-  # 8. Systemd service: ollama serve
   ollama-serve:
-    type: service
+    type: task
     machine: intel
-    name: qwen-ollama
-    enabled: true
-    state: running
-    depends_on: [ollama-install, model-gguf]
+    tags: [service, ollama]
+    command: |
+      pkill -f 'ollama serve' 2>/dev/null || true
+      sleep 2
+      OLLAMA_HOST="0.0.0.0:{{params.ollama_port}}" nohup ollama serve > /tmp/ollama.log 2>&1 &
+      sleep 5
+      curl -sf "http://127.0.0.1:{{params.ollama_port}}/api/tags" >/dev/null
+    completion_check: "curl -sf http://127.0.0.1:{{params.ollama_port}}/api/tags >/dev/null 2>&1"
+    timeout: 30
 
-  # 9. Systemd service: llama-server
-  llamacpp-serve:
-    type: service
+  ollama-model:
+    type: task
     machine: intel
-    name: qwen-llamacpp
-    enabled: true
-    state: running
-    depends_on: [llamacpp-install, model-gguf]
+    tags: [model, ollama]
+    command: "OLLAMA_HOST=0.0.0.0:{{params.ollama_port}} ollama pull qwen2.5-coder:1.5b-instruct"
+    completion_check: "OLLAMA_HOST=0.0.0.0:{{params.ollama_port}} ollama list | grep -q qwen2.5-coder"
+    depends_on: [ollama-serve]
+    timeout: 300
+
+  realizar-serve:
+    type: task
+    machine: intel
+    tags: [service, realizr]
+    command: "pkill -f 'apr serve' 2>/dev/null || true; sleep 2; nohup apr serve {{params.gguf_model}} --host 0.0.0.0 --port {{params.realizar_port}} > /tmp/apr-cpu.log 2>&1 & sleep 20; curl -sf http://127.0.0.1:{{params.realizar_port}}/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:{{params.realizar_port}}/health >/dev/null 2>&1"
+    depends_on: [model-gguf, apr-update]
+    timeout: 60
+
+  llamacpp-serve:
+    type: task
+    machine: intel
+    tags: [service, llamacpp]
+    command: "pkill -f 'llama-server' 2>/dev/null || true; sleep 2; LD_LIBRARY_PATH=/home/noah/src/llama.cpp/build/bin nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port {{params.llamacpp_port}} --ctx-size 4096 --threads 32 > /tmp/llamacpp-cpu.log 2>&1 & sleep 45; curl -sf http://127.0.0.1:{{params.llamacpp_port}}/health >/dev/null"
+    completion_check: "curl -sf http://127.0.0.1:{{params.llamacpp_port}}/health >/dev/null 2>&1"
+    depends_on: [llamacpp-build, model-gguf]
+    timeout: 90
 
 policy:
-  failure: stop_on_first
+  failure: continue_independent
   tripwire: true
   lock_file: true

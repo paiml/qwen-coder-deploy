@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.14.0
+**Version:** 2.15.0
 **Status:** ACTIVE
 **Date:** 2026-03-08
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -105,17 +105,43 @@ For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./co
 
 ### Competition Benchmarks (Mar 2026)
 
-Standardized load test: `probador llm load` (60s, c=4). Model: Qwen2.5-Coder-1.5B Q4_K_M.
+Standardized load test: `probador llm load` (60s, streaming, isolated). Model: Qwen2.5-Coder-1.5B Q4_K_M.
 
-**RTX 4090 (Mar 4 2026 — final 4090 baselines before Jetson migration):**
+**RTX 4060 Laptop — yoga (Mar 8 2026, c=1, isolated, streaming, PMAT-044 PTX target parity):**
+
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | µs/layer |
+|---------|-------------|--------------|---------------|-------------|----------|
+| ollama | **150.9** | 320.2 | 71.8 | 6.6 | 236.6 |
+| llama.cpp | 143.6 | **2,096.7** | **11.0** | 7.0 | 248.7 |
+| **realizr** | 140.3 | 452.0 | 50.9 | 7.1 | 254.6 |
+
+**DECODE PARITY ACHIEVED (c=1).** realizr 140.3 vs llama.cpp 143.6 = **0.98x** — within measurement noise. All three runtimes within 7% of each other on decode. Remaining gap is prefill: 4.6x (HGEMM FP16 reads vs llama.cpp fused Q4K GEMM).
+
+**RTX 4060 Laptop — yoga (Mar 8 2026, c=4, isolated, streaming):**
+
+| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
+|---------|----------------|-------------|---------------|-------------|
+| llama.cpp | **291.9** | 74.9 | **23.7** | 13.4 |
+| ollama | 143.6 | **145.7** | 677.4 | **6.9** |
+| realizr | 86.8 | 50.0 | 854.1 | 20.0 |
+
+**c=4 gap: 3.4x aggregate (realizr vs llama.cpp).** Root cause: RwLock serialization ([realizr#141](https://github.com/paiml/realizar/issues/141)). llama.cpp runs 4 parallel slots; realizr processes one request at a time.
+
+**Cross-platform decode summary (c=1, isolated, streaming):**
+
+| Platform | realizr | llama.cpp | Gap |
+|----------|---------|-----------|-----|
+| **RTX 4060 Laptop** (24 SMs) | 140.3 | 143.6 | **0.98x (parity)** |
+| RTX 4090 (128 SMs) | 411.7 | 436.9 | 1.06x |
+| Jetson Orin (8 SMs) | **36.3** | 33.1 | **0.91x (faster)** |
+
+**RTX 4090 (Mar 4 2026 — historical, c=4, non-streaming):**
 
 | Runtime | Tokens/s | Decode tok/s | Latency P50 (ms) |
 |---------|----------|-------------|-------------------|
 | llama.cpp | **931.5** | **233.5** | 548 |
 | ollama | **561.6** | **139.9** | 915 |
 | realizar (GGUF) | 151.4 | 40.8 | 2,530 |
-
-**Gap to parity (4090):** realizar decode (40.8 tok/s) is **3.4x slower** than ollama decode (139.9 tok/s) and **5.7x slower** than llama.cpp (233.5 tok/s) at c=4. Raw per-token decode is ~270 tok/s (DECODE_TIMING), suggesting concurrency lock contention and prefill overhead dominate under load.
 
 **Gap to parity (Jetson Orin, isolated, non-streaming v1):** realizr (7.8 tok/s) is **4.1x slower** than llama.cpp (31.9 tok/s) and **3.0x slower** than ollama (23.4 tok/s) at c=1. Zero throughput scaling at c=4 (RwLock contention). Batch mode OOM on 7.4 GB unified memory.
 
@@ -1075,6 +1101,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.15.0 | 2026-03-08 | **DECODE PARITY CONFIRMED — yoga RTX 4060 Laptop (PMAT-044).** Full 3-runtime serial isolated benchmarks on yoga (sm_89, 24 SMs, 8GB). Decode: realizr 140.3, llama.cpp 143.6, ollama 150.9 — **0.98x parity** (within noise). Three-way decode within 7%. Prefill gap: 4.6x (452 vs 2097 tok/s) — HGEMM FP16 vs fused Q4K GEMM. c=4 concurrency: 3.4x aggregate gap (86.8 vs 291.9 tok/s) — RwLock serialization ([realizr#141](https://github.com/paiml/realizar/issues/141)). Cross-platform summary: Jetson 0.91x (faster), 4060L 0.98x (parity), 4090 1.06x (near parity). Provable contracts: ptx-target-parity-v1.yaml with 3 bindings, contract-falsify passes. Updated README, performance.md, perf-parity-spec.md. |
 | 2.14.0 | 2026-03-08 | **DECODE NEAR-PARITY ACHIEVED.** PMAT-038: Fixed CUDA graph capture for HW DP4A + fused gate+up+SwiGLU. PMAT-039: BFE byte extraction (108→103 insn/SB, no measurable impact — memory-bound). PMAT-040: Flash Decode chunk_size 128→32 — THE BREAKTHROUGH. With chunk_size=128, sequences <128 tokens got 1 chunk = zero split-K parallelism. Reducing to 32 gives 2-4 chunks, enabling actual SM utilization. **4090**: 266→412 tok/s (1.55x improvement), decode gap 1.64x→**1.06x** (near parity). **Jetson**: 32.7→36.2 tok/s (+10.7%), now **10% FASTER** than llama.cpp (33.0 tok/s). Remaining gaps: prefill 5.6-10x (FP16 reads vs Q4K, requires fused Q4K tiled GEMM), TTFT 10.1x (prefill-dominated). |
 | 2.13.0 | 2026-03-06 | **Kaizen: Flash Decoding sync removal + attention scaling analysis.** Removed unnecessary `stream.synchronize()` between Flash Decoding chunk and reduce kernels — CUDA stream semantics guarantee ordering within a stream. Sync was based on misunderstanding of CUDA API. Also added GpuProfile auto-detection (compute_capability-based kernel selection, replacing 9 env vars in forjar configs). New finding: 4090 decode gap is **sequence-length dependent** — 1.64x at avg_tok=32 but 1.92x at avg_tok=128. Root cause: realizr attention adds 39µs/layer per 4x more KV entries while llama.cpp adds only 2µs/layer (FlashAttention-2 scales better). Next target: attention kernel scaling with KV cache length. |
 | 2.12.0 | 2026-03-06 | **80/20 fix: HW DP4A Q4K on 4090.** Five-Whys root cause: forjar config used MWV DP4A (`DP4A_Q4K=1`) instead of half-warp DP4A (`HW_DP4A_Q4K=1`). Single env var change: decode 106.8→162.8 tok/s (+52%), gap 2.70x→1.71x per layer (219.3 vs 128.4 µs/layer). Remaining 1.71x gap: Q6K GEMV (LmHead + attn_v + ffn_down), attention, norms. Updated forjar-gpu-realizr.yaml + forjar-gpu.yaml. |
