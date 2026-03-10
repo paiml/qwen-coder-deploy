@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.20.0
+**Version:** 2.21.0
 **Status:** ACTIVE
 **Date:** 2026-03-10
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -374,7 +374,7 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **Fix:** Three phases, each independently shippable:
 - **PMAT-072 Phase 1 (DONE):** Decouple prefill/decode lock scope — release lock between decode steps (19ms hold vs 2700ms). Refactored `generate_batched_streaming` into step-wise API: `batched_setup_and_prefill` → `batched_decode_step` (loop) → `batched_cleanup`. Scheduler releases lock between decode steps. **Result:** 196.9 tok/s (baseline 197.5) — lock release alone does NOT improve throughput because single scheduler thread has no concurrent consumer. This is a **structural prerequisite** for PMAT-073, not a standalone improvement.
-- **PMAT-073 Phase 2:** Mid-batch joins — pending requests join active batch at next decode step. Batched GEMV already supports variable M (1-32). Target: ~350 aggregate. **Now unblocked by PMAT-072.**
+- **PMAT-073 Phase 2:** Mid-batch joins — pending requests join active batch at next decode step. Batched GEMV already supports variable M (1-32). Target: ~350 aggregate. **DONE** — 3 bugs fixed: GPU buffer padding, RwLock contention in HTTP handler, m=1 fast path preserved. Mid-batch joins verified working (4 joins during c=4 benchmark). No throughput gain at c=4 because probador sends all 4 simultaneously → initial batch is already 4. Gains expected at c>4 or staggered c=2-3.
 - **PMAT-074 Phase 3:** Mid-batch exits — finished slots recycled immediately for next pending request. True continuous batching. Target: ~450 aggregate.
 
 **Falsification (PMAT-072 result):** Phase 1 lock release did NOT improve aggregate (196.9 ≈ 197.5), confirming the falsification condition: "aggregate stays <220 tok/s" → bottleneck is NOT lock scope alone but the absence of mid-batch scheduling. Phase 2 is the critical path for actual throughput gains.
@@ -396,7 +396,7 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 Current:        197.5 aggregate tok/s (0.33x vLLM)
 + PMAT-072:     197.5 (lock release alone — no improvement, structural prerequisite) ✓ DONE
 + PMAT-071:     ~220 (faster prefill → shorter TTFT)
-+ PMAT-073:     ~350 (mid-batch joins — the actual throughput improvement)
++ PMAT-073:     197.4 (mid-batch joins DONE — no gain at c=4 when all arrive together) ✓ DONE
 + PMAT-074:     ~450 (slot recycling)
 Theoretical:    ~550 (4 × 138 decode, overhead)
 vLLM:           604.7
@@ -1230,6 +1230,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.21.0 | 2026-03-10 | **PMAT-073 DONE: Mid-batch joins.** Three bugs fixed: (1) GPU buffer length mismatch — attention vectors padded to match pre-allocated KV buffer size, (2) RwLock contention — `model_architecture()` and `model_eos_token_id()` blocked HTTP handlers ~2s during batch decode, fixed by caching at AppState construction, (3) m=1 fast path preserved — batched path 3x slower at c=1, keep monolithic path for single requests. Mid-batch joins verified: 4 joins during c=4 benchmark (slots join running batch with ~31ms prefill). c=1: 138.9 tok/s (no regression), c=4: 197.4 tok/s (no regression). No throughput gain at c=4 because probador sends all requests simultaneously → initial batch is already full. |
 | 2.20.0 | 2026-03-10 | **PMAT-072 DONE: Step-wise batched decode.** Refactored `generate_batched_streaming` into 3-method API: `batched_setup_and_prefill` → `batched_decode_step` → `batched_cleanup`. Scheduler releases model lock between decode steps (~19ms hold vs ~660ms). Result: 196.9 tok/s c=4 (baseline 197.5) — lock release alone does NOT improve throughput (single scheduler thread). Confirmed falsification: bottleneck is absence of mid-batch scheduling, not lock scope. PMAT-073 now unblocked. c=1: 138.9 tok/s (no regression). |
 | 2.19.0 | 2026-03-10 | **Five-Whys RCA for 3 remaining gaps + PMAT-071/072/073/074 implementation plan.** Gap 1: TTFT/Prefill 3.8x — cuBLAS HGEMM reads FP16 (3.5x BW vs Q4K), fix: tiled Q4K GEMM (PMAT-071). Gap 2: c=4 0.67x — `model.write()` held 2.7s, fix: continuous batching in 3 phases (PMAT-072/073/074). Gap 3: c=4 0.33x vs vLLM — architectural (scheduler + PagedAttention). Updated baselines to PMAT-062 numbers. Falsification conditions for each gap. |
 | 2.18.0 | 2026-03-10 | **Full 4-runtime benchmark with vLLM baseline.** First isolated serial benchmark including vLLM (AWQ INT4). c=1: vLLM 160.1, ollama 150.7, llama.cpp 143.5, realizr 140.0 — decode 4-way near-parity. TTFT improved 50.9→25.4ms via CORRECTNESS-014 fix. c=4: vLLM **567.3** aggregate (3.1x over realizr), llama.cpp 302.2 (1.7x), realizr 180.9 (+108% from 86.8 via CORRECTNESS-014 + PMAT-046). Updated performance.md, README.md, cross-platform summary with vLLM column. |

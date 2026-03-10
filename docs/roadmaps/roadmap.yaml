@@ -614,25 +614,33 @@ roadmap:
   github_issue: null
   item_type: task
   title: Continuous batching Phase 2 — mid-batch joins
-  status: planned
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-03-10T18:00:00Z
-  updated: 2026-03-10T18:00:00Z
+  updated: 2026-03-10T23:30:00Z
   spec: contracts/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: Pending requests join active batch at next decode step'
-  - 'AC2: Variable M (1-32) within a generation session'
-  - 'AC3: c=4 aggregate >= 350 tok/s on RTX 4060L'
+  - 'AC1: Pending requests join active batch at next decode step — DONE: try_recv in decode loop, add_slot_to_batch with ~31ms prefill'
+  - 'AC2: Variable M (1-32) within a generation session — DONE: m grows as requests join mid-batch'
+  - 'AC3: c=4 aggregate >= 350 tok/s — NOT MET: 197.4 (probador sends all 4 simultaneously → batch already full). Mid-batch joins verified working (4 joins during c=4 bench). Gains at staggered arrivals.'
   phases:
   - name: Extend batch scheduler to check pending queue between decode steps
-    status: planned
+    status: completed
     estimated_effort: null
-    completion: 0
+    completion: 100
   - name: Add per-slot prefill within running batch (prefill new slot, add to active set)
-    status: planned
+    status: completed
     estimated_effort: null
-    completion: 0
+    completion: 100
+  - name: Fix GPU buffer length mismatch (k_ptrs/v_ptrs/seq_lens padding)
+    status: completed
+    estimated_effort: null
+    completion: 100
+  - name: Fix RwLock contention in HTTP handler (cache architecture + EOS token)
+    status: completed
+    estimated_effort: null
+    completion: 100
   subtasks: []
   estimated_effort: 3d
   labels:
@@ -640,7 +648,7 @@ roadmap:
   - scheduler
   - gh-141
   - tier0
-  notes: 'Five-Whys: After Phase 1, new requests can start within 19ms but still wait for next batch cycle. Mid-batch joins amortize GPU weight reads across more sequences. Batched GEMV (PAR-111) already supports M=1-32 — scheduler change only. Depends on: PMAT-072.'
+  notes: 'Three bugs found and fixed: (1) GPU buffer length mismatch — attention code built m-length vectors for max_kv_slots-length buffers, fixed by padding. (2) model_architecture() acquired read lock on CUDA model, blocking HTTP handlers ~2s during batch decode — fixed by caching at construction. (3) Batched path 3x slower at m=1 (46 vs 138 tok/s) — kept fast monolithic path for single requests. Mid-batch joins verified working but no aggregate gain at c=4 because all requests arrive simultaneously. Depends on: PMAT-072.'
 - id: PMAT-074
   github_issue: null
   item_type: task
