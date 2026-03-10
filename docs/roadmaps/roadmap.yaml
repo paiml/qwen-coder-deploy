@@ -518,3 +518,158 @@ roadmap:
   - target-parity
   - tier0
   notes: 'Cross-platform verified: Jetson sm_87 (36.3 tok/s, 0.91x faster), 4090 sm_89 (411.7 tok/s, 1.06x), 4060L sm_89 (140.3 tok/s, 0.98x). Provable contract: ptx-target-parity-v1.yaml, 3 bindings in binding.yaml.'
+- id: PMAT-045
+  github_issue: null
+  item_type: task
+  title: Optimized Q4K WMMA GEMM — multi-warp + maxnreg
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-10T05:34:45Z
+  updated: 2026-03-10T05:34:45Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-071
+  github_issue: null
+  item_type: task
+  title: Tiled Q4K GEMM for prefill — fix TTFT 3.8x gap
+  status: inprogress
+  priority: critical
+  assigned_to: null
+  created: 2026-03-10T18:00:00Z
+  updated: 2026-03-10T17:13:10.849556576+00:00
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Shared-memory tiled Q4K GEMM kernel in trueno-gpu (extends Dp4aQ4KGemmKernel)'
+  - 'AC2: TTFT <= 20ms on RTX 4060L at c=1 (from 46.4ms)'
+  - 'AC3: Prefill >= 6,000 tok/s on RTX 4060L (from 2,198)'
+  - 'AC4: Output parity with cuBLAS HGEMM (cosine similarity > 0.99)'
+  - 'AC5: Eliminates 2944 MB FP16 weight cache (reads Q4K directly)'
+  phases:
+  - name: Profile cuBLAS HGEMM prefill with ncu to establish roofline targets
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Extend Dp4aQ4KGemmKernel with shared memory tiling (cooperative tile load, bar_sync, K-tile loop)
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Wire into realizr prefill path (replace HGEMM for Q4K layers)
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: 'Benchmark on yoga: TTFT, prefill tok/s, parity check'
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 5d
+  labels:
+  - q4k-gemm
+  - prefill
+  - trueno-gpu
+  - tier0
+  notes: 'Five-Whys: TTFT 3.8x because cuBLAS reads FP16 (2 B/elem) vs llama.cpp Q4K (0.56 B/elem) = 3.5x BW. GH-182 fused attempt was 16x slower (no tiling). Dp4aQ4KGemmKernel exists but has no shared-memory tiling. Key: cooperative tile load, warp-level reduction, DP4A accumulation within Q4K superblocks.'
+- id: PMAT-072
+  github_issue: null
+  item_type: task
+  title: Continuous batching Phase 1 — decouple prefill/decode lock scope
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2026-03-10T18:00:00Z
+  updated: 2026-03-10T18:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: model.write() lock held only for single GPU operation (~19ms), not full generation (~2700ms)'
+  - 'AC2: New requests start prefill within 20ms of arrival (vs 2700ms)'
+  - 'AC3: c=4 aggregate >= 260 tok/s on RTX 4060L (from 197.5)'
+  - 'AC4: c=1 decode unchanged (regression check)'
+  phases:
+  - name: Refactor generate_batched_streaming to yield between decode steps
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Restructure process_cuda_batch to release/reacquire lock per step
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Add lock-wait tracing (measure contention reduction)
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 3d
+  labels:
+  - continuous-batching
+  - scheduler
+  - gh-141
+  - tier0
+  notes: 'Five-Whys: c=4 0.67x because model.write() held 2.7s for entire batch generation. process_cuda_batch (cuda_batch_scheduler.rs:174) calls generate_batched_streaming as monolithic op. KV cache already partitioned per-slot — scheduler just needs to exploit it. Depends on: PMAT-071 (faster prefill reduces lock-held time).'
+- id: PMAT-073
+  github_issue: null
+  item_type: task
+  title: Continuous batching Phase 2 — mid-batch joins
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-10T18:00:00Z
+  updated: 2026-03-10T18:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Pending requests join active batch at next decode step'
+  - 'AC2: Variable M (1-32) within a generation session'
+  - 'AC3: c=4 aggregate >= 350 tok/s on RTX 4060L'
+  phases:
+  - name: Extend batch scheduler to check pending queue between decode steps
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Add per-slot prefill within running batch (prefill new slot, add to active set)
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 3d
+  labels:
+  - continuous-batching
+  - scheduler
+  - gh-141
+  - tier0
+  notes: 'Five-Whys: After Phase 1, new requests can start within 19ms but still wait for next batch cycle. Mid-batch joins amortize GPU weight reads across more sequences. Batched GEMV (PAR-111) already supports M=1-32 — scheduler change only. Depends on: PMAT-072.'
+- id: PMAT-074
+  github_issue: null
+  item_type: task
+  title: Continuous batching Phase 3 — mid-batch exits (slot recycling)
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-10T18:00:00Z
+  updated: 2026-03-10T18:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Finished slots (EOS/max_tokens) immediately available for next request'
+  - 'AC2: Zero idle GPU cycles between request completions'
+  - 'AC3: c=4 aggregate >= 450 tok/s on RTX 4060L'
+  phases:
+  - name: Track per-slot completion state in scheduler
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: 'Recycle completed slots: clear KV cache, prefill new request, rejoin batch'
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 3d
+  labels:
+  - continuous-batching
+  - scheduler
+  - gh-141
+  - tier0
+  notes: 'Five-Whys: After Phase 2, slots that finish early leave M-1 active until batch completes. Slot recycling eliminates idle GPU compute. This is the llama.cpp model: 4 independent slots, each immediately refilled. Depends on: PMAT-073.'

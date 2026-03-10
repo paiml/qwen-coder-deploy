@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.15.0
+**Version:** 2.19.0
 **Status:** ACTIVE
-**Date:** 2026-03-08
+**Date:** 2026-03-10
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -107,33 +107,37 @@ For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./co
 
 Standardized load test: `probador llm load` (60s, streaming, isolated). Model: Qwen2.5-Coder-1.5B Q4_K_M.
 
-**RTX 4060 Laptop — yoga (Mar 8 2026, c=1, isolated, streaming, PMAT-044 PTX target parity):**
+**RTX 4060 Laptop — yoga (Mar 10 2026, c=1, isolated, streaming, PMAT-062):**
 
-| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | µs/layer |
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
 |---------|-------------|--------------|---------------|-------------|----------|
-| ollama | **150.9** | 320.2 | 71.8 | 6.6 | 236.6 |
-| llama.cpp | 143.6 | **2,096.7** | **11.0** | 7.0 | 248.7 |
-| **realizr** | 140.3 | 452.0 | 50.9 | 7.1 | 254.6 |
+| **vLLM** | **159.7** | **7,849** | **13.0** | **6.3** | 75 |
+| ollama | 145.4 | 1,424 | 71.6 | 6.9 | 64 |
+| llama.cpp | 142.9 | 8,409 | 12.1 | 7.0 | 67 |
+| realizr | 138.6 | 2,198 | 46.4 | 7.2 | 63 |
 
-**DECODE PARITY ACHIEVED (c=1).** realizr 140.3 vs llama.cpp 143.6 = **0.98x** — within measurement noise. All three runtimes within 7% of each other on decode. Remaining gap is prefill: 4.6x (HGEMM FP16 reads vs llama.cpp fused Q4K GEMM).
+**DECODE PARITY ACHIEVED (c=1).** realizr 138.6 vs llama.cpp 142.9 = **0.97x** — within measurement noise. All four runtimes within 13% on decode.
+Prefill gap: 3.8x (2,198 vs 8,409 tok/s) — HGEMM FP16 reads vs llama.cpp fused Q4K GEMM.
+TTFT: realizr 46.4ms (prompt-length dependent; 2,198 prefill tok/s = 0.46ms/tok).
 
-**RTX 4060 Laptop — yoga (Mar 8 2026, c=4, isolated, streaming):**
+**RTX 4060 Laptop — yoga (Mar 10 2026, c=4, isolated, streaming, PMAT-062):**
 
-| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
-|---------|----------------|-------------|---------------|-------------|
-| llama.cpp | **291.9** | 74.9 | **23.7** | 13.4 |
-| ollama | 143.6 | **145.7** | 677.4 | **6.9** |
-| realizr | 86.8 | 50.0 | 854.1 | 20.0 |
+| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
+|---------|----------------|-------------|---------------|-------------|----------|
+| **vLLM** | **604.7** | **154.5** | 24.8 | **6.5** | 284 |
+| llama.cpp | 296.5 | 74.4 | **22.7** | 13.4 | 140 |
+| realizr | 197.5 | 52.2 | 128.5 | 19.2 | 96 |
+| ollama | 143.8 | 144.6 | 2,678 | 6.9 | 71 |
 
-**c=4 gap: 3.4x aggregate (realizr vs llama.cpp).** Root cause: RwLock serialization ([realizr#141](https://github.com/paiml/realizar/issues/141)). llama.cpp runs 4 parallel slots; realizr processes one request at a time.
+**c=4 gap: 1.5x aggregate (realizr vs llama.cpp), 3.1x vs vLLM.** realizr improved 180.9→197.5 (+9.2%) from PMAT-062 (disable HGEMM batched decode, enable fused gate+up DP4A). Root causes of remaining gap: (1) RwLock serialization — `model.write()` held for entire batch generation, (2) no continuous batching — slots can't join/leave mid-batch. vLLM dominates via continuous batching + PagedAttention.
 
 **Cross-platform decode summary (c=1, isolated, streaming):**
 
-| Platform | realizr | llama.cpp | Gap |
-|----------|---------|-----------|-----|
-| **RTX 4060 Laptop** (24 SMs) | 140.3 | 143.6 | **0.98x (parity)** |
-| RTX 4090 (128 SMs) | 411.7 | 436.9 | 1.06x |
-| Jetson Orin (8 SMs) | **36.3** | 33.1 | **0.91x (faster)** |
+| Platform | vLLM | realizr | llama.cpp | ollama |
+|----------|------|---------|-----------|--------|
+| **RTX 4060 Laptop** (24 SMs) | **159.7** | 138.6 | 142.9 | 145.4 |
+| RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
+| Jetson Orin (8 SMs) | — | **36.3** | 33.1 | — |
 
 **RTX 4090 (Mar 4 2026 — historical, c=4, non-streaming):**
 
@@ -316,6 +320,70 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - **Q6K GEMV 1-warp bottleneck (GH #118):** Q6K GEMV uses 32-thread kernel (1 warp, 33% occupancy) while Q4K uses MWV 4-warp (128 threads). Q6K is 4x slower per call (39.7µs vs 9.9µs), consuming 31.9% of GPU time despite only 29 tensors. Affects: `output.weight`, `ffn_down.weight` (28L), `attn_v.weight` (28L).
 - **Kernel launch overhead:** 52.5% of decode time from ~180 kernel launches/token (PMAT-015/017)
 - **Concurrency lock contention:** RwLock serialization at c=4 drops decode from ~270 tok/s (raw) to 40.8 tok/s (probador). Single-request path is 153 tok/s due to prefill + HTTP overhead.
+
+### Remaining Gaps — Five-Whys Root Cause Analysis (Mar 10 2026, PMAT-062 baseline)
+
+**Three gaps remain after c=1 decode parity (0.97x). All have identified root causes and implementation plans.**
+
+#### Gap 1: TTFT/Prefill 3.8x (46.4ms / 2,198 tok/s vs llama.cpp 12.1ms / 8,409 tok/s)
+
+**Five-Whys:**
+
+1. Why is TTFT 3.8x slower? → Prefill reads 3.5x more weight data per layer from VRAM.
+2. Why 3.5x more data? → cuBLAS HGEMM reads FP16 weights (2 B/elem, 2944 MB total). llama.cpp reads Q4K directly (0.5625 B/elem, ~850 MB).
+3. Why FP16? → cuBLAS cannot consume Q4K — requires pre-dequantized input. Our dequant+HGEMM pipeline reads full FP16 matrices.
+4. Why not a fused Q4K GEMM? → GH-182 attempt was **16x slower** — serial per-thread accumulation, no shared memory tiling, CUDA cores vs tensor cores.
+5. Why was it slow? → Naive per-thread dot product. No warp-cooperative tiling. No shared-memory weight reuse across M rows.
+
+**Root cause:** No tiled Q4K GEMM kernel. cuBLAS dequant+HGEMM reads 3.5x more VRAM bandwidth than llama.cpp's fused `mul_mat_q4_K` which processes compressed weights directly.
+
+**Fix:** PMAT-071 — Tiled Q4K GEMM in trueno-gpu with DP4A + shared memory weight reuse. `Dp4aQ4KGemmKernel` already exists (PMAT-066) but lacks shared-memory tiling — extend with cooperative tile loading and warp-level reduction. Target: TTFT ~12ms, prefill ~8,000 tok/s.
+
+**Falsification:** If fused Q4K GEMM matches cuBLAS HGEMM quality (cosine similarity >0.99) AND reduces TTFT to within 1.5x of llama.cpp, the hypothesis is confirmed. If TTFT remains >2x despite equal bandwidth, the gap is compute-bound (not memory-bound) and tensor cores are needed.
+
+#### Gap 2: c=4 aggregate 0.67x (197.5 vs 296.5 tok/s llama.cpp)
+
+**Five-Whys:**
+
+1. Why is c=4 aggregate 0.67x? → Batches process sequentially with no overlap between batches.
+2. Why sequential? → `model.write()` RwLock held for entire batch lifetime (prefill + all decode steps, ~2.7s for M=4).
+3. Why held so long? → `process_cuda_batch()` in `cuda_batch_scheduler.rs:174` acquires lock, calls `generate_batched_streaming()` which does prefill→decode→cleanup as a monolithic operation.
+4. Why can't requests overlap? → New requests enqueued in mpsc channel cannot start prefill until previous batch completes. Finished slots cannot exit early.
+5. Why monolithic? → Initial implementation prioritized correctness — single lock ensures no concurrent CUDA state mutation. KV cache IS already partitioned per-slot, but scheduler doesn't exploit this.
+
+**Root cause:** Batch-then-wait scheduler. `model.write()` held for ~2.7s blocks all new requests. No continuous batching — slots can't join/leave mid-batch.
+
+**Fix:** Three phases, each independently shippable:
+- **PMAT-072 Phase 1:** Decouple prefill/decode lock scope — release lock between decode steps (19ms hold vs 2700ms). New requests start prefill within 19ms of arrival. Target: ~260 aggregate.
+- **PMAT-073 Phase 2:** Mid-batch joins — pending requests join active batch at next decode step. Batched GEMV already supports variable M (1-32). Target: ~350 aggregate.
+- **PMAT-074 Phase 3:** Mid-batch exits — finished slots recycled immediately for next pending request. True continuous batching. Target: ~450 aggregate.
+
+**Falsification:** If Phase 1 reduces lock contention (measured via lock-wait time tracing) but aggregate stays <220 tok/s, the bottleneck is NOT lock scope but GPU compute serialization. If Phase 2 doesn't improve over Phase 1, the batching overhead of variable-M exceeds the benefit.
+
+#### Gap 3: c=4 aggregate 0.33x vs vLLM (197.5 vs 604.7 tok/s)
+
+**Five-Whys:**
+
+1. Why 3.1x gap to vLLM? → vLLM per-slot decode barely degrades at c=4 (154.5 vs 159.7 c=1 = -3%). realizr degrades 62% (52.2 vs 138.6 c=1).
+2. Why does realizr degrade? → Sequential prefill (4 × ~130ms = 520ms under lock) + serialized decode (128.5ms TTFT eating throughput budget).
+3. Why doesn't vLLM degrade? → Continuous batching: new requests join running batch, prefill interleaved with decode. PagedAttention: dynamic KV memory allocation.
+4. Why can't realizr do this? → Monolithic `generate_batched_streaming()` owns the full lifecycle. No mechanism for mid-generation slot management.
+5. Why architectural gap? → vLLM's scheduler is a dedicated component (~3K LOC) separate from the model executor. realizr's scheduler is 185 LOC wrapping a generate function.
+
+**Root cause:** Architectural — realizr lacks a true scheduling layer. Closing fully requires both Gap 1 fix (faster prefill via fused Q4K GEMM) and Gap 2 fix (continuous batching scheduler).
+
+**Expected trajectory with fixes:**
+```
+Current:        197.5 aggregate tok/s (0.33x vLLM)
++ PMAT-071:     ~220 (faster prefill → shorter TTFT)
++ PMAT-072:     ~300 (19ms lock windows)
++ PMAT-073:     ~400 (mid-batch joins)
++ PMAT-074:     ~450 (slot recycling)
+Theoretical:    ~550 (4 × 138 decode, overhead)
+vLLM:           604.7
+```
+
+The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our DP4A Q4K GEMV — a kernel-level optimization, not architectural.
 
 ### Jetson Orin Root Cause Analysis (Updated Mar 5, 2026)
 
@@ -952,6 +1020,9 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | H5 | Occupancy >50% ≈ diminishing | ratio(1024/256) < 1.2 | Pending |
 | H-APR1 | Fix mapping → >50 tok/s | After fix: >50 | ✅ EXCEEDED (740.5) |
 | H-APR3 | GQA fix → linear speedup | >50% improvement | FALSIFIED (already correct) |
+| H-CB1 | Batched decode correctness | `\|batched(r,c) - single(r,1)\| < 1e-3` | ❌ **FALSIFIED (CORRECTNESS-013)** |
+| H-CB2 | No frozen slots | Slots 1..M produce distinct tokens per step | ❌ **FALSIFIED (CORRECTNESS-013)** |
+| H-CB3 | KV cache populated for all slots | `batched_kv_lengths[i] == prefill_len ∀i` | **Pending verification** |
 
 ### Verification Matrix
 
@@ -962,6 +1033,39 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | C: Attention Quant | 3 | Pending |
 | D: Launch Overhead | 3 | Pending |
 | E: APR GPU Regression | 3 | Pending |
+| F: Batched Decode Correctness | 3 | ❌ **2/3 FALSIFIED** |
+
+### F: Batched Decode Correctness (CORRECTNESS-013)
+
+**Defect:** c=4 batched decode produces frozen slots. Identical prompts produce different tokens across slots (e.g., `token_ids=[21338, 21338, 304, 16]` — slots 0-1 agree, slots 2-3 diverge). With temp=0 greedy, all slots should produce identical tokens. First batch after server start is correct; subsequent batches are corrupted. Deterministic, reproducible on yoga RTX 4060 Laptop (sm_89).
+
+**CORRECTNESS-014 (fixed):** CUDA context corruption after 3-4 requests — `CUDA_ERROR_ILLEGAL_ADDRESS` during graph replay. Root cause: `init_prefill_workspace` reallocated workspace buffers (longer prompt exceeds `buffer_capacity`), but decode graph was NOT cleared — stale pointers. Fix: clear `decode_graph` in `init_prefill_workspace` when reallocating.
+
+**Five-Whys Root Cause Analysis:**
+
+| Why | Finding | Evidence |
+|-----|---------|----------|
+| **Why-1** | c=4 requests produce wrong output | `probador llm load --concurrency 4` shows Output tok min=0 |
+| **Why-2** | Identical prompts produce different tokens across slots | Server log: `token_ids=[21338, 21338, 304, 16]` — 4 identical prompts, 3 different outputs |
+| **Why-3** | First batch correct, subsequent batches corrupted | Batch 1: `[21338, 21338]` (correct). Batch 2: `[323, 16]` (wrong) |
+| **Why-4** | `PMAT-058: Freed batched KV caches to reclaim VRAM for FP16 rebuild` between batches | KV cache reinitialization produces corrupted state |
+| **Why-5** | `correctness_under_batching` obligation has **NO implementation** | `pv audit continuous-batching-v1.yaml --binding realizar/binding.yaml` → BIND-003 |
+
+**Provable contract reference:** `continuous-batching-v1.yaml` equation `correctness_under_batching`
+**Falsification test:** FALSIFY-CB-006 ("Same prompt at c=1 and c=4 produces equivalent output")
+**Binding status:** NOT IMPLEMENTED (BIND-003) — no wired test in realizr
+
+**Instrumentation plan:**
+
+| Instrument | Purpose | Command |
+|-----------|---------|---------|
+| `probador llm test` c=1 vs c=4 | Token-level correctness comparison | `probador llm test --url ... --concurrency 1` then `--concurrency 4` |
+| `X-Trace-Level: brick` | Per-op tensor timing per request | `curl -H "X-Trace-Level: brick" ...` |
+| `PMAT051_TRACE=1` | Per-layer QKV/Attn/FFN timing during prefill | Env var on `apr serve` |
+| `PREFILL_DETAIL_TRACE=1` | Per-HGEMM M/N/K dimensions + timing | Env var on `apr serve` |
+| `pv probar` | Generate wired falsification tests | `pv probar continuous-batching-v1.yaml` |
+| `nsys` kernel timeline | GPU kernel ordering for scatter/attention | `make nsys-gpu` |
+| `pmat query` | Semantic search for `batched_kv_lengths` mutations | `pmat query "batched_kv_lengths" --include-source` |
 
 For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist, see [falsification-tests.md](./components/falsification-tests.md).
 
@@ -1016,6 +1120,8 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-027 | GH-176 | **BrickProfiler Immediate sync** (real GPU timing in cbtop) | **✅ DONE (cbtop JSON grade "R")** |
 | PMAT-028 | — | **LmHead Q6K GEMV optimization** (25.7% of decode on Orin, n=151936) | **NEW — #1 PRIORITY (Orin)** |
 | PMAT-029 | — | **Vectorized byte-mask scale extraction** (Q4K compute→memory bound) | **NEW — #1 PRIORITY (4090)** |
+| PMAT-070 | CORRECTNESS-013 | **Batched decode frozen slots** (c=4 slots 1-3 constant tokens) | **NEW — #0 PRIORITY (CORRECTNESS)** |
+| PMAT-071 | — | **Wire FALSIFY-CB-006** (`probador llm test` c=1 vs c=4 equivalence) | **NEW — blocks PMAT-070** |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
@@ -1032,6 +1138,10 @@ The following external documents are authoritative for their respective domains 
 | Inference Showdown v1 | [inference-showdown-v1.yaml](./inference-showdown-v1.yaml) | Competition baselines |
 | Performance Snapshots | [performance.md](../performance.md) | Measured throughput tables |
 | Profiling Appendix | `batuta/book/src/appendix/benchmarks.md` | GPU decode profiling data |
+| Continuous Batching Contract | `../provable-contracts/contracts/continuous-batching-v1.yaml` | Batched decode correctness (FALSIFY-CB-006) |
+| KV Cache Equivalence Contract | `../provable-contracts/contracts/kv-cache-equivalence-v1.yaml` | Batched-to-serial KV parity |
+| GPU Decode Profiling Contract | `../provable-contracts/contracts/gpu-decode-profiling-v1.yaml` | Wall coverage, sync, brick ordering |
+| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 27/33 bindings (82%), 3 NOT IMPLEMENTED |
 
 ---
 
@@ -1101,6 +1211,10 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.19.0 | 2026-03-10 | **Five-Whys RCA for 3 remaining gaps + PMAT-071/072/073/074 implementation plan.** Gap 1: TTFT/Prefill 3.8x — cuBLAS HGEMM reads FP16 (3.5x BW vs Q4K), fix: tiled Q4K GEMM (PMAT-071). Gap 2: c=4 0.67x — `model.write()` held 2.7s, fix: continuous batching in 3 phases (PMAT-072/073/074). Gap 3: c=4 0.33x vs vLLM — architectural (scheduler + PagedAttention). Updated baselines to PMAT-062 numbers. Falsification conditions for each gap. |
+| 2.18.0 | 2026-03-10 | **Full 4-runtime benchmark with vLLM baseline.** First isolated serial benchmark including vLLM (AWQ INT4). c=1: vLLM 160.1, ollama 150.7, llama.cpp 143.5, realizr 140.0 — decode 4-way near-parity. TTFT improved 50.9→25.4ms via CORRECTNESS-014 fix. c=4: vLLM **567.3** aggregate (3.1x over realizr), llama.cpp 302.2 (1.7x), realizr 180.9 (+108% from 86.8 via CORRECTNESS-014 + PMAT-046). Updated performance.md, README.md, cross-platform summary with vLLM column. |
+| 2.17.0 | 2026-03-10 | **CORRECTNESS-014 FIXED: CUDA context corruption.** Root cause: `init_prefill_workspace` reallocated workspace buffers when prompt length exceeded `buffer_capacity`, but decode graph was NOT cleared — graph replayed with stale GPU pointers → `CUDA_ERROR_ILLEGAL_ADDRESS` on 4th request. Fix: clear `decode_graph` in `init_prefill_workspace` before reallocation. Also fixed wrong comment "workspace pointers are stable" in `generate_2.rs`. **CORRECTNESS-013 narrowed:** Identical prompts produce different tokens across slots in batch 2+. First batch after server start is correct. Root cause: `PMAT-058` KV cache free/reinit between batches produces corrupted state. Env var `CUDA_GRAPH_DISABLE=1` or `SKIP_CUDA_GRAPH=1` disables graph capture (NOT `DECODE_GRAPH=0` which doesn't exist). |
+| 2.16.0 | 2026-03-10 | **CORRECTNESS-013: Batched decode frozen slots.** c=4 slots 1-3 produce constant tokens per step — confirmed in BOTH HGEMM and DP4A paths. Five-whys: `correctness_under_batching` contract obligation has NO realizr implementation (BIND-003). `pv audit` confirms gap. Bug is in common path (prefill→decode KV cache transition), NOT path-specific. Added falsification tests H-CB1/CB2/CB3, instrumentation plan (7 tools), provable contract references to §12. PMAT-070 ticket for wired FALSIFY-CB-006 test. |
 | 2.15.0 | 2026-03-08 | **DECODE PARITY CONFIRMED — yoga RTX 4060 Laptop (PMAT-044).** Full 3-runtime serial isolated benchmarks on yoga (sm_89, 24 SMs, 8GB). Decode: realizr 140.3, llama.cpp 143.6, ollama 150.9 — **0.98x parity** (within noise). Three-way decode within 7%. Prefill gap: 4.6x (452 vs 2097 tok/s) — HGEMM FP16 vs fused Q4K GEMM. c=4 concurrency: 3.4x aggregate gap (86.8 vs 291.9 tok/s) — RwLock serialization ([realizr#141](https://github.com/paiml/realizar/issues/141)). Cross-platform summary: Jetson 0.91x (faster), 4060L 0.98x (parity), 4090 1.06x (near parity). Provable contracts: ptx-target-parity-v1.yaml with 3 bindings, contract-falsify passes. Updated README, performance.md, perf-parity-spec.md. |
 | 2.14.0 | 2026-03-08 | **DECODE NEAR-PARITY ACHIEVED.** PMAT-038: Fixed CUDA graph capture for HW DP4A + fused gate+up+SwiGLU. PMAT-039: BFE byte extraction (108→103 insn/SB, no measurable impact — memory-bound). PMAT-040: Flash Decode chunk_size 128→32 — THE BREAKTHROUGH. With chunk_size=128, sequences <128 tokens got 1 chunk = zero split-K parallelism. Reducing to 32 gives 2-4 chunks, enabling actual SM utilization. **4090**: 266→412 tok/s (1.55x improvement), decode gap 1.64x→**1.06x** (near parity). **Jetson**: 32.7→36.2 tok/s (+10.7%), now **10% FASTER** than llama.cpp (33.0 tok/s). Remaining gaps: prefill 5.6-10x (FP16 reads vs Q4K, requires fused Q4K tiled GEMM), TTFT 10.1x (prefill-dominated). |
 | 2.13.0 | 2026-03-06 | **Kaizen: Flash Decoding sync removal + attention scaling analysis.** Removed unnecessary `stream.synchronize()` between Flash Decoding chunk and reduce kernels — CUDA stream semantics guarantee ordering within a stream. Sync was based on misunderstanding of CUDA API. Also added GpuProfile auto-detection (compute_capability-based kernel selection, replacing 9 env vars in forjar configs). New finding: 4090 decode gap is **sequence-length dependent** — 1.64x at avg_tok=32 but 1.92x at avg_tok=128. Root cause: realizr attention adds 39µs/layer per 4x more KV entries while llama.cpp adds only 2µs/layer (FlashAttention-2 scales better). Next target: attention kernel scaling with KV cache length. |
