@@ -584,7 +584,7 @@ bench-yoga-llamacpp:
 		--runtime-name llamacpp-yoga-c1 \
 		--output results/yoga-serial-llamacpp-c1-$(DATE).json
 	@echo "--- c=4 ---"
-	probador llm load --url $(YOGA_LLAMACPP) --model $(OLLAMA_MODEL) --concurrency 4 \
+	probador llm load --url $(YOGA_LLAMACPP) --concurrency 4 \
 		--duration $(BENCH_DURATION) --warmup $(BENCH_WARMUP) --prompt-profile $(BENCH_PROFILE) \
 		--stream true \
 		--num-layers $(QWEN_LAYERS) \
@@ -754,6 +754,67 @@ contract-falsify: ## PMAT-044: verify no hardcoded emit_ptx() in executor
 	echo "  PASS (all generate helpers accept target param)"
 	@echo ""
 	@echo "All static falsification tests passed."
+
+# ============================================================================
+# CORRECTNESS-013: Batched decode frozen slots instrumentation
+# ============================================================================
+# Five-whys: correctness_under_batching obligation NOT IMPLEMENTED (BIND-003)
+# Falsification: FALSIFY-CB-006, CB-008, CB-009
+
+correctness-013-deploy: ## Deploy realizr on yoga with ALL trace env vars
+	@echo "=== CORRECTNESS-013: Deploy with tracing ==="
+	forjar apply -f forjar-yoga-teardown.yaml --force 2>/dev/null || true
+	@ssh noah@$(YOGA_HOST) 'pkill -f "apr serve" 2>/dev/null; sleep 2; pkill -9 -f "apr serve" 2>/dev/null; sleep 1; true'
+	ssh noah@$(YOGA_HOST) 'SKIP_PARITY_GATE=1 PMAT051_TRACE=1 PREFILL_DETAIL_TRACE=1 \
+		nohup /home/noah/.cargo/bin/apr serve \
+		--model /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf \
+		--gpu --host 0.0.0.0 --port 8081 > /tmp/apr-correctness013.log 2>&1 &'
+	@echo "Waiting for health..."
+	@sleep 15
+	@curl -sf $(YOGA_REALIZAR)/health || (echo "FAIL: health check"; exit 1)
+	@echo "Ready."
+
+correctness-013-test: ## FALSIFY-CB-006: c=1 correctness + c=4 load (frozen slot detection)
+	@echo "=== FALSIFY-CB-006: c=1 correctness baseline ==="
+	probador llm test --config prompts/correctness.yaml --url $(YOGA_REALIZAR) \
+		-o results/correctness-013-c1-$(DATE).json 2>&1 | tee results/correctness-013-c1-$(DATE).txt
+	@echo ""
+	@echo "=== FALSIFY-CB-008: c=4 load (15s, detect frozen slots) ==="
+	probador llm load --url $(YOGA_REALIZAR) --duration 15 --concurrency 4 --warmup 2 --stream true \
+		2>&1 | tee results/correctness-013-c4-$(DATE).txt
+	@echo ""
+	@echo "=== Server trace log (frozen slot evidence) ==="
+	@ssh noah@$(YOGA_HOST) 'grep -E "token_ids=|frozen|batched_kv_lengths" /tmp/apr-correctness013.log | tail -30'
+
+correctness-013-trace: ## X-Trace-Level: brick on c=1 request
+	@echo "=== X-Trace-Level: brick (c=1) ==="
+	@curl -s -X POST $(YOGA_REALIZAR)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-H "X-Trace-Level: brick" \
+		-d '{"model":"default","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":8}' | python3 -m json.tool
+
+correctness-013-load: ## c=4 extended load test (60s) + full server log
+	@echo "=== FALSIFY-CB-008: c=4 load test (60s) ==="
+	probador llm load --url $(YOGA_REALIZAR) --duration 60 --concurrency 4 --warmup 5 --stream true \
+		2>&1 | tee results/correctness-013-load-$(DATE).txt
+	@echo ""
+	@echo "=== Server log (last 60 lines) ==="
+	@ssh noah@$(YOGA_HOST) 'tail -60 /tmp/apr-correctness013.log'
+
+correctness-013-kv-verify: ## FALSIFY-CB-009: verify batched_kv_lengths after prefill
+	@echo "=== FALSIFY-CB-009: KV cache population check ==="
+	@ssh noah@$(YOGA_HOST) 'grep -E "batched_kv_lengths|Prefill done|decode step 0" /tmp/apr-correctness013.log | tail -20'
+
+correctness-013-audit: ## pv audit on continuous-batching contract
+	@echo "=== pv audit continuous-batching-v1.yaml ==="
+	pv audit ../provable-contracts/contracts/continuous-batching-v1.yaml \
+		--binding ../provable-contracts/contracts/realizar/binding.yaml
+
+correctness-013-full: correctness-013-deploy correctness-013-test correctness-013-kv-verify correctness-013-audit ## Full CORRECTNESS-013 instrumentation pipeline
+	@echo ""
+	@echo "=== CORRECTNESS-013 Instrumentation Complete ==="
+	@echo "Review: results/correctness-013-*-$(DATE).txt"
+	@echo "Server log: ssh noah@$(YOGA_HOST) 'cat /tmp/apr-correctness013.log'"
 
 # ============================================================================
 # Shared targets

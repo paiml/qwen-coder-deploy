@@ -684,27 +684,27 @@ roadmap:
   github_issue: null
   item_type: task
   title: Batched CUDA graph re-enable — eliminate kernel launch overhead at M>1
-  status: planned
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-11T01:00:00Z
-  updated: 2026-03-11T01:00:00Z
+  updated: 2026-03-11T06:00:00Z
   spec: contracts/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: BATCHED_GRAPH=1 gives ITL <= 15ms at M=4 on RTX 4060L'
-  - 'AC2: c=4 aggregate >= 270 tok/s'
-  - 'AC3: No regression at c=1 (>= 138 tok/s)'
+  - 'AC1: FALSIFIED — BATCHED_GRAPH=1 gives ITL 22.0ms (WORSE than 19.2ms eager)'
+  - 'AC2: FALSIFIED — c=4 aggregate 174.8 tok/s (WORSE than 199.7 eager)'
+  - 'AC3: PASS — No regression at c=1 (139.1 tok/s >= 138)'
   phases:
   - name: Test existing BATCHED_GRAPH=1 to measure current graph vs eager ITL delta
-    status: planned
+    status: done
     estimated_effort: null
-    completion: 0
+    completion: 100
   - name: Fix graph capture issues (workspace address stability, re-capture on M change)
-    status: planned
+    status: done
     estimated_effort: null
-    completion: 0
+    completion: 100
   - name: Make BATCHED_GRAPH=1 the default for batched decode
-    status: planned
+    status: blocked
     estimated_effort: null
     completion: 0
   subtasks: []
@@ -713,7 +713,7 @@ roadmap:
   - cuda-graphs
   - scheduler
   - tier0
-  notes: 'Five-Whys: ITL 19.2ms at M=4 vs 7.2ms at M=1 (2.67x). ~280 kernel launches per step without graph amortization adds ~5ms (28%). DP4A GEMV is custom PTX (no cuBLAS workspace issue like PMAT-059). Prior test (PMAT-056) showed 25% slower but root cause unclear. Hypothesis: workspace address instability, not algorithm selection. Test first, then fix. Depends on: PMAT-074.'
+  notes: 'COMPLETED but FALSIFIED. Infrastructure fixes: (1) batched_cleanup preserves workspace via PAR-200 skip (no realloc), (2) preserves KV caches + auxiliary pointer buffers, (3) init_batched_kv_cache_gpu skips aux realloc on reuse. Latent bug fixed: init_prefill_workspace clears batched graphs on realloc. Graphs persist across batches (confirmed). BUT graph replay is 2.8ms SLOWER per step (22.0ms vs 19.2ms ITL). Root cause: 5 sync cuMemcpyHtoD calls + graph dispatch overhead > kernel launch savings (~0.8ms). Original hypothesis wrong: kernel launch overhead was ~0.8ms (4%) not ~5ms (28%). M=4 degradation is batched attention scaling. Phase 3 blocked until async H2D or combined upload investigated.'
 - id: PMAT-076
   github_issue: null
   item_type: task
@@ -775,18 +775,24 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'PMAT-075: Batched CUDA graph re-enable'
-  status: planned
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-10T21:25:08Z
-  updated: 2026-03-10T21:25:08Z
-  spec: null
-  acceptance_criteria: []
+  updated: 2026-03-10T23:45:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: FALSIFIED — graph replay 2.8ms slower than eager (22.0 vs 19.2ms ITL)'
+  - 'AC2: Infrastructure correct — workspace/KV/aux buffer addresses stable across batches'
+  - 'AC3: No regression on eager path (c=1=139.1, c=4=198.9 tok/s)'
   phases: []
   subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
+  estimated_effort: 2d
+  labels:
+  - cuda-graph
+  - batched-decode
+  - falsified
+  notes: 'Hypothesis falsified: kernel launch overhead ~0.8ms (4% of ITL), not ~5ms (28%). Graph replay overhead from 5 sync H2D copies exceeds launch savings. BATCHED_GRAPH=1 opt-in.'
 - id: PMAT-079
   github_issue: null
   item_type: task

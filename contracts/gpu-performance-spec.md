@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.23.0
+**Version:** 2.24.0
 **Status:** ACTIVE
 **Date:** 2026-03-10
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -420,9 +420,13 @@ The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our D
 
 **Root cause:** Kernel launch overhead dominates at M=4. The batched decode path fires ~280 kernel launches per step without graph amortization, adding ~5ms (28% of 19.2ms ITL). L2 cache spreading (+12%) and batched attention scaling compound the regression.
 
-**Fix (PMAT-075):** Re-enable CUDA graph capture for batched decode with stable workspace pre-allocation. Since DP4A GEMV is custom PTX (no cuBLAS workspace issue), the PMAT-059 root cause may not apply. Test: deploy with `BATCHED_GRAPH=1`, measure ITL delta. If confirmed faster, make it the default. If M changes mid-batch (PMAT-073), invalidate and re-capture.
+**Fix (PMAT-075) — IMPLEMENTED, FALSIFIED:** Infrastructure for stable graph reuse across batches is complete. Three changes: (1) `batched_cleanup` preserves workspace buffers (PAR-200 skip path sets batch_size=1 without reallocation), (2) `batched_cleanup` preserves KV caches and auxiliary pointer buffers (addresses stable for graph reuse), (3) `init_batched_kv_cache_gpu` skips auxiliary buffer reallocation when KV caches are preserved. Latent bug fixed: `init_prefill_workspace` now clears batched decode graphs on reallocation (previously only cleared M=1 decode graph). VRAM: FP16(2944)+KV(896)+Q4K(850)+WS(40) = 4730 MB fits 7.5 GB RTX 4060L.
 
-**Falsification:** If `BATCHED_GRAPH=1` gives ITL ≤ 15ms at M=4, kernel launch overhead is confirmed as root cause. If ITL stays ≥ 19ms, investigate workspace address stability in graph capture.
+**Result:** Graphs persist across batches (confirmed: "Reusing batched KV cache" messages, single capture per M value). But **graph replay is 2.8ms SLOWER than eager** (ITL 22.0ms vs 19.2ms at M=4). BATCHED_GRAPH=1 remains disabled by default.
+
+**Falsification outcome:** BATCHED_GRAPH=1 gives ITL 22.0ms > 19.2ms → kernel launch overhead is NOT the dominant source of the M=4 decode regression. The 2.67× per-slot degradation is primarily from batched attention scaling (4× more KV entries per head) and L2 cache working set pressure, not kernel launch overhead. The ~280 launches per step contribute ~0.8ms (4% of ITL) vs the hypothesized ~5ms (28%). Graph overhead (5 synchronous H2D copies + graph dispatch) adds ~2.8ms that outweighs the launch savings. Root cause of graph overhead requires nsys profiling.
+
+**Revised five-whys:** Why is batched decode 2.67× slower per slot? → Batched attention reads 4× more KV entries (confirmed: scales with M). Why does batched graph make it worse? → Graph replay has inherent dispatch overhead + 5 synchronous `cuMemcpyHtoD` calls per step. Why are the copies synchronous? → `GpuBuffer::copy_from_host` uses `cuMemcpyHtoD` (stream 0, blocks host). Next: investigate async copies or combined pinned-memory upload to eliminate per-call overhead.
 
 ##### Finding 2: Dead slot compute waste
 
@@ -459,8 +463,10 @@ The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our D
 **Updated trajectory with next fixes:**
 ```
 Continuous batching complete:  216.4 aggregate tok/s (0.36x vLLM)
-+ PMAT-075 (batched graphs):  ~270 (predicted: 5ms ITL reduction → 14.2ms → 281 theoretical)
-+ PMAT-076 (dead slot mask):  ~290 (predicted: 15% ITL reduction on mixed traffic)
++ PMAT-075 (batched graphs):  FALSIFIED — graph replay 2.8ms slower (22.0 vs 19.2ms ITL)
+                               Infrastructure complete but disabled. Need async H2D or
+                               combined upload to overcome graph dispatch overhead.
++ PMAT-076 (dead slot mask):  ~230 (predicted: 15% reduction on mixed traffic dead slots)
 + PMAT-077 (probador hetero):  measurement-only (enables accurate benchmarking)
 Theoretical:                   ~550 (4 × 138 decode, overhead)
 vLLM:                          604.7
@@ -1292,6 +1298,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.24.0 | 2026-03-11 | **PMAT-075: Batched CUDA graph infrastructure — IMPLEMENTED, FALSIFIED.** Three fixes: (1) `batched_cleanup` preserves workspace buffers via PAR-200 skip path, (2) preserves KV caches + auxiliary pointer buffers for address stability, (3) `init_batched_kv_cache_gpu` skips auxiliary realloc on reuse. Latent bug fixed: `init_prefill_workspace` now clears batched graphs on realloc. **Result:** Graphs persist across batches (confirmed via logs). But graph replay is **2.8ms SLOWER** than eager (ITL 22.0ms vs 19.2ms). Root cause: 5 synchronous `cuMemcpyHtoD` calls + graph dispatch overhead > kernel launch savings (~0.8ms). `BATCHED_GRAPH=1` remains opt-in. **Falsified hypothesis:** kernel launch overhead was NOT ~5ms/step — measured ~0.8ms. M=4 degradation is primarily batched attention scaling + L2 working set pressure. No regression on eager path: c=1=139.1, c=4=198.9. |
 | 2.23.0 | 2026-03-11 | **Post-continuous batching five-whys analysis.** Three findings: (1) Per-slot decode degrades 2.67× at M=4 (ITL 19.2ms vs 7.2ms) — root cause: no CUDA graphs in batched path (+~5ms kernel launch overhead), L2 cache spreading (+12%), batched attention 4× scaling. (2) Dead slot compute waste — done slots get zero embeddings through full forward pass, ~25% wasted compute per dead slot. (3) Uniform traffic defeats recycling — probador sends identical requests, all finish at same gen_idx. Three new work items: PMAT-075 (batched CUDA graphs), PMAT-076 (dead slot masking), PMAT-077 (probador heterogeneous traffic). Updated trajectory: 216→~290 aggregate predicted. |
 | 2.22.0 | 2026-03-10 | **PMAT-074 DONE: Slot recycling (continuous batching Phase 3).** `recycle_slot()` reuses finished slot indices — KV cache overwrite, state replacement at slot index, `max_tokens_max` extended for gen_idx offset. 159 recycling events in single 31s continuous batch. Heterogeneous traffic (mixed max_tokens 16/32/64/128, c=8): **216.4 tok/s** (+10% vs uniform 197). Uniform traffic (probador max_tokens=128): no gain (all slots finish simultaneously, no recycling opportunity). Prefill overhead: ~16ms per recycled slot. No regressions: c=1=138.8, c=4=196.7. All 3 continuous batching phases complete (PMAT-072/073/074). |
 | 2.21.0 | 2026-03-10 | **PMAT-073 DONE: Mid-batch joins.** Three bugs fixed: (1) GPU buffer length mismatch — attention vectors padded to match pre-allocated KV buffer size, (2) RwLock contention — `model_architecture()` and `model_eos_token_id()` blocked HTTP handlers ~2s during batch decode, fixed by caching at AppState construction, (3) m=1 fast path preserved — batched path 3x slower at c=1, keep monolithic path for single requests. Mid-batch joins verified: 4 joins during c=4 benchmark (slots join running batch with ~31ms prefill). c=1: 138.9 tok/s (no regression), c=4: 197.4 tok/s (no regression). No throughput gain at c=4 because probador sends all requests simultaneously → initial batch is already full. |
