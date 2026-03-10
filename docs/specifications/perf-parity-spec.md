@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.19.0
+**Version:** 3.20.0
 **Date:** 2026-03-10
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -457,15 +457,25 @@ Key milestones:
   Result: 1.57x SLOWER (TTFT 63ms vs 40ms). Root cause: cuBLAS evicts FP16 weight data
   from L2 during its own tiling operations — no application-level L2 residency control.
   The dequant pass adds overhead without L2 benefit. Enable: L2_PREFILL=1.
-- PMAT-064/065 conclusion: TTFT gap requires production-quality fused Q4K GEMM (like
-  llama.cpp's mul_mat_q4_K). All intermediate approaches tested and measured:
+- PMAT-045: Multi-warp Q4K WMMA GEMM (trueno-gpu + realizr). 4 warps per block (128
+  threads), 32×32 output tiles (2×2 WMMA layout), maxnreg(96). Grid (ceil(N/32),
+  ceil(M/32)), SHMEM 2048 bytes. Each warp computes one 16×16 WMMA tile. All 128 threads
+  cooperate on loading A[32×16] + dequanting B[16×32]. TTFT 234ms (2.7x faster than V1).
+  Still 5x slower than HGEMM — dequant compute dominates (many instructions per Q4K element).
+  maxnreg(96) alone on V1 had zero impact (635ms vs 642ms) — confirms compute-bound, not
+  occupancy-limited. Enable: MW_WMMA_PREFILL=1.
+- PMAT-064/065/045 conclusion: TTFT gap requires DP4A-based Q4K GEMM that avoids dequant
+  entirely (like llama.cpp's mul_mat_q4_K MMQ kernel). WMMA approach is architecturally
+  limited: Q4K→FP16 dequant in SHMEM costs too many instructions per element. llama.cpp
+  uses DP4A directly on packed Q4K nibbles × Q8 activations — no FP16 intermediate.
   | Approach | TTFT | vs HGEMM | Issue |
   |----------|------|----------|-------|
-  | Cached FP16 HGEMM | 40ms | baseline | reads 3.56x more data |
-  | L2 per-matmul dequant | 63ms | 1.57x worse | cuBLAS evicts L2 |
-  | WMMA Q4K GEMM | 642ms | 16x worse | naive kernel, 17% occupancy |
-  | Fused scalar Q4K | 1313ms | 33x worse | no tensor cores |
-  | llama.cpp Q4K GEMM | 12ms | 3.3x better | years of optimization |
+  | Cached FP16 HGEMM | 47ms | baseline | reads 3.56x more data |
+  | L2 per-matmul dequant | 63ms | 1.34x worse | cuBLAS evicts L2 |
+  | **MW WMMA Q4K (V2)** | **234ms** | **5.0x worse** | **dequant compute-bound** |
+  | WMMA Q4K (V1) | 635ms | 13.5x worse | 1 warp, low parallelism |
+  | Fused scalar Q4K | 1313ms | 28x worse | no tensor cores |
+  | llama.cpp Q4K GEMM | 12ms | 3.9x better | DP4A MMQ, no dequant |
 
 ---
 
@@ -486,13 +496,15 @@ Key milestones:
    shared memory, WMMA tensor core compute. Reads 3.56x less data + flash attention.
 
 **Root cause:** FP16 bandwidth overhead (3.56x more data read than Q4K).
-**Fix path:** Production-quality fused Q4K GEMM with tensor cores (like llama.cpp's
-`mul_mat_q4_K`). All intermediate approaches tested and failed:
-- WMMA Q4K GEMM (PMAT-064): correct but 16x slower (naive kernel, 17% occupancy)
-- L2-cached dequant+HGEMM (PMAT-065): 1.57x slower (cuBLAS evicts L2)
-- Fused scalar Q4K GEMM (GH-182): 33x slower (no tensor cores)
-The WMMA kernel is the right architecture but needs llama.cpp-level optimization:
-multi-warp cooperation, software pipelining, double-buffered SHMEM, register blocking.
+**Fix path:** DP4A-based Q4K GEMM (like llama.cpp's `mul_mat_q4_K` MMQ kernel).
+All WMMA-based approaches tested — dequant compute is the architectural bottleneck:
+- Multi-warp WMMA (PMAT-045): 5x slower — 2.7x over V1 but dequant still dominates
+- Single-warp WMMA (PMAT-064): 13.5x slower — maxnreg(96) had zero effect
+- L2-cached dequant+HGEMM (PMAT-065): 1.34x slower (cuBLAS evicts L2)
+- Fused scalar Q4K GEMM (GH-182): 28x slower (no tensor cores)
+**Key insight:** WMMA requires Q4K→FP16 dequant (many instructions per element).
+llama.cpp's DP4A approach operates directly on packed Q4K nibbles × Q8 activations,
+avoiding dequant entirely. Next: build DP4A Q4K×Q8 GEMM kernel.
 **PMAT-063 profiling results (PREFILL_DETAIL_TRACE):**
 - cuBLAS first-call JIT: 42ms per new (M,N,K) shape. Fixed by multi-M warmup (8 M values).
 - Prefill graph capture with workspace: works but 11x slower than eager (slow algorithms).
