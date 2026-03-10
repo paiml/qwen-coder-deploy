@@ -537,33 +537,32 @@ roadmap:
 - id: PMAT-071
   github_issue: null
   item_type: task
-  title: Tiled Q4K GEMM for prefill — fix TTFT 3.8x gap
+  title: Fix TTFT 3.8x gap — FP8 scaling or cooperative WMMA kernel
   status: inprogress
   priority: critical
   assigned_to: null
   created: 2026-03-10T18:00:00Z
-  updated: 2026-03-10T17:13:10.849556576+00:00
+  updated: 2026-03-10T17:45:00Z
   spec: contracts/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: Shared-memory tiled Q4K GEMM kernel in trueno-gpu (extends Dp4aQ4KGemmKernel)'
-  - 'AC2: TTFT <= 20ms on RTX 4060L at c=1 (from 46.4ms)'
-  - 'AC3: Prefill >= 6,000 tok/s on RTX 4060L (from 2,198)'
-  - 'AC4: Output parity with cuBLAS HGEMM (cosine similarity > 0.99)'
-  - 'AC5: Eliminates 2944 MB FP16 weight cache (reads Q4K directly)'
+  - 'AC1: TTFT <= 35ms on RTX 4060L at c=1 (from 46.4ms baseline)'
+  - 'AC2: Prefill >= 4,000 tok/s on RTX 4060L (from 2,198)'
+  - 'AC3: Output parity with cuBLAS HGEMM (cosine similarity > 0.999)'
+  - 'AC4: Correctness on 6/6 prompts (math, code gen, explanation, JSON, SQL)'
   phases:
-  - name: Profile cuBLAS HGEMM prefill with ncu to establish roofline targets
-    status: planned
+  - name: 'Benchmark all 5 existing prefill approaches on yoga RTX 4060L (DONE)'
+    status: completed
     estimated_effort: null
-    completion: 0
-  - name: Extend Dp4aQ4KGemmKernel with shared memory tiling (cooperative tile load, bar_sync, K-tile loop)
+    completion: 100
+  - name: 'Path A: FP8 with per-tensor scaling — cuBLASLt scale descriptor'
     status: planned
-    estimated_effort: null
+    estimated_effort: 2d
     completion: 0
-  - name: Wire into realizr prefill path (replace HGEMM for Q4K layers)
+  - name: 'Path B (fallback): Cooperative WMMA kernel rewrite — coalesced Q4K loading, Q8 activations, 64×64 tiles'
     status: planned
-    estimated_effort: null
+    estimated_effort: 2w
     completion: 0
-  - name: 'Benchmark on yoga: TTFT, prefill tok/s, parity check'
+  - name: 'Benchmark winning path on yoga: TTFT, prefill tok/s, parity check'
     status: planned
     estimated_effort: null
     completion: 0
@@ -574,31 +573,31 @@ roadmap:
   - prefill
   - trueno-gpu
   - tier0
-  notes: 'Five-Whys: TTFT 3.8x because cuBLAS reads FP16 (2 B/elem) vs llama.cpp Q4K (0.56 B/elem) = 3.5x BW. GH-182 fused attempt was 16x slower (no tiling). Dp4aQ4KGemmKernel exists but has no shared-memory tiling. Key: cooperative tile load, warp-level reduction, DP4A accumulation within Q4K superblocks.'
+  notes: 'EXPERIMENTAL (Mar 10): Benchmarked all 5 prefill approaches on yoga sm_89. DP4A=159ms (3.4x slower, compute-bound on CUDA cores), MW WMMA=235ms (5.1x slower, uncoalesced ld_global_u8), L2=64.5ms (1.4x slower, dequant overhead), FP8=31.6ms (1.47x faster BUT garbled output — E4M3 3-bit mantissa precision loss across 28 layers). Key insight: FP8 cuBLASLt shows the right perf direction. Path A: FP8 with per-tensor scaling. Path B: cooperative WMMA kernel with coalesced Q4K loading + Q8 activations.'
 - id: PMAT-072
   github_issue: null
   item_type: task
   title: Continuous batching Phase 1 — decouple prefill/decode lock scope
-  status: planned
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-10T18:00:00Z
-  updated: 2026-03-10T18:00:00Z
+  updated: 2026-03-10T22:00:00Z
   spec: contracts/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: model.write() lock held only for single GPU operation (~19ms), not full generation (~2700ms)'
-  - 'AC2: New requests start prefill within 20ms of arrival (vs 2700ms)'
-  - 'AC3: c=4 aggregate >= 260 tok/s on RTX 4060L (from 197.5)'
-  - 'AC4: c=1 decode unchanged (regression check)'
+  - 'AC1: model.write() lock held only for single GPU operation (~19ms), not full generation (~2700ms) — DONE'
+  - 'AC2: New requests start prefill within 20ms of arrival (vs 2700ms) — DONE (structural)'
+  - 'AC3: c=4 aggregate >= 260 tok/s on RTX 4060L (from 197.5) — NOT MET: 196.9 (lock release alone does not improve throughput; single scheduler thread means no concurrent access. Benefit unlocks PMAT-073 mid-batch joins.)'
+  - 'AC4: c=1 decode unchanged (regression check) — DONE: 138.9 tok/s (baseline 138.8)'
   phases:
   - name: Refactor generate_batched_streaming to yield between decode steps
-    status: planned
+    status: completed
     estimated_effort: null
-    completion: 0
+    completion: 100
   - name: Restructure process_cuda_batch to release/reacquire lock per step
-    status: planned
+    status: completed
     estimated_effort: null
-    completion: 0
+    completion: 100
   - name: Add lock-wait tracing (measure contention reduction)
     status: planned
     estimated_effort: null

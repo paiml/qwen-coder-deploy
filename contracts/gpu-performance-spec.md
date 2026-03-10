@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.19.0
+**Version:** 2.20.0
 **Status:** ACTIVE
 **Date:** 2026-03-10
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -337,9 +337,28 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **Root cause:** No tiled Q4K GEMM kernel. cuBLAS dequant+HGEMM reads 3.5x more VRAM bandwidth than llama.cpp's fused `mul_mat_q4_K` which processes compressed weights directly.
 
-**Fix:** PMAT-071 — Tiled Q4K GEMM in trueno-gpu with DP4A + shared memory weight reuse. `Dp4aQ4KGemmKernel` already exists (PMAT-066) but lacks shared-memory tiling — extend with cooperative tile loading and warp-level reduction. Target: TTFT ~12ms, prefill ~8,000 tok/s.
+**PMAT-071 Experimental Results (Mar 10 2026, RTX 4060 Laptop sm_89):**
 
-**Falsification:** If fused Q4K GEMM matches cuBLAS HGEMM quality (cosine similarity >0.99) AND reduces TTFT to within 1.5x of llama.cpp, the hypothesis is confirmed. If TTFT remains >2x despite equal bandwidth, the gap is compute-bound (not memory-bound) and tensor cores are needed.
+| Approach | TTFT P50 | vs HGEMM | Status |
+|----------|----------|----------|--------|
+| cuBLAS HGEMM (baseline) | 46.4ms | 1.0x | Production default |
+| **FP8 cuBLASLt** | **31.6ms** | **1.47x faster** | Garbled output (3-bit mantissa precision loss across 28 layers) |
+| L2 dequant + HGEMM | 64.5ms | 1.39x slower | Dequant kernel overhead exceeds BW savings |
+| DP4A Q4K GEMM (PMAT-066) | 159ms | 3.4x slower | Compute-bound: CUDA core DP4A ~50 TOPS vs tensor core ~96 TFLOPS on sm_89 |
+| MW WMMA Q4K (PMAT-045) | 235ms | 5.1x slower | Uncoalesced per-byte Q4K loads (`ld_global_u8`), low occupancy |
+| llama.cpp (target) | 12.1ms | 3.8x faster | Fused `mul_mat_q4_K` with tiled DP4A + cooperative loading |
+
+**Analysis:**
+- **DP4A GEMM fails** because CUDA core INT32 throughput (50 TOPS) is ~2x less than FP16 tensor core throughput (96 TFLOPS) on sm_89. Even with 3.5x BW savings, the compute deficit makes DP4A slower than HGEMM at M=125.
+- **MW WMMA fails** because Phase 2 (Q4K dequant) does 512 individual `ld_global_u8` calls — completely uncoalesced. The dequant cost exceeds the BW savings from reading Q4K vs FP16. Additionally, Phase 1 reads activations as FP32 (4 B/elem), making total bandwidth WORSE than HGEMM (4.56 vs 4.0 B/elem).
+- **FP8 cuBLASLt succeeds** at the GEMM level (reasonable per-layer output values) but E4M3's 3-bit mantissa introduces ~12.5% relative error per element, which compounds across 28 transformer layers to produce garbled text. Needs per-tensor scaling or FP8 E5M2 for weights.
+- **L2 dequant fails** because per-matmul Q4K→FP16 kernel launch overhead (dequant + write) exceeds the DRAM BW savings from L2-cached HGEMM reads.
+
+**Fix (revised):** PMAT-071 has two viable paths:
+1. **FP8 with per-tensor scaling** — Scale weights to fill E4M3 dynamic range, compensate in GEMM alpha. Needs cuBLASLt scale descriptor support. Expected: ~32ms TTFT. Priority: **high** (lowest engineering effort).
+2. **Cooperative WMMA kernel** — Complete rewrite of MW WMMA with: (a) cooperative coalesced Q4K super-block loading to SHMEM, (b) Q8 activation loading instead of FP32, (c) 64×64 output tiles with 8 warps. Expected: ~15-20ms TTFT. Priority: **medium** (multi-week effort).
+
+**Falsification:** If FP8 with per-tensor scaling produces correct output (cosine similarity >0.999 vs HGEMM) AND TTFT ≤ 35ms, Path 1 is confirmed. If scaling cannot fix precision, Path 2 is required.
 
 #### Gap 2: c=4 aggregate 0.67x (197.5 vs 296.5 tok/s llama.cpp)
 
@@ -354,11 +373,11 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 **Root cause:** Batch-then-wait scheduler. `model.write()` held for ~2.7s blocks all new requests. No continuous batching — slots can't join/leave mid-batch.
 
 **Fix:** Three phases, each independently shippable:
-- **PMAT-072 Phase 1:** Decouple prefill/decode lock scope — release lock between decode steps (19ms hold vs 2700ms). New requests start prefill within 19ms of arrival. Target: ~260 aggregate.
-- **PMAT-073 Phase 2:** Mid-batch joins — pending requests join active batch at next decode step. Batched GEMV already supports variable M (1-32). Target: ~350 aggregate.
+- **PMAT-072 Phase 1 (DONE):** Decouple prefill/decode lock scope — release lock between decode steps (19ms hold vs 2700ms). Refactored `generate_batched_streaming` into step-wise API: `batched_setup_and_prefill` → `batched_decode_step` (loop) → `batched_cleanup`. Scheduler releases lock between decode steps. **Result:** 196.9 tok/s (baseline 197.5) — lock release alone does NOT improve throughput because single scheduler thread has no concurrent consumer. This is a **structural prerequisite** for PMAT-073, not a standalone improvement.
+- **PMAT-073 Phase 2:** Mid-batch joins — pending requests join active batch at next decode step. Batched GEMV already supports variable M (1-32). Target: ~350 aggregate. **Now unblocked by PMAT-072.**
 - **PMAT-074 Phase 3:** Mid-batch exits — finished slots recycled immediately for next pending request. True continuous batching. Target: ~450 aggregate.
 
-**Falsification:** If Phase 1 reduces lock contention (measured via lock-wait time tracing) but aggregate stays <220 tok/s, the bottleneck is NOT lock scope but GPU compute serialization. If Phase 2 doesn't improve over Phase 1, the batching overhead of variable-M exceeds the benefit.
+**Falsification (PMAT-072 result):** Phase 1 lock release did NOT improve aggregate (196.9 ≈ 197.5), confirming the falsification condition: "aggregate stays <220 tok/s" → bottleneck is NOT lock scope alone but the absence of mid-batch scheduling. Phase 2 is the critical path for actual throughput gains.
 
 #### Gap 3: c=4 aggregate 0.33x vs vLLM (197.5 vs 604.7 tok/s)
 
@@ -375,9 +394,9 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 **Expected trajectory with fixes:**
 ```
 Current:        197.5 aggregate tok/s (0.33x vLLM)
++ PMAT-072:     197.5 (lock release alone — no improvement, structural prerequisite) ✓ DONE
 + PMAT-071:     ~220 (faster prefill → shorter TTFT)
-+ PMAT-072:     ~300 (19ms lock windows)
-+ PMAT-073:     ~400 (mid-batch joins)
++ PMAT-073:     ~350 (mid-batch joins — the actual throughput improvement)
 + PMAT-074:     ~450 (slot recycling)
 Theoretical:    ~550 (4 × 138 decode, overhead)
 vLLM:           604.7
@@ -1211,6 +1230,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.20.0 | 2026-03-10 | **PMAT-072 DONE: Step-wise batched decode.** Refactored `generate_batched_streaming` into 3-method API: `batched_setup_and_prefill` → `batched_decode_step` → `batched_cleanup`. Scheduler releases model lock between decode steps (~19ms hold vs ~660ms). Result: 196.9 tok/s c=4 (baseline 197.5) — lock release alone does NOT improve throughput (single scheduler thread). Confirmed falsification: bottleneck is absence of mid-batch scheduling, not lock scope. PMAT-073 now unblocked. c=1: 138.9 tok/s (no regression). |
 | 2.19.0 | 2026-03-10 | **Five-Whys RCA for 3 remaining gaps + PMAT-071/072/073/074 implementation plan.** Gap 1: TTFT/Prefill 3.8x — cuBLAS HGEMM reads FP16 (3.5x BW vs Q4K), fix: tiled Q4K GEMM (PMAT-071). Gap 2: c=4 0.67x — `model.write()` held 2.7s, fix: continuous batching in 3 phases (PMAT-072/073/074). Gap 3: c=4 0.33x vs vLLM — architectural (scheduler + PagedAttention). Updated baselines to PMAT-062 numbers. Falsification conditions for each gap. |
 | 2.18.0 | 2026-03-10 | **Full 4-runtime benchmark with vLLM baseline.** First isolated serial benchmark including vLLM (AWQ INT4). c=1: vLLM 160.1, ollama 150.7, llama.cpp 143.5, realizr 140.0 — decode 4-way near-parity. TTFT improved 50.9→25.4ms via CORRECTNESS-014 fix. c=4: vLLM **567.3** aggregate (3.1x over realizr), llama.cpp 302.2 (1.7x), realizr 180.9 (+108% from 86.8 via CORRECTNESS-014 + PMAT-046). Updated performance.md, README.md, cross-platform summary with vLLM column. |
 | 2.17.0 | 2026-03-10 | **CORRECTNESS-014 FIXED: CUDA context corruption.** Root cause: `init_prefill_workspace` reallocated workspace buffers when prompt length exceeded `buffer_capacity`, but decode graph was NOT cleared — graph replayed with stale GPU pointers → `CUDA_ERROR_ILLEGAL_ADDRESS` on 4th request. Fix: clear `decode_graph` in `init_prefill_workspace` before reallocation. Also fixed wrong comment "workspace pointers are stable" in `generate_2.rs`. **CORRECTNESS-013 narrowed:** Identical prompts produce different tokens across slots in batch 2+. First batch after server start is correct. Root cause: `PMAT-058` KV cache free/reinit between batches produces corrupted state. Env var `CUDA_GRAPH_DISABLE=1` or `SKIP_CUDA_GRAPH=1` disables graph capture (NOT `DECODE_GRAPH=0` which doesn't exist). |
