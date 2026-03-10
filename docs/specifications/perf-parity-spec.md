@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.15.0
+**Version:** 3.16.0
 **Date:** 2026-03-09
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -265,19 +265,21 @@ apr-cli (HTTP server, /v1/chat/completions)
 | **vLLM** | **160.1** | 13.7 | **6.2** | 1,673.0 |
 | ollama | 150.9 | 71.8 | 6.6 | 320.2 |
 | llama.cpp | 142.5 | **12.3** | 7.0 | **8,280.4** |
-| **realizr** | 138.6 | 78.8 | 7.2 | 1,297.5 |
+| **realizr** | 138.2 | 48.9 | 7.2 | 2,085.7 |
 
 **Parity check (realizr vs llama.cpp):**
-- Decode: 138.6 / 142.5 = **0.97x** (PASS — within 5%)
+- Decode: 138.2 / 142.5 = **0.97x** (PASS — within 5%)
 - ITL: 7.2 / 7.0 = **1.03x** (PASS — within 5%)
-- TTFT: 78.8 / 12.3 = **6.4x** (FAIL — target <= 2x)
-- Prefill: 1297.5 / 8280.4 = **0.16x** (HGEMM vs Q4K GEMM, PMAT-059 improved 7.1x)
+- TTFT: 48.9 / 12.3 = **4.0x** (FAIL — target <= 2x, was 6.4x, PMAT-052 improved 1.6x)
+- Prefill: 2085.7 / 8280.4 = **0.25x** (was 0.16x, PMAT-052 improved 1.6x)
 
 **Parity check (realizr vs vLLM):**
-- Decode: 138.6 / 160.1 = **0.87x** (FAIL — 13% gap)
+- Decode: 138.2 / 160.1 = **0.86x** (FAIL — 14% gap)
 - ITL: 7.2 / 6.2 = **1.16x** (PASS)
-- TTFT: 78.8 / 13.7 = **5.8x** (FAIL)
+- TTFT: 48.9 / 13.7 = **3.6x** (FAIL — was 5.8x, PMAT-052 improved 1.6x)
 
+**PMAT-052:** Zero-copy c=1 prefill attention — read K/V from packed buffer (lda=kv_dim),
+scatter via PTX kernel. Eliminated 14,000 D2D copies. TTFT 78.8→48.9ms (1.6x).
 **PMAT-059:** Disabled prefill CUDA graph — cuBLAS workspace-free algorithms during graph
 capture are 7x slower than eager cuBLAS (541ms vs 78ms for S=125). TTFT 561→78.8ms.
 **PMAT-058 regression fix:** c=1 after c=4 batch recovers to baseline (138.4 tok/s).
@@ -316,7 +318,7 @@ capture are 7x slower than eager cuBLAS (541ms vs 78ms for S=125). TTFT 561→78
 
 ### Known Issues
 
-1. **c=1 TTFT 6.4x gap** — 78.8ms vs 12.3ms. PMAT-059 improved 7.1x (was 48x). Remaining gap:
+1. **c=1 TTFT 4.0x gap** — 48.9ms vs 12.3ms. PMAT-052 improved 1.6x (was 6.4x). Remaining gap:
    HGEMM reads FP16 (3.56x more data). Fix: fused Q4K GEMM kernel.
 2. **c=4 decode 0.56x gap** — 42.8 vs 76.3 tok/s. Root cause: M=4 DP4A GEMV compute-bound +
    SGEMM prefill overhead. M=1→M=4 ITL: 3.25x (realizr) vs 1.87x (llama.cpp).
@@ -403,28 +405,33 @@ Key milestones:
   (c) PTX scatter_packed_kv kernel: single launch scatters K/V from packed buffer to batched
   KV cache (replaces scatter_single_kv_to_batched_layer). Total: Attn+Scatter 128.7→12.2ms
   (10.5x), TTFT 256→128.6ms (2.0x). FFN now 80% of prefill (82.7ms / 103.5ms).
+- PMAT-052: Zero-copy c=1 prefill attention. Same approach as PMAT-051 v2 applied to
+  single-prompt path: read K/V directly from packed buffer (lda=kv_dim), scatter to single
+  KV cache via PTX kernel (28 launches replaces 14,000 D2D copies from bulk_scatter_kv).
+  c=1 TTFT: 78.8→48.9ms (1.6x). Prefill tok/s: 452→2086 (4.6x). Decode unchanged (138.2).
 
 ---
 
 ## Five-Whys Root Cause Analysis
 
-### TTFT 6.4x gap (c=1, realizr 78.8ms vs llama.cpp 12.3ms)
+### TTFT 4.0x gap (c=1, realizr 48.9ms vs llama.cpp 12.3ms)
 
-1. **Why is TTFT 6.4x worse?** 78.8ms for ~125-token prefill across 28 layers via eager HGEMM.
-2. **Why 78.8ms?** cuBLAS HGEMM reads FP16 weights (2 B/elem), ~58ms GPU compute + ~12ms
-   scheduler window + HTTP/SSE overhead. PMAT-059 discovered prefill CUDA graph made this
-   7x WORSE (541ms) because cuBLAS uses workspace-free algorithms during graph capture.
-3. **Why 58ms GPU compute?** FP16 cache occupies 2944 MB of 8 GB VRAM (37%).
-   HGEMM reads 2 bytes/elem vs Q4K's 0.5625 bytes/elem — 3.56x more bandwidth consumed.
+1. **Why is TTFT 4.0x worse?** 48.9ms for ~125-token prefill across 28 layers via eager HGEMM.
+2. **Why 48.9ms?** cuBLAS HGEMM reads FP16 weights (2 B/elem), ~40ms GPU compute + ~9ms
+   overhead. PMAT-052 eliminated 14,000 D2D copies (bulk_scatter_kv) via zero-copy attention
+   (lda=kv_dim) + PTX scatter kernel (28 launches replaces 14,000 D2D copies). Was 78.8ms.
+3. **Why 40ms GPU compute?** HGEMM reads 2 bytes/elem vs Q4K's 0.5625 bytes/elem — 3.56x
+   more bandwidth consumed. FP16 cache occupies 2944 MB of 8 GB VRAM (37%).
 4. **Why not use quantized weights directly?** Fused Q4K GEMM (GH-182) is 16x SLOWER than
    cuBLAS HGEMM at M=125 on sm_89 due to serial accumulation without proper tiling.
-5. **Why is llama.cpp 6.4x faster (12.3ms)?** Fused Q4K/Q6K GEMM reads 0.5625/0.66 B/elem,
+5. **Why is llama.cpp 4.0x faster (12.3ms)?** Fused Q4K/Q6K GEMM reads 0.5625/0.66 B/elem,
    hand-optimized with CUDA core tiling + warp-level reduction + shared memory.
 
-**Root cause:** FP16 bandwidth overhead (3.56x more data read than Q4K) + scheduler window.
+**Root cause:** FP16 bandwidth overhead (3.56x more data read than Q4K).
 **Fix needed:** Fused Q4K/Q6K GEMM that reads quantized weights directly with proper tiling.
-**Status:** PMAT-059 improved 7.1x (561→78.8ms) by disabling prefill graph. Remaining 6.4x
-gap requires fused Q4K GEMM kernel (~12ms target).
+**Status:** PMAT-052 improved 1.6x (78.8→48.9ms) by eliminating D2D copy overhead.
+PMAT-059 improved 7.1x (561→78.8ms) by disabling prefill graph. Remaining 4.0x gap
+requires fused Q4K GEMM kernel (~12ms target).
 
 ### c=4 decode 0.56x gap (realizr 42.8 vs llama.cpp 76.4 tok/s)
 
