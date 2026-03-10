@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.22.0
+**Version:** 2.23.0
 **Status:** ACTIVE
 **Date:** 2026-03-10
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -403,6 +403,68 @@ vLLM:           604.7
 ```
 
 The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our DP4A Q4K GEMV — a kernel-level optimization, not architectural.
+
+#### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
+
+**PMAT-072/073/074 complete. Continuous batching (join, recycle, step-wise decode) delivered only +10% (197→216). The theoretical maximum at M=4 is ~550 tok/s (4 × 138). Three root causes explain the 2.55× shortfall.**
+
+##### Finding 1: Per-slot decode degrades 2.67× at M=4 (ITL 19.2ms vs 7.2ms)
+
+**Five-Whys:**
+
+1. Why is c=4 aggregate only 216 tok/s vs theoretical 550? → Per-slot decode is 52 tok/s (not 138). Aggregate = M × per-slot = 4 × 52 = 208.
+2. Why 52 tok/s per slot? → ITL is 19.2ms (vs 7.2ms at M=1 = 2.67× slower per step). Weight reads should be amortized across M slots.
+3. Why 2.67× per step? → Three additive factors: (a) no CUDA graphs (+~5ms kernel launch overhead), (b) 4× larger L2 working set (+12% from PMAT-058), (c) batched attention reads 4× KV entries.
+4. Why no CUDA graphs? → `BATCHED_GRAPH=1` tested 25% slower (PMAT-056). Disabled by default. The capture overhead occurs per-batch, not amortized across decode steps.
+5. Why 25% slower with graphs? → Graph capture forces cuBLAS workspace-free algorithms (same root cause as PMAT-059 prefill). But batched decode uses DP4A GEMV (custom PTX, not cuBLAS) — the 25% overhead needs re-investigation. Hypothesis: workspace buffer address instability between graph captures, not algorithm selection.
+
+**Root cause:** Kernel launch overhead dominates at M=4. The batched decode path fires ~280 kernel launches per step without graph amortization, adding ~5ms (28% of 19.2ms ITL). L2 cache spreading (+12%) and batched attention scaling compound the regression.
+
+**Fix (PMAT-075):** Re-enable CUDA graph capture for batched decode with stable workspace pre-allocation. Since DP4A GEMV is custom PTX (no cuBLAS workspace issue), the PMAT-059 root cause may not apply. Test: deploy with `BATCHED_GRAPH=1`, measure ITL delta. If confirmed faster, make it the default. If M changes mid-batch (PMAT-073), invalidate and re-capture.
+
+**Falsification:** If `BATCHED_GRAPH=1` gives ITL ≤ 15ms at M=4, kernel launch overhead is confirmed as root cause. If ITL stays ≥ 19ms, investigate workspace address stability in graph capture.
+
+##### Finding 2: Dead slot compute waste
+
+**Five-Whys:**
+
+1. Why does recycling only help +10%? → Recycling prevents idle SLOTS, but done slots still consume GPU compute until recycled.
+2. Why do done slots consume compute? → `batched_decode_step` embeds all M tokens (line 278-288), runs forward pass for full M, then distribute_tokens skips done slots.
+3. Why not skip done slots? → Batched GEMV operates on a contiguous `[M × hidden_dim]` buffer. Removing a slot mid-buffer requires compaction or scatter-gather.
+4. Why contiguous? → GPU kernels use `grid.y = M` with `slot_idx = blockIdx.y`. Holes in the M dimension would require either mask-based skip or buffer compaction per step.
+5. Why not just compact? → Compacting would require: (a) reordering embed_buf, (b) remapping KV cache slot indices, (c) updating all per-slot state arrays. This is O(M × hidden_dim) memcpy per compaction — potentially more expensive than the wasted compute.
+
+**Root cause:** Batched GEMV assumes dense M. Done slots get zero embeddings, producing wasted GEMV output and attention computation. At M=4 with 1 done slot, 25% of compute is wasted.
+
+**Fix (PMAT-076):** Mask-based skip in batched forward. Add a `done_mask` parameter to `forward_batched_to_token_ids`. Kernels check `done_mask[slot_idx]` and early-return for done slots (1 instruction per thread block). Zero-cost when all slots active. ~25% compute savings per done slot. Alternative: compact active slots into contiguous buffer before forward, expand back after — simpler kernel code but O(M × hidden_dim) memcpy overhead.
+
+**Falsification:** If mask-based skip reduces ITL by ≥ 15% when 2 of 4 slots are done, compute waste is confirmed. If no ITL change, the done slots are already effectively free (memory-bound, not compute-bound).
+
+##### Finding 3: Uniform traffic defeats recycling
+
+**Five-Whys:**
+
+1. Why does probador c=4 show no recycling benefit? → All 4 slots finish at the same gen_idx (128).
+2. Why same gen_idx? → Same prompt + same max_tokens=128 → identical generation length. Temperature=0.7 sampling occasionally produces different EOS timing, but max_tokens is the binding constraint.
+3. Why binding? → Probador uses a fixed prompt and fixed max_tokens for all requests. No variance in request characteristics.
+4. Why is this a problem? → Slot recycling requires heterogeneous request completion times. When all finish simultaneously, there's nothing to recycle INTO — the batch ends and a new batch starts.
+5. Why does this matter? → probador is the only benchmark tool. It cannot demonstrate recycling's production value, making it invisible in performance tracking.
+
+**Root cause:** Benchmark blind spot. probador sends uniform traffic (same prompt, same max_tokens), which is pathological for continuous batching. Production traffic has variance in prompt length, max_tokens, and EOS timing — exactly the scenario recycling optimizes.
+
+**Fix (PMAT-077):** Add heterogeneous traffic mode to probador. `probador llm load --max-tokens-distribution uniform:16,128` sends requests with max_tokens uniformly distributed between 16 and 128. This creates staggered slot completion, enabling recycling measurement. Alternative: use multiple probador prompts from a file (`--prompts-file`) with varying lengths.
+
+**Falsification:** If heterogeneous mode (probador or curl test) shows ≥ 250 tok/s aggregate at c=8, recycling is confirmed valuable for real traffic. (Already validated: 216.4 tok/s with curl heterogeneous test, limited by per-slot ITL.)
+
+**Updated trajectory with next fixes:**
+```
+Continuous batching complete:  216.4 aggregate tok/s (0.36x vLLM)
++ PMAT-075 (batched graphs):  ~270 (predicted: 5ms ITL reduction → 14.2ms → 281 theoretical)
++ PMAT-076 (dead slot mask):  ~290 (predicted: 15% ITL reduction on mixed traffic)
++ PMAT-077 (probador hetero):  measurement-only (enables accurate benchmarking)
+Theoretical:                   ~550 (4 × 138 decode, overhead)
+vLLM:                          604.7
+```
 
 ### Jetson Orin Root Cause Analysis (Updated Mar 5, 2026)
 
@@ -1230,6 +1292,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.23.0 | 2026-03-11 | **Post-continuous batching five-whys analysis.** Three findings: (1) Per-slot decode degrades 2.67× at M=4 (ITL 19.2ms vs 7.2ms) — root cause: no CUDA graphs in batched path (+~5ms kernel launch overhead), L2 cache spreading (+12%), batched attention 4× scaling. (2) Dead slot compute waste — done slots get zero embeddings through full forward pass, ~25% wasted compute per dead slot. (3) Uniform traffic defeats recycling — probador sends identical requests, all finish at same gen_idx. Three new work items: PMAT-075 (batched CUDA graphs), PMAT-076 (dead slot masking), PMAT-077 (probador heterogeneous traffic). Updated trajectory: 216→~290 aggregate predicted. |
 | 2.22.0 | 2026-03-10 | **PMAT-074 DONE: Slot recycling (continuous batching Phase 3).** `recycle_slot()` reuses finished slot indices — KV cache overwrite, state replacement at slot index, `max_tokens_max` extended for gen_idx offset. 159 recycling events in single 31s continuous batch. Heterogeneous traffic (mixed max_tokens 16/32/64/128, c=8): **216.4 tok/s** (+10% vs uniform 197). Uniform traffic (probador max_tokens=128): no gain (all slots finish simultaneously, no recycling opportunity). Prefill overhead: ~16ms per recycled slot. No regressions: c=1=138.8, c=4=196.7. All 3 continuous batching phases complete (PMAT-072/073/074). |
 | 2.21.0 | 2026-03-10 | **PMAT-073 DONE: Mid-batch joins.** Three bugs fixed: (1) GPU buffer length mismatch — attention vectors padded to match pre-allocated KV buffer size, (2) RwLock contention — `model_architecture()` and `model_eos_token_id()` blocked HTTP handlers ~2s during batch decode, fixed by caching at AppState construction, (3) m=1 fast path preserved — batched path 3x slower at c=1, keep monolithic path for single requests. Mid-batch joins verified: 4 joins during c=4 benchmark (slots join running batch with ~31ms prefill). c=1: 138.9 tok/s (no regression), c=4: 197.4 tok/s (no regression). No throughput gain at c=4 because probador sends all requests simultaneously → initial batch is already full. |
 | 2.20.0 | 2026-03-10 | **PMAT-072 DONE: Step-wise batched decode.** Refactored `generate_batched_streaming` into 3-method API: `batched_setup_and_prefill` → `batched_decode_step` → `batched_cleanup`. Scheduler releases model lock between decode steps (~19ms hold vs ~660ms). Result: 196.9 tok/s c=4 (baseline 197.5) — lock release alone does NOT improve throughput (single scheduler thread). Confirmed falsification: bottleneck is absence of mid-batch scheduling, not lock scope. PMAT-073 now unblocked. c=1: 138.9 tok/s (no regression). |

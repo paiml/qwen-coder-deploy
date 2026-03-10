@@ -550,7 +550,7 @@ roadmap:
   - 'AC3: Output parity with cuBLAS HGEMM (cosine similarity > 0.999)'
   - 'AC4: Correctness on 6/6 prompts (math, code gen, explanation, JSON, SQL)'
   phases:
-  - name: 'Benchmark all 5 existing prefill approaches on yoga RTX 4060L (DONE)'
+  - name: Benchmark all 5 existing prefill approaches on yoga RTX 4060L (DONE)
     status: completed
     estimated_effort: null
     completion: 100
@@ -680,3 +680,142 @@ roadmap:
   - gh-141
   - tier0
   notes: 'recycle_slot() method on OwnedQuantizedModelCuda: overwrite KV at slot index via scatter_single_kv_to_batched, replace state vectors at index (not push), extend max_tokens_max = gen_idx + new_max_tokens. Scheduler loop checks done slots after distribute_tokens, recycles via try_recv. 159 recycles in single continuous batch (31s, c=8). Heterogeneous traffic: 216 tok/s (+10% vs 197). Uniform max_tokens=128: no gain (all finish at same gen_idx). All 3 continuous batching phases complete (PMAT-072/073/074). Depends on: PMAT-073.'
+- id: PMAT-075
+  github_issue: null
+  item_type: task
+  title: Batched CUDA graph re-enable — eliminate kernel launch overhead at M>1
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2026-03-11T01:00:00Z
+  updated: 2026-03-11T01:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: BATCHED_GRAPH=1 gives ITL <= 15ms at M=4 on RTX 4060L'
+  - 'AC2: c=4 aggregate >= 270 tok/s'
+  - 'AC3: No regression at c=1 (>= 138 tok/s)'
+  phases:
+  - name: Test existing BATCHED_GRAPH=1 to measure current graph vs eager ITL delta
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Fix graph capture issues (workspace address stability, re-capture on M change)
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Make BATCHED_GRAPH=1 the default for batched decode
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 2d
+  labels:
+  - cuda-graphs
+  - scheduler
+  - tier0
+  notes: 'Five-Whys: ITL 19.2ms at M=4 vs 7.2ms at M=1 (2.67x). ~280 kernel launches per step without graph amortization adds ~5ms (28%). DP4A GEMV is custom PTX (no cuBLAS workspace issue like PMAT-059). Prior test (PMAT-056) showed 25% slower but root cause unclear. Hypothesis: workspace address instability, not algorithm selection. Test first, then fix. Depends on: PMAT-074.'
+- id: PMAT-076
+  github_issue: null
+  item_type: task
+  title: Dead slot masking — skip forward pass for done slots in batched decode
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-11T01:00:00Z
+  updated: 2026-03-11T01:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: ITL reduced >= 15% when 2 of 4 slots are done'
+  - 'AC2: No regression when all slots active (zero-cost mask check)'
+  phases:
+  - name: Add done_mask parameter to forward_batched_to_token_ids
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Add early-return check in batched GEMV kernel for masked slots
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 2d
+  labels:
+  - scheduler
+  - kernel-optimization
+  - tier0
+  notes: 'Five-Whys: Done slots get zero embeddings through full forward pass. Batched GEMV operates on contiguous [M x hidden_dim] buffer. grid.y = M includes done slots. At M=4 with 1 done slot, 25% compute wasted. Fix: mask-based skip (1 instruction per thread block early-return). Alternative: compact active slots before forward. Depends on: PMAT-074.'
+- id: PMAT-077
+  github_issue: null
+  item_type: task
+  title: Probador heterogeneous traffic mode — benchmark slot recycling
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-11T01:00:00Z
+  updated: 2026-03-11T01:00:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: probador supports --max-tokens-distribution flag'
+  - 'AC2: Heterogeneous mode shows >= 250 tok/s at c=8 with recycling'
+  phases:
+  - name: Add max_tokens distribution parameter to probador CLI
+    status: planned
+    estimated_effort: null
+    completion: 0
+  - name: Validate recycling throughput matches curl heterogeneous test
+    status: planned
+    estimated_effort: null
+    completion: 0
+  subtasks: []
+  estimated_effort: 1d
+  labels:
+  - probador
+  - benchmarking
+  notes: 'Five-Whys: probador sends uniform requests (same prompt, same max_tokens=128). All slots finish at same gen_idx. No recycling opportunity. Production traffic has variance. Need --max-tokens-distribution uniform:16,128 to generate staggered completion. Already validated 216 tok/s with curl heterogeneous test.'
+- id: PMAT-078
+  github_issue: null
+  item_type: task
+  title: 'PMAT-075: Batched CUDA graph re-enable'
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2026-03-10T21:25:08Z
+  updated: 2026-03-10T21:25:08Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-079
+  github_issue: null
+  item_type: task
+  title: 'PMAT-076: Dead slot masking in batched decode'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-10T21:25:09Z
+  updated: 2026-03-10T21:25:09Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-080
+  github_issue: null
+  item_type: task
+  title: 'PMAT-077: Probador heterogeneous traffic mode'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-10T21:25:09Z
+  updated: 2026-03-10T21:25:09Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
