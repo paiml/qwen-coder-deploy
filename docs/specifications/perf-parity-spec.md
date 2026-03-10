@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.18.0
+**Version:** 3.19.0
 **Date:** 2026-03-10
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -444,6 +444,28 @@ Key milestones:
   (cuBLAS chooses slow algorithms during capture). Profiling: HGEMM steady-state 16.7ms (196
   calls, 0.085ms avg), GPU total 27ms (28 layers), non-GPU 13ms. Root cause confirmed:
   FP16 BW overhead. Need tiled Q4K WMMA GEMM for parity.
+- PMAT-064: Q4K WMMA GEMM tensor core kernel (trueno-gpu). Dequants Q4K→FP16 in SHMEM,
+  uses WMMA 16×16×16 matmul. Three correctness bugs found and fixed: (a) C store address
+  missing ×4 byte multiplier, (b) WMMA OOB writes for edge tiles (M not multiple of 16)
+  — fixed with padded temp buffer, (c) D2D copy race condition (cuMemcpyDtoD not stream-
+  ordered) — fixed with stream.synchronize(). Kernel is CORRECT (max_err ≤ 0.000007 vs
+  cuBLAS HGEMM across all matrix shapes). But 16x SLOWER than cuBLAS HGEMM (TTFT 642ms
+  vs 40ms) — naive 1-warp-per-tile implementation has 17% occupancy, no pipelining, no
+  double buffering. Foundation for future optimization, not default. Enable: Q4K_WMMA_PREFILL=1.
+- PMAT-065: Q4K→FP16 direct dequant kernel + L2-cached HGEMM. Hypothesis: dequant Q4K to
+  FP16 temp buffer per-matmul (should stay in L2), cuBLAS reads from L2 instead of DRAM.
+  Result: 1.57x SLOWER (TTFT 63ms vs 40ms). Root cause: cuBLAS evicts FP16 weight data
+  from L2 during its own tiling operations — no application-level L2 residency control.
+  The dequant pass adds overhead without L2 benefit. Enable: L2_PREFILL=1.
+- PMAT-064/065 conclusion: TTFT gap requires production-quality fused Q4K GEMM (like
+  llama.cpp's mul_mat_q4_K). All intermediate approaches tested and measured:
+  | Approach | TTFT | vs HGEMM | Issue |
+  |----------|------|----------|-------|
+  | Cached FP16 HGEMM | 40ms | baseline | reads 3.56x more data |
+  | L2 per-matmul dequant | 63ms | 1.57x worse | cuBLAS evicts L2 |
+  | WMMA Q4K GEMM | 642ms | 16x worse | naive kernel, 17% occupancy |
+  | Fused scalar Q4K | 1313ms | 33x worse | no tensor cores |
+  | llama.cpp Q4K GEMM | 12ms | 3.3x better | years of optimization |
 
 ---
 
@@ -464,8 +486,13 @@ Key milestones:
    shared memory, WMMA tensor core compute. Reads 3.56x less data + flash attention.
 
 **Root cause:** FP16 bandwidth overhead (3.56x more data read than Q4K).
-**Fix path:** Tiled Q4K WMMA GEMM — dequant Q4K super-blocks per-tile into SHMEM,
-use WMMA FP16 tensor cores for compute. Target: TTFT ~12ms (matching llama.cpp).
+**Fix path:** Production-quality fused Q4K GEMM with tensor cores (like llama.cpp's
+`mul_mat_q4_K`). All intermediate approaches tested and failed:
+- WMMA Q4K GEMM (PMAT-064): correct but 16x slower (naive kernel, 17% occupancy)
+- L2-cached dequant+HGEMM (PMAT-065): 1.57x slower (cuBLAS evicts L2)
+- Fused scalar Q4K GEMM (GH-182): 33x slower (no tensor cores)
+The WMMA kernel is the right architecture but needs llama.cpp-level optimization:
+multi-warp cooperation, software pipelining, double-buffered SHMEM, register blocking.
 **PMAT-063 profiling results (PREFILL_DETAIL_TRACE):**
 - cuBLAS first-call JIT: 42ms per new (M,N,K) shape. Fixed by multi-M warmup (8 M values).
 - Prefill graph capture with workspace: works but 11x slower than eager (slow algorithms).
