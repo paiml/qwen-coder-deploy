@@ -1,6 +1,6 @@
 # Performance Parity Specification
 
-**Version:** 3.20.0
+**Version:** 3.21.0
 **Date:** 2026-03-10
 **Status:** ACTIVE — single source of truth for all performance parity work
 
@@ -464,18 +464,26 @@ Key milestones:
   Still 5x slower than HGEMM — dequant compute dominates (many instructions per Q4K element).
   maxnreg(96) alone on V1 had zero impact (635ms vs 642ms) — confirms compute-bound, not
   occupancy-limited. Enable: MW_WMMA_PREFILL=1.
-- PMAT-064/065/045 conclusion: TTFT gap requires DP4A-based Q4K GEMM that avoids dequant
-  entirely (like llama.cpp's mul_mat_q4_K MMQ kernel). WMMA approach is architecturally
-  limited: Q4K→FP16 dequant in SHMEM costs too many instructions per element. llama.cpp
-  uses DP4A directly on packed Q4K nibbles × Q8 activations — no FP16 intermediate.
+- PMAT-066: DP4A Q4K×Q8 GEMM kernel — dequant-free prefill via scalar DP4A dot products.
+  Two-step pipeline: Q8 quantize f32 activations (36B per 32 values), then DP4A GEMM
+  with Q4K weights (no FP16 intermediate). Half-warp architecture: 16 threads per N column,
+  TILE_M=4 rows unrolled, no shared memory. Grid: (ceil(N/8), ceil(M/4)), Block: 128.
+  TTFT 163ms = 4.1x SLOWER than HGEMM (40ms). Root cause: scalar DP4A (4 MADs/instruction)
+  vs tensor core HGEMM (4096 MADs/instruction). At M=100, compute-bound — BW savings
+  irrelevant. DP4A scalar only wins at M=1 (GEMV, memory-bound). Enable: DP4A_GEMM_PREFILL=1.
+- PMAT-064/065/045/066 conclusion: TTFT gap requires EITHER (a) IMMA (INT8 tensor cores)
+  with Q4K→INT8 packing for 2x compute + 3.56x BW savings, OR (b) larger-tile fused
+  Q4K dequant+WMMA (128×128 tiles to amortize dequant cost). All scalar/small-tile
+  approaches tested are architecturally slower than cuBLAS HGEMM for large M.
   | Approach | TTFT | vs HGEMM | Issue |
   |----------|------|----------|-------|
-  | Cached FP16 HGEMM | 47ms | baseline | reads 3.56x more data |
-  | L2 per-matmul dequant | 63ms | 1.34x worse | cuBLAS evicts L2 |
-  | **MW WMMA Q4K (V2)** | **234ms** | **5.0x worse** | **dequant compute-bound** |
-  | WMMA Q4K (V1) | 635ms | 13.5x worse | 1 warp, low parallelism |
-  | Fused scalar Q4K | 1313ms | 28x worse | no tensor cores |
-  | llama.cpp Q4K GEMM | 12ms | 3.9x better | DP4A MMQ, no dequant |
+  | **Cached FP16 HGEMM** | **40ms** | **baseline** | reads 3.56x more data |
+  | DP4A Q4K×Q8 GEMM | 163ms | 4.1x worse | scalar DP4A, compute-bound |
+  | L2 per-matmul dequant | 63ms | 1.6x worse | cuBLAS evicts L2 |
+  | MW WMMA Q4K (V2) | 234ms | 5.8x worse | dequant compute-bound |
+  | WMMA Q4K (V1) | 635ms | 15.9x worse | 1 warp, low parallelism |
+  | Fused scalar Q4K | 1313ms | 32.8x worse | no tensor cores |
+  | llama.cpp Q4K GEMM | 12ms | 3.3x better | DP4A MMQ, 8 warps, SHMEM tiling |
 
 ---
 
@@ -496,15 +504,18 @@ Key milestones:
    shared memory, WMMA tensor core compute. Reads 3.56x less data + flash attention.
 
 **Root cause:** FP16 bandwidth overhead (3.56x more data read than Q4K).
-**Fix path:** DP4A-based Q4K GEMM (like llama.cpp's `mul_mat_q4_K` MMQ kernel).
-All WMMA-based approaches tested — dequant compute is the architectural bottleneck:
-- Multi-warp WMMA (PMAT-045): 5x slower — 2.7x over V1 but dequant still dominates
-- Single-warp WMMA (PMAT-064): 13.5x slower — maxnreg(96) had zero effect
-- L2-cached dequant+HGEMM (PMAT-065): 1.34x slower (cuBLAS evicts L2)
-- Fused scalar Q4K GEMM (GH-182): 28x slower (no tensor cores)
-**Key insight:** WMMA requires Q4K→FP16 dequant (many instructions per element).
-llama.cpp's DP4A approach operates directly on packed Q4K nibbles × Q8 activations,
-avoiding dequant entirely. Next: build DP4A Q4K×Q8 GEMM kernel.
+**All custom kernel approaches exhausted** — HGEMM remains fastest for large-M prefill:
+- DP4A Q4K×Q8 GEMM (PMAT-066): 4.1x slower — scalar DP4A compute-bound at M≥100
+- Multi-warp WMMA (PMAT-045): 5.8x slower — Q4K→FP16 dequant compute-bound
+- L2-cached dequant+HGEMM (PMAT-065): 1.6x slower (cuBLAS evicts L2)
+- Fused scalar Q4K GEMM (GH-182): 33x slower (no tensor cores)
+**Key insight:** At M≥100 prefill, the problem is compute-bound. Tensor cores
+(4096 MADs/instruction) dominate scalar DP4A (4 MADs/instruction) regardless of
+memory bandwidth savings. llama.cpp's advantage comes from highly-optimized MMQ:
+256 threads, 8 warps, shared memory tiling, VDR=8, Stream-K partitioning.
+**Fix path:** IMMA (INT8 tensor cores) — 2x throughput vs FP16 WMMA + Q4K BW savings.
+Or accept HGEMM as the Pareto-optimal approach for consumer GPUs and focus on
+reducing per-matmul overhead (launch latency, non-GEMM operations).
 **PMAT-063 profiling results (PREFILL_DETAIL_TRACE):**
 - cuBLAS first-call JIT: 42ms per new (M,N,K) shape. Fixed by multi-M warmup (8 M values).
 - Prefill graph capture with workspace: works but 11x slower than eager (slow algorithms).
