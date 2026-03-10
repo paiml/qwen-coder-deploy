@@ -797,31 +797,45 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'PMAT-076: Dead slot masking in batched decode'
-  status: planned
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-03-10T21:25:09Z
-  updated: 2026-03-10T21:25:09Z
-  spec: null
-  acceptance_criteria: []
+  updated: 2026-03-11T00:15:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: seq_lens[i]=0 for done slots in batched/flash/graph attention paths'
+  - 'AC2: Heterogeneous max_tokens (10+128) batch completes correctly'
+  - 'AC3: No regression on uniform traffic (c=1=138.9, c=4=199.0 tok/s)'
+  - 'AC4: Impact scales with dead-slot ratio — needs PMAT-077 for measurement'
   phases: []
   subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
+  estimated_effort: 0.5d
+  labels:
+  - batched-decode
+  - attention
+  - optimization
+  notes: 'Added batched_done_mask field to CudaExecutor. Set from BatchedDecodeState.done before forward pass. All three attention paths (batched, flash, graph) zero seq_lens for done slots. Attention kernel early-exits with zero KV iterations.'
 - id: PMAT-080
   github_issue: null
   item_type: task
   title: 'PMAT-077: Probador heterogeneous traffic mode'
-  status: planned
+  status: completed
   priority: medium
   assigned_to: null
   created: 2026-03-10T21:25:09Z
-  updated: 2026-03-10T21:25:09Z
-  spec: null
-  acceptance_criteria: []
+  updated: 2026-03-11T00:45:00Z
+  spec: contracts/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: --max-tokens N overrides all requests'
+  - 'AC2: --max-tokens-distribution uniform:MIN,MAX generates varied output lengths'
+  - 'AC3: ITL 18.7ms heterogeneous vs 19.3ms uniform (3% improvement from PMAT-076)'
+  - 'AC4: 124 requests completed vs 96 uniform (30% more throughput from slot recycling)'
   phases: []
   subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
+  estimated_effort: 0.5d
+  labels:
+  - probador
+  - benchmark
+  - heterogeneous
+  notes: 'Added --max-tokens and --max-tokens-distribution flags to probador llm load. Deterministic LCG for reproducible distributions. Enables measurement of continuous batching features (PMAT-074/076).'

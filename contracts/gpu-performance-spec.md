@@ -440,9 +440,9 @@ The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our D
 
 **Root cause:** Batched GEMV assumes dense M. Done slots get zero embeddings, producing wasted GEMV output and attention computation. At M=4 with 1 done slot, 25% of compute is wasted.
 
-**Fix (PMAT-076):** Mask-based skip in batched forward. Add a `done_mask` parameter to `forward_batched_to_token_ids`. Kernels check `done_mask[slot_idx]` and early-return for done slots (1 instruction per thread block). Zero-cost when all slots active. ~25% compute savings per done slot. Alternative: compact active slots into contiguous buffer before forward, expand back after — simpler kernel code but O(M × hidden_dim) memcpy overhead.
+**Fix (PMAT-076): IMPLEMENTED.** Added `batched_done_mask` field to CudaExecutor, set from `BatchedDecodeState.done` before each forward pass. Attention kernels (batched, flash decode, graph replay) zero `seq_lens[i]` for done slots, triggering early-exit (zero KV iterations). GEMV still runs on dead slots (zero input → near-zero output, discarded). No regression: c=1=138.9, c=4=199.0 tok/s on uniform traffic. Heterogeneous batch (max_tokens 10+128) verified correct.
 
-**Falsification:** If mask-based skip reduces ITL by ≥ 15% when 2 of 4 slots are done, compute waste is confirmed. If no ITL change, the done slots are already effectively free (memory-bound, not compute-bound).
+**Falsification:** Uniform probador traffic shows no ITL change (all slots finish simultaneously → no dead slots). Needs PMAT-077 heterogeneous traffic for measurement. Manual test with 2/4 dead slots showed correct behavior — quantitative impact pending.
 
 ##### Finding 3: Uniform traffic defeats recycling
 
@@ -466,7 +466,9 @@ Continuous batching complete:  216.4 aggregate tok/s (0.36x vLLM)
 + PMAT-075 (batched graphs):  FALSIFIED — graph replay 2.8ms slower (22.0 vs 19.2ms ITL)
                                Infrastructure complete but disabled. Need async H2D or
                                combined upload to overcome graph dispatch overhead.
-+ PMAT-076 (dead slot mask):  ~230 (predicted: 15% reduction on mixed traffic dead slots)
++ PMAT-076 (dead slot mask):  IMPLEMENTED — attention early-exit for done slots.
+                               Impact: 0% on uniform traffic (no dead slots).
+                               Needs PMAT-077 heterogeneous traffic for measurement.
 + PMAT-077 (probador hetero):  measurement-only (enables accurate benchmarking)
 Theoretical:                   ~550 (4 × 138 decode, overhead)
 vLLM:                          604.7
@@ -1298,6 +1300,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.25.0 | 2026-03-11 | **PMAT-076: Dead slot masking — IMPLEMENTED.** Added `batched_done_mask` field to CudaExecutor, set from `BatchedDecodeState.done` before each forward pass. All three attention paths (batched, flash decode, graph replay) zero `seq_lens[i]` for done slots → early-exit (zero KV iterations). Verified: heterogeneous max_tokens (10+128) batch completes correctly. No regression: c=1=138.9, c=4=199.0 tok/s on uniform traffic. Impact scales with dead-slot ratio — needs PMAT-077 heterogeneous probador for quantitative measurement. |
 | 2.24.0 | 2026-03-11 | **PMAT-075: Batched CUDA graph infrastructure — IMPLEMENTED, FALSIFIED.** Three fixes: (1) `batched_cleanup` preserves workspace buffers via PAR-200 skip path, (2) preserves KV caches + auxiliary pointer buffers for address stability, (3) `init_batched_kv_cache_gpu` skips auxiliary realloc on reuse. Latent bug fixed: `init_prefill_workspace` now clears batched graphs on realloc. **Result:** Graphs persist across batches (confirmed via logs). But graph replay is **2.8ms SLOWER** than eager (ITL 22.0ms vs 19.2ms). Root cause: 5 synchronous `cuMemcpyHtoD` calls + graph dispatch overhead > kernel launch savings (~0.8ms). `BATCHED_GRAPH=1` remains opt-in. **Falsified hypothesis:** kernel launch overhead was NOT ~5ms/step — measured ~0.8ms. M=4 degradation is primarily batched attention scaling + L2 working set pressure. No regression on eager path: c=1=139.1, c=4=198.9. |
 | 2.23.0 | 2026-03-11 | **Post-continuous batching five-whys analysis.** Three findings: (1) Per-slot decode degrades 2.67× at M=4 (ITL 19.2ms vs 7.2ms) — root cause: no CUDA graphs in batched path (+~5ms kernel launch overhead), L2 cache spreading (+12%), batched attention 4× scaling. (2) Dead slot compute waste — done slots get zero embeddings through full forward pass, ~25% wasted compute per dead slot. (3) Uniform traffic defeats recycling — probador sends identical requests, all finish at same gen_idx. Three new work items: PMAT-075 (batched CUDA graphs), PMAT-076 (dead slot masking), PMAT-077 (probador heterogeneous traffic). Updated trajectory: 216→~290 aggregate predicted. |
 | 2.22.0 | 2026-03-10 | **PMAT-074 DONE: Slot recycling (continuous batching Phase 3).** `recycle_slot()` reuses finished slot indices — KV cache overwrite, state replacement at slot index, `max_tokens_max` extended for gen_idx offset. 159 recycling events in single 31s continuous batch. Heterogeneous traffic (mixed max_tokens 16/32/64/128, c=8): **216.4 tok/s** (+10% vs uniform 197). Uniform traffic (probador max_tokens=128): no gain (all slots finish simultaneously, no recycling opportunity). Prefill overhead: ~16ms per recycled slot. No regressions: c=1=138.8, c=4=196.7. All 3 continuous batching phases complete (PMAT-072/073/074). |
