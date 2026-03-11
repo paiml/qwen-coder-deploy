@@ -6,6 +6,7 @@
 #   Jetson (parallel):   make deploy-jetson / make load-jetson (smoke tests only)
 #   GPU (4090, profiling only): make deploy-gpu / make nsys-gpu / make profile-gpu
 #   CPU (intel host):    make deploy / make test / make load
+#   Scoring:             make score / make score-jetson / make score-gate
 #
 # Load testing runs on Jetson Orin (dedicated). 4090 freed for QLoRA training.
 # Deep profiling (nsys/ncu/apr profile) remains 4090-only (occasional).
@@ -822,3 +823,26 @@ correctness-013-full: correctness-013-deploy correctness-013-test correctness-01
 
 report:
 	probador llm report --results results/ --output performance.md --update-readme README.md
+
+# --- Scoring ---
+
+score:
+	@echo "=== Yoga RTX 4060L Scorecard ==="
+	probador llm score --results results/ --platform yoga --concurrency 1
+	@echo ""
+	probador llm score --results results/ --platform yoga --concurrency 4
+
+score-all:
+	probador llm score --results results/
+
+score-json:
+	probador llm score --results results/ --platform yoga --concurrency 1 --format json --output results/scorecard-yoga-c1-$(DATE).json
+	probador llm score --results results/ --platform yoga --concurrency 4 --format json --output results/scorecard-yoga-c4-$(DATE).json
+
+score-jetson:
+	probador llm score --results results/ --platform jetson --concurrency 1
+	@echo ""
+	probador llm score --results results/ --platform jetson --concurrency 4
+
+score-gate:
+	probador llm score --results results/ --platform yoga --concurrency 1 --fail-on-grade C
