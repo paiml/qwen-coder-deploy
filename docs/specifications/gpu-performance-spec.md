@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.33.0
+**Version:** 2.34.0
 **Status:** ACTIVE
 **Date:** 2026-03-11
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -963,8 +963,10 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 Concurrency scaling is the only dimension below A (score 51, 34.1% efficiency at c=4).
 Phases 1-3 (PMAT-072/073/074) implemented step-wise decode, mid-batch joins, and slot
 recycling but delivered only +10% (197→216 tok/s). The bottleneck is **not** scheduling
-overhead — it is per-slot decode degradation at M>1 (2.55x slower per slot at M=4) caused
-by batched GEMV attention scaling linearly with M.
+overhead — it is per-slot decode degradation at M>1 caused by batched DP4A GEMV compute
+scaling linearly with M (2.425ms per additional token). **PMAT-088b confirmed:** the DP4A
+aggregate ceiling is 412 tok/s regardless of concurrency. Achieving 3x c=1 (455 tok/s)
+requires W4A16 tensor core GEMM, not scheduling improvements.
 
 vLLM achieves 88.9% efficiency at c=4 (598→604.7 tok/s) via three architectural innovations
 that realizr currently lacks: (1) iteration-level scheduling with token budgets, (2) paged
@@ -1040,12 +1042,29 @@ iteration scheduler's waiting queue drain replaces the batch window function.
 min=1 is an end-of-window effect (request arrives in final second, gets truncated). Not a
 correctness bug.
 
-**Corrected architecture insight:** The path to high concurrency scaling is NOT per-slot M=1
-forward passes. It requires reducing the per-slot cost within batched forward passes:
-1. **Paged KV cache** — reduce attention KV reads via block-sparse access patterns
-2. **FlashAttention-2 batched** — O(N/chunk) vs O(N) attention, better L2 utilization at M>1
-3. **Tensor core batched decode** — HGEMM at M=4 could amortize better than GEMV (if BW
-   allows), since tensor cores have higher throughput than CUDA cores
+**Corrected architecture insight (PMAT-088b):** The path to higher aggregate throughput is
+**increasing M** (more concurrent slots), not reducing per-step time. DP4A GEMV has a
+fundamental compute ceiling: each additional token adds one DP4A accumulation chain per
+weight row (~2.425ms per token). The aggregate ceiling is 1/2.425ms = **412 tok/s** regardless
+of concurrency. HGEMM crossover was falsified (H-CB9) — FP16 3.5x BW penalty is not
+compensated by tensor cores at M=4..8.
+
+**Scaling analysis (PMAT-088b, Mar 11):**
+
+| c | M | Aggregate tok/s | ITL P50 | TTFT P50 | vs Theoretical | vs c=1 |
+|---|---|----------------|---------|----------|---------------|--------|
+| 1 | 1 | 151.6 | 6.6ms | 20.4ms | — | 1.00x |
+| 4 | 4 | 234.0 | 15.1ms | 82.1ms | 76% of 306 | 1.54x |
+| 8 | 8 | **306.5** | 21.9ms | 163.2ms | **87% of 352** | **2.02x** |
+| ∞ | ∞ | ceiling | — | — | 412 tok/s | 2.72x |
+
+Theoretical ceiling per M: `M / (2.56 + M × 2.425 + 0.8)` ms/step, where 2.56ms = weight BW
+(amortized), 2.425ms = DP4A compute per token, 0.8ms = kernel launch overhead. Efficiency
+improves with larger M because BW and launch costs amortize.
+
+**To exceed 412 tok/s** (the DP4A ceiling) requires W4A16 tensor core GEMM: read Q4K weights
+(0.5625 B/elem) and dequantize to FP16 for tensor core matmul. This is what vLLM AWQ achieves
+(604.7 at c=4). The matmul kernel architecture — not scheduling — is the binding constraint.
 
 ### Literature Foundation
 
@@ -1705,6 +1724,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.34.0 | 2026-03-11 | **PMAT-088b scaling analysis: DP4A aggregate ceiling = 412 tok/s.** First c=8 benchmarks with iteration scheduler (max_slots=8): 306.5 aggregate (2.02x c=1), 87% of theoretical ceiling, 21.9ms ITL. Theoretical model: `M / (2.56 + M×2.425 + 0.8)` tok/s — compute per token (2.425ms DP4A) is the binding constraint. The 3.0x c=4 target (455 tok/s) exceeds the DP4A ceiling (306 at M=4, 412 at M→∞). Reaching 3x requires W4A16 tensor core GEMM (like vLLM AWQ: Q4 storage + FP16 compute). c=16 with max_slots=16 hits CUDA_ERROR_ILLEGAL_ADDRESS during prefill (KV cache reuse bug — separate ticket). Updated forjar-yoga-realizr.yaml with ITERATION_SCHEDULER=1, CUDA_MAX_BATCH=8. |
 | 2.33.0 | 2026-03-11 | **PMAT-088b H-CB9 FALSIFIED: HGEMM crossover does NOT beat DP4A at M=4.** Three variants tested at 1900 MHz on RTX 4060L: (1) Full HGEMM: 256.0 aggregate, 13.6ms ITL (−2.1%). (2) Hybrid (fused QKV/gate+up DP4A + HGEMM output/down): 260.5 aggregate, 13.7ms ITL (−0.4%). (3) Baseline DP4A: 261.5 aggregate, 13.4ms ITL. FP16 weights (2 B/elem, 2944 MB) cost 3.5× more BW than Q4K (0.5625 B/elem, 850 MB) — tensor core compute savings do not compensate. PMAT-062 confound resolved: re-enabling fused gate+up does not change conclusion. Phase 2 redesigned: HGEMM dropped, remaining intervention is CUDA graph for M>1 (~1ms launch savings). Phase 3 (chunked prefill) elevated to higher priority. Infrastructure preserved: FP16 cache warmup code env-gated (`HGEMM_BATCHED_DECODE=1`) for future experimentation. |
 | 2.32.0 | 2026-03-11 | **PMAT-088b root cause corrected: M=4 penalty is GEMV compute (DP4A chains), NOT attention KV reads.** Profiled M=4 decode step (13.3ms): 2.56ms BW + 9.7ms compute + 1ms launches. Attention KV reads are 14 MB = 2.8% of weight BW (491 MB) — FlashAttention-2 would yield <3% improvement. Root cause: batched Q4K GEMV reads weights once for M=4 but runs 4× independent DP4A accumulation chains, transitioning from memory-bound (M=1) to compute-bound (M=4). Phase 2 redesigned: (a) HGEMM crossover at M>1 (tensor cores vs DP4A), (b) CUDA graph for M>1 (save 1ms launch overhead). FlashAttention-2 deferred — wrong bottleneck. Added H-CB9 (HGEMM crossover hypothesis) and H-CB10 (attention fraction, CONFIRMED at 2.8%). |
 | 2.31.0 | 2026-03-11 | **PMAT-088 corrected numbers: +10.4% aggregate (post-bugfix), variable-M buffer fixes.** Initial 256.9 measurement was inflated by error-retry cycles from 3 classes of buffer length mismatch exposed by variable M transitions (M=4→M=1→M=3). Corrected final: 232.7 aggregate (+10.4% from 210.8), 38.3% efficiency (was 34.1%). Bug classes: (1) logits buffer M×vocab vs vocab in prepare_capture_buffers, (2) input/hidden grow-only buffer vs exact copy_from_host, (3) KV ptr/seq_lens high-water-mark buffers. Fixes: exact-size realloc, from_raw_parts M-views, copy_from_host_at, clear_decode_graph on realloc. H-CB8 revised to +10.4% (still CONFIRMED). |
