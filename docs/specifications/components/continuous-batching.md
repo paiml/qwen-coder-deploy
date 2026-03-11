@@ -1,7 +1,7 @@
 # Component: Continuous Batching (PMAT-044 / PMAT-088)
 
 **Parent:** [gpu-performance-spec.md](../gpu-performance-spec.md) §5b
-**Status:** Active — Phase 1 complete, Phase 2 is critical path
+**Status:** Active — Phase 1 complete (corrected), Phase 2 is critical path
 **Test target:** ssh yoga, forjar setup/teardown, isolated serial benchmarks
 
 ---
@@ -11,10 +11,10 @@
 Serve M=2..32 concurrent `/v1/chat/completions` requests with true weight
 sharing, achieving aggregate throughput proportional to batch size.
 
-| Concurrency | Target (aggregate tok/s) | Current (Mar 11) | Status |
-|-------------|-------------------------|-------------------|--------|
-| c=1 | Baseline (single-request optimized path) | 152.8 tok/s | PASS |
-| c=4 | >= 3.0x baseline (≥460 tok/s, 74% eff) | 256.9 tok/s (42.0% eff) | GAP |
+| Concurrency | Target (aggregate tok/s) | Current (Mar 11, post-bugfix) | Status |
+|-------------|-------------------------|-------------------------------|--------|
+| c=1 | Baseline (single-request optimized path) | 151.8 tok/s | PASS |
+| c=4 | >= 3.0x baseline (>=460 tok/s, 74% eff) | 232.7 tok/s (38.3% eff) | GAP |
 | c=8 | >= 5.0x baseline | Not measured | Pending |
 
 ---
@@ -35,10 +35,10 @@ HTTP request -> cuda_chat_backend
         2. Drain rx into waiting_queue
         3. Form batch from waiting_queue (up to max_slots)
         4. M=1 fast path: generate_gpu_resident_streaming (CUDA graph)
-        5. M>1: batched_setup_and_prefill → decode loop:
+        5. M>1: batched_setup_and_prefill -> decode loop:
            - Each iteration: check waiting_queue THEN rx for mid-batch joins
            - Slot recycling from waiting_queue THEN rx
-           - batched_decode_step → distribute_tokens
+           - batched_decode_step -> distribute_tokens
 ```
 
 ### Batched Decode Pipeline (PMAT-072/073/074)
@@ -77,16 +77,40 @@ Batched cache: `[M, num_kv_heads, max_len, head_dim]`
 
 ## Phase 1 Results (PMAT-088a — Iteration Scheduler)
 
-| Metric | Baseline (batch sched) | PMAT-088a (iter sched) | Delta |
-|--------|----------------------|----------------------|-------|
+### Initial measurement (pre-bugfix)
+
+| Metric | Baseline (batch sched) | PMAT-088a initial | Delta |
+|--------|----------------------|-------------------|-------|
 | c=1 decode tok/s | 154.8 | 152.8 | -1.3% |
-| c=4 aggregate tok/s | 210.8 | **256.9** | **+21.9%** |
-| c=4 decode/slot tok/s | 52.2 | 66.8 | +28.0% |
-| c=4 TTFT P50 | 128.5ms | **80.6ms** | **-37.3%** |
+| c=4 aggregate tok/s | 210.8 | 256.9 | +21.9% |
+| c=4 TTFT P50 | 128.5ms | 80.6ms | -37.3% |
 | c=4 ITL P50 | 19.2ms | 15.0ms | -21.9% |
 | c=4 scaling efficiency | 34.1% | 42.0% | +8pp |
 
-**Root cause of remaining gap:** Batched GEMV attention scales O(M×seq_len) — at M=4 each
+### Post-bugfix (final, variable-M buffer fixes)
+
+The initial 256.9 included inflated counts from error-retry cycles caused by three
+classes of buffer length mismatch when M changes between iterations.
+
+| Metric | Baseline (batch sched) | PMAT-088 final | Delta |
+|--------|----------------------|----------------|-------|
+| c=1 decode tok/s | 154.8 | **151.8** | -1.9% (noise) |
+| c=4 aggregate tok/s | 210.8 | **232.7** | **+10.4%** |
+| c=4 decode/slot tok/s | 52.2 | 66.1 | +26.6% |
+| c=4 TTFT P50 | 128.5ms | **81.6ms** | **-36.5%** |
+| c=4 ITL P50 | 19.2ms | 15.1ms | -21.4% |
+| c=4 scaling efficiency | 34.1% | **38.3%** | +4.2pp |
+
+### Variable-M Buffer Bugs Fixed
+
+1. **Logits buffer** (M*vocab vs vocab): `prepare_capture_buffers` checked `is_none()` not
+   size. Fix: check `b.len() != vocab_size`, `clear_decode_graph()` on realloc.
+2. **Input/hidden buffer** (M*hidden vs prev M*hidden): Grow-only allocation (`<`) kept
+   M=4 capacity. Fix: exact-size reallocation (`!=`), logical size for hidden_buf2.
+3. **KV ptr/seq_lens** (M vs max_M): High-water-mark buffers. Fix: `copy_from_host_at(0)`
+   for sync copies, `from_raw_parts` exact-M views for async copies.
+
+**Root cause of remaining gap:** Batched GEMV attention scales O(M*seq_len) -- at M=4 each
 slot reads 4x more KV entries. Weight GEMV is amortized (828 MB read once for M slots), but
 attention is not. FlashAttention-2 batched (Phase 2) is the critical path.
 
@@ -97,7 +121,7 @@ attention is not. FlashAttention-2 batched (Phase 2) is the critical path.
 | Phase | PMAT | Status | Expected Impact |
 |-------|------|--------|----------------|
 | **P2: Batched FlashAttention** | PMAT-088b | Next | Reduce 2.55x M=4 penalty to ~1.5x |
-| P3: Chunked prefill | PMAT-088c | Planned | TTFT at c=4 ≈ c=1 |
+| P3: Chunked prefill | PMAT-088c | Planned | TTFT at c=4 = c=1 |
 | P4: Paged KV cache | PMAT-088d | Planned | <4% memory waste, enable c>4 |
 
 ---
@@ -106,17 +130,17 @@ attention is not. FlashAttention-2 batched (Phase 2) is the critical path.
 
 | ID | Result | Detail |
 |----|--------|--------|
-| H-CB4 | **FALSIFIED** | M=1 per-slot ITL 2.31x c=1 (15.0/6.5ms). Sequential M=1 worse than batched. |
-| H-CB7 | **FALSIFIED** | 42.0% < 60% threshold. Weight BW amortization essential. |
-| H-CB8 | **CONFIRMED** | +21.9% aggregate from waiting queue integration. |
+| H-CB4 | **FALSIFIED** | M=1 per-slot ITL 2.29x c=1 (15.1/6.6ms). Sequential M=1 worse than batched. |
+| H-CB7 | **FALSIFIED** | 38.3% < 60% threshold. Weight BW amortization essential. |
+| H-CB8 | **CONFIRMED** | +10.4% aggregate from waiting queue integration (initial +21.9% inflated by retries). |
 
 ---
 
 ## Forjar Templates
 
 ```yaml
-# forjar-yoga-realizr.yaml — deploy realizr only (port 8081)
-# forjar-yoga-teardown.yaml — stop all services
+# forjar-yoga-realizr.yaml -- deploy realizr only (port 8081)
+# forjar-yoga-teardown.yaml -- stop all services
 # Env: ITERATION_SCHEDULER=1 SKIP_PARITY_GATE=1
 ```
 
@@ -134,7 +158,7 @@ probador llm load \
 
 ## Pass Criteria
 
-1. **Correctness:** c=4 produces coherent output (PASS — 141/141 successful)
-2. **Throughput:** c=4 aggregate >= 3x c=1 (FAIL — 1.68x, need 3.0x)
-3. **No regression:** c=1 through iteration scheduler matches baseline (PASS — 152.8 vs 154.8)
-4. **Stability:** 60-second load test at c=4 with zero errors (PASS — 0 failures)
+1. **Correctness:** c=4 produces coherent output (PASS -- zero errors)
+2. **Throughput:** c=4 aggregate >= 3x c=1 (FAIL -- 1.53x, need 3.0x)
+3. **No regression:** c=1 through iteration scheduler matches baseline (PASS -- 151.8 vs 154.8)
+4. **Stability:** 60-second load test at c=4 with zero errors (PASS -- 0 failures)
