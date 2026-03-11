@@ -1,0 +1,527 @@
+# probador llm score — Specification v1.0.0
+#
+# Quantitative scoring for inference runtime comparison.
+# Consumes probador JSON, applies weighted scoring, emits scorecard.
+#
+# Design informed by:
+#   - MLPerf Inference: per-scenario metrics, no composite (we diverge here)
+#   - Metron fluidity-index (arXiv 2407.07000): deadline-driven streaming UX
+#   - Smooth Goodput (arXiv 2410.14257): partial credit for SLO violations
+#   - NVIDIA GenAI-Perf: sliding window stability, ITL excludes TTFT
+#   - vLLM benchmark_serving.py: binary goodput with SLO constraints
+#   - pmat perfection-score: weighted category aggregation pattern
+#   - batuta QualityGrade: A+ through F letter grades
+#
+# Falsification record (what we considered and rejected):
+#   F-1: Pure relative scoring (best=100) — REJECTED
+#         Adding/removing a runtime changes all scores. Use absolute thresholds
+#         with relative bonus for best-in-class per metric.
+#   F-2: Composite score across scenarios — REJECTED by MLPerf for good reason
+#         We DO compute composites but report per-metric breakdown alongside
+#         so users can disagree with weights. Composite is convenience, not truth.
+#   F-3: TTFT + prefill_tok_s both as separate metrics — PARTIAL REDUNDANCY
+#         TTFT ≈ prompt_tokens / prefill_tok_s + overhead. We keep TTFT (user-facing)
+#         and drop prefill_tok_s from the weighted score. Prefill is reported but
+#         not scored — it's an explanatory metric, not a UX metric.
+#   F-4: ITL P50 alone — INSUFFICIENT (Metron critique)
+#         P50 hides stalls. A runtime with smooth 7ms ITL and one with 6ms + 500ms
+#         spikes score identically. We add jitter penalty from tail_analysis.
+#   F-5: Static FP8 activation scale — FALSIFIED (PMAT-087, 600x absmax range)
+#         Not relevant to scoring, but demonstrates our falsification discipline.
+#   F-6: Single composite across c=1 and c=4 — REJECTED
+#         Interactive and throughput are fundamentally different workloads.
+#         Separate scores, separate grades. No uber-composite.
+
+metadata:
+  version: "1.0.0"
+  created: "2026-03-11"
+  tool: "probador llm score"
+  source_format: "probador llm load --output JSON"
+  grade_scale: "pmat-compatible (A+ through F)"
+
+# =============================================================================
+# CLI INTERFACE
+# =============================================================================
+#
+# probador llm score \
+#   --results <DIR>            # Directory of probador JSON files
+#   --contract <YAML>          # Path to scoring.yaml (weights + thresholds)
+#   --platform <NAME>          # Filter: "yoga", "jetson", "4090", "cpu"
+#   --concurrency <N>          # Filter: 1 or 4 (scores computed per-concurrency)
+#   --output <FILE>            # Output JSON scorecard (default: stdout)
+#   --format <FMT>             # "json" | "markdown" | "table" (default: table)
+#   --fail-on-grade <GRADE>    # Exit non-zero if any runtime below grade (CI gate)
+#
+# Examples:
+#   probador llm score --results bench-results-v2/ --platform yoga --concurrency 1
+#   probador llm score --results results/ --platform jetson --format markdown
+#   probador llm score --results bench-results-v2/ --fail-on-grade C  # CI gate
+
+cli:
+  subcommand: "llm score"
+  parent: "probador"
+
+  args:
+    results:
+      short: "-r"
+      long: "--results"
+      type: "PathBuf"
+      required: true
+      help: "Directory containing probador JSON result files"
+
+    contract:
+      long: "--contract"
+      type: "PathBuf"
+      required: false
+      default: null  # uses built-in defaults if not specified
+      help: "Path to scoring contract YAML (weights, thresholds)"
+
+    platform:
+      long: "--platform"
+      type: "String"
+      required: false
+      help: "Filter results by platform (matches runtime_name substring)"
+
+    concurrency:
+      short: "-c"
+      long: "--concurrency"
+      type: "usize"
+      required: false
+      help: "Filter by concurrency level (scores computed per-concurrency)"
+
+    output:
+      short: "-o"
+      long: "--output"
+      type: "PathBuf"
+      required: false
+      help: "Output file (default: stdout)"
+
+    format:
+      long: "--format"
+      type: "String"
+      default: "table"
+      help: "Output format: json, markdown, table"
+
+    fail_on_grade:
+      long: "--fail-on-grade"
+      type: "String"
+      required: false
+      help: "Exit non-zero if any runtime scores below this grade (CI gate)"
+
+    baseline:
+      long: "--baseline"
+      type: "PathBuf"
+      required: false
+      help: "Previous scorecard JSON for delta/regression detection"
+
+# =============================================================================
+# SCORING METHODOLOGY
+# =============================================================================
+#
+# Three-layer scoring:
+#   Layer 1: Per-metric absolute score (0-100) with SLO-derived thresholds
+#   Layer 2: Jitter penalty (deducts from ITL score based on tail_analysis)
+#   Layer 3: Weighted composite per scenario (interactive / throughput)
+#
+# Why absolute thresholds (not relative):
+#   Relative scoring (best=100) is fragile — add/remove a runtime and all
+#   scores change. Absolute thresholds define "what is good" independently
+#   of the competitive set. A runtime scoring 85 on TTFT means "85ms or
+#   better at P50" regardless of whether vLLM scores 95 or 50.
+#
+# The "best-in-class" bonus:
+#   Best runtime per metric gets +5 bonus (capped at 100). This preserves
+#   competitive ranking without making all scores depend on the field.
+
+scoring:
+  approach: "absolute_with_relative_bonus"
+
+  # Layer 1: Absolute per-metric scoring
+  # Score = 100 * clamp(threshold / value, 0, 1) for lower-is-better
+  # Score = 100 * clamp(value / threshold, 0, 1) for higher-is-better
+  # The threshold represents "excellent" (score 100). Values beyond are capped.
+  # Values at 0 get score 0 (except error_rate where 0 = perfect = 100).
+
+  metrics:
+    # --- Interactive (c=1) metrics ---
+    decode_tok_s:
+      direction: "higher_is_better"
+      excellent: 160    # vLLM-class decode (tok/s)
+      good: 120         # Score 75 at this value
+      unit: "tok/s"
+      description: "Decode throughput — user-perceived typing speed"
+
+    ttft_p50_ms:
+      direction: "lower_is_better"
+      excellent: 12     # llama.cpp-class TTFT (ms)
+      good: 50          # Score 75 at this value (24 = score 50)
+      unit: "ms"
+      description: "Time to first token — user-perceived responsiveness"
+
+    itl_p50_ms:
+      direction: "lower_is_better"
+      excellent: 6.0    # vLLM-class ITL
+      good: 10.0
+      unit: "ms"
+      description: "Inter-token latency — streaming smoothness"
+
+    ttft_p99_ms:
+      direction: "lower_is_better"
+      excellent: 15     # Tight tail
+      good: 50
+      unit: "ms"
+      description: "99th percentile TTFT — worst-case responsiveness"
+      source_field: "ttft_p99_ms"  # from LoadTestResult
+
+    error_rate:
+      direction: "lower_is_better"
+      excellent: 0.0    # Zero errors
+      good: 0.01        # 1% error rate = score 75
+      unit: "ratio"
+      description: "Request failure rate"
+      # Special: score = 100 if value == 0, else 100 * (excellent / value) capped
+
+    # --- Throughput (c=4) additional metrics ---
+    aggregate_tok_s:
+      direction: "higher_is_better"
+      excellent: 600    # vLLM-class aggregate
+      good: 300
+      unit: "tok/s"
+      description: "Total system throughput across all slots"
+      source_field: "tokens_per_sec"  # probador field name
+      # Only scored at c>1. At c=1, this equals decode_tok_s (redundant).
+
+    throughput_scaling:
+      direction: "higher_is_better"
+      excellent: 3.8    # Near-linear scaling at c=4 (3.8x of c=1)
+      good: 2.0
+      unit: "ratio"
+      description: "c=N aggregate / c=1 decode — batching efficiency"
+      # Derived: requires both c=1 and c=N results for same runtime+platform
+
+  # Layer 2: Jitter penalty
+  # Deducted from ITL score when tail_analysis shows instability.
+  # Based on Metron fluidity-index insight: P50 hides stalls.
+  jitter_penalty:
+    enabled: true
+    source: "tail_analysis.jitter"
+    # Penalty = min(spike_count * 2, 20) + min(itl_cv * 100, 10)
+    # Max penalty: 30 points off ITL score
+    max_penalty: 30
+    formula: "min(spike_count * 2, 20) + min(itl_cv * 100, 10)"
+
+  # Layer 3: Weighted composite
+  weights:
+    interactive:  # c=1
+      decode_tok_s:   0.30  # Core generation speed
+      ttft_p50_ms:    0.30  # Responsiveness (primary UX metric)
+      itl_p50_ms:     0.15  # Streaming smoothness (with jitter penalty)
+      ttft_p99_ms:    0.15  # Tail latency
+      error_rate:     0.10  # Reliability
+      # Total: 1.00
+      # Note: prefill_tok_s REMOVED (F-3: redundant with TTFT)
+
+    throughput:  # c=4+
+      aggregate_tok_s:    0.30  # Total system throughput
+      decode_tok_s:       0.15  # Per-slot decode under load
+      ttft_p50_ms:        0.15  # Responsiveness under contention
+      itl_p50_ms:         0.15  # Streaming smoothness under load
+      throughput_scaling:  0.15  # Batching efficiency
+      error_rate:         0.10  # Reliability under load
+      # Total: 1.00
+
+  # Best-in-class bonus
+  best_in_class_bonus: 5  # Points added to best runtime per metric (capped at 100)
+
+# =============================================================================
+# GRADE THRESHOLDS
+# =============================================================================
+#
+# Compatible with pmat/batuta grade scales.
+# Absolute: a score of 85 means the same thing regardless of competitive field.
+
+grades:
+  "A+":  { min: 95, label: "Best-in-class" }
+  "A":   { min: 90, label: "Excellent" }
+  "A-":  { min: 85, label: "Very good" }
+  "B+":  { min: 80, label: "Good" }
+  "B":   { min: 70, label: "Above average" }
+  "C+":  { min: 60, label: "Fair" }
+  "C":   { min: 50, label: "Below average" }
+  "D":   { min: 40, label: "Poor" }
+  "D-":  { min: 30, label: "Very poor" }
+  "F":   { min: 0,  label: "Critical" }
+
+# =============================================================================
+# OUTPUT FORMAT
+# =============================================================================
+#
+# JSON scorecard structure emitted by `probador llm score --format json`
+
+output_schema:
+  scorecard:
+    metadata:
+      tool_version: "string"      # probador version
+      contract_version: "string"  # scoring contract version
+      timestamp: "ISO8601"
+      platform: "string"
+      concurrency: "int"
+      model: "string"
+
+    runtimes:
+      - name: "string"           # e.g., "realizr", "llamacpp", "vllm", "ollama"
+        source_file: "string"    # JSON file this was computed from
+        metrics:
+          decode_tok_s: { value: "float", score: "int", best: "bool" }
+          ttft_p50_ms: { value: "float", score: "int", best: "bool" }
+          itl_p50_ms: { value: "float", score: "int", best: "bool", jitter_penalty: "int" }
+          ttft_p99_ms: { value: "float", score: "int", best: "bool" }
+          error_rate: { value: "float", score: "int", best: "bool" }
+          # c>1 only:
+          aggregate_tok_s: { value: "float", score: "int", best: "bool" }
+          throughput_scaling: { value: "float", score: "int", best: "bool" }
+        composite:
+          score: "float"         # Weighted sum (0-100)
+          grade: "string"        # Letter grade
+        delta:                   # Present when --baseline provided
+          score_change: "float"  # +/- from previous
+          grade_change: "string" # e.g., "C+ → B"
+          regressions: ["string"]  # Metrics that degraded >5 points
+
+# =============================================================================
+# TABLE OUTPUT FORMAT
+# =============================================================================
+#
+# Default `--format table` output (human-readable terminal):
+#
+# ┌─────────────────────────────────────────────────────────────┐
+# │  Inference Runtime Scorecard — yoga RTX 4060L, c=1          │
+# ├───────────┬────────┬──────┬─────┬───────┬───────┬──────────┤
+# │ Runtime   │ Decode │ TTFT │ ITL │ Tail  │ Error │ Composite│
+# │           │ tok/s  │ P50  │ P50 │ P99   │ Rate  │ Score    │
+# ├───────────┼────────┼──────┼─────┼───────┼───────┼──────────┤
+# │ vLLM      │ 100 ★  │  92  │100★ │  93 ★ │  100  │ 96.6 A+ │
+# │ llama.cpp │  90    │ 100★ │  87  │ 100★ │   99  │ 94.1 A  │
+# │ realizr   │  87    │  62  │  83  │  43   │  100  │ 73.8 B  │
+# │ ollama    │  91    │  17  │  87  │  21   │  100  │ 55.3 C  │
+# └───────────┴────────┴──────┴─────┴───────┴───────┴──────────┘
+# ★ = best in class (+5 bonus, capped at 100)
+
+# =============================================================================
+# IMPLEMENTATION PLAN
+# =============================================================================
+
+implementation:
+  repository: "probar"
+  crate: "probar-cli"
+
+  files_to_modify:
+    - path: "crates/probar-cli/src/commands.rs"
+      change: "Add LlmScoreArgs struct + Score(LlmScoreArgs) to LlmSubcommand enum"
+
+    - path: "crates/probar-cli/src/handlers/llm.rs"
+      change: "Add execute_llm_score handler function"
+
+    - path: "crates/probar-cli/src/main.rs"
+      change: "Wire Score variant in run_llm match arm"
+
+    - path: "crates/probar-cli/src/lib.rs"
+      change: "Export LlmScoreArgs"
+
+  files_to_create:
+    - path: "crates/probar/src/llm/score.rs"
+      purpose: "Core scoring engine — reads JSON, applies weights, computes grades"
+      contains:
+        - "ScoringContract struct (deserialized from YAML)"
+        - "MetricScore struct (value, score, best_in_class)"
+        - "RuntimeScore struct (metrics map, composite, grade)"
+        - "Scorecard struct (metadata, Vec<RuntimeScore>)"
+        - "compute_score(results: &[LoadTestResult], contract: &ScoringContract) -> Scorecard"
+        - "compute_metric_score(value: f64, metric: &MetricDef) -> u8"
+        - "apply_jitter_penalty(itl_score: u8, tail: &TailAnalysis) -> u8"
+        - "assign_grade(composite: f64, grades: &GradeThresholds) -> String"
+
+    - path: "crates/probar/src/llm/score.rs"
+      tests:
+        - "test_higher_is_better_scoring"
+        - "test_lower_is_better_scoring"
+        - "test_error_rate_zero_is_perfect"
+        - "test_jitter_penalty_applied"
+        - "test_best_in_class_bonus_capped"
+        - "test_grade_assignment"
+        - "test_composite_weights_sum_to_one"
+        - "test_adding_runtime_doesnt_change_others"  # F-1 falsification
+        - "test_removing_runtime_doesnt_change_others"  # F-1 falsification
+
+  dependencies:
+    - "serde_yaml (already in probar deps)"  # For contract YAML parsing
+
+# =============================================================================
+# FALSIFICATION TESTS
+# =============================================================================
+#
+# These tests MUST pass before the scoring system is considered valid.
+# Each tests a specific assumption or invariant of the methodology.
+
+falsification:
+  # F-1: Score stability under field changes
+  - id: "F-SCORE-001"
+    name: "Score independence from competitive field"
+    hypothesis: "Adding or removing a runtime does not change other runtimes' scores"
+    test: |
+      Given runtimes A, B, C with known metrics:
+        score_A_with_BC = compute_score([A, B, C]).A.composite
+        score_A_with_B  = compute_score([A, B]).A.composite
+        assert abs(score_A_with_BC - score_A_with_B) <= 5  # Only best-in-class bonus varies
+    expected: "Scores differ by at most 5 points (the best-in-class bonus)"
+    status: "designed"
+
+  # F-2: Weight sensitivity
+  - id: "F-SCORE-002"
+    name: "No single metric dominates composite"
+    hypothesis: "Zeroing any one metric cannot drop composite below 40"
+    test: |
+      Given a runtime scoring 100 on all metrics:
+        For each metric M:
+          Set M.score = 0
+          composite = weighted_sum(scores, weights)
+          assert composite >= 40  # worst single-metric failure
+    expected: "Max weight is 0.30, so worst case = 100 * 0.70 = 70"
+    status: "designed"
+
+  # F-3: Jitter penalty is meaningful
+  - id: "F-SCORE-003"
+    name: "Jitter penalty differentiates smooth vs spiky"
+    hypothesis: "Runtime with spikes scores lower on ITL than smooth runtime with same P50"
+    test: |
+      Given runtime_smooth: itl_p50=7ms, spike_count=0, itl_cv=0.01
+      Given runtime_spiky:  itl_p50=7ms, spike_count=10, itl_cv=0.15
+        smooth_itl_score > spiky_itl_score
+    expected: "spiky gets ~35 point penalty (20 from spikes + 15 from CV)"
+    status: "designed"
+
+  # F-4: Absolute thresholds are hardware-appropriate
+  - id: "F-SCORE-004"
+    name: "Thresholds produce meaningful spread on current hardware"
+    hypothesis: "All 4 runtimes on yoga produce scores between 20 and 100"
+    test: |
+      Run probador llm score on yoga PMAT-086 data
+      For each runtime:
+        assert 20 <= composite <= 100
+      assert max(composites) - min(composites) >= 30  # meaningful spread
+    expected: "No floor/ceiling effects — spread should be 40+ points"
+    status: "designed"
+
+  # F-5: throughput_scaling is not noise
+  - id: "F-SCORE-005"
+    name: "Throughput scaling ratio is reproducible"
+    hypothesis: "Running same benchmark twice produces scaling ratios within 10%"
+    test: |
+      Run c=1 and c=4 benchmarks twice for same runtime
+      ratio_1 = run1_c4_aggregate / run1_c1_decode
+      ratio_2 = run2_c4_aggregate / run2_c1_decode
+      assert abs(ratio_1 - ratio_2) / ratio_1 < 0.10
+    expected: "Scaling ratio should be stable (inherent to architecture, not noise)"
+    status: "designed"
+
+  # F-6: Grade boundaries are not arbitrary
+  - id: "F-SCORE-006"
+    name: "Grade boundaries correspond to user-perceptible quality differences"
+    hypothesis: "A-grade runtime has imperceptible UX gap vs best; C-grade is noticeably worse"
+    test: |
+      A-grade (90+): decode >= 144 tok/s AND ttft <= 13ms — user cannot tell from best
+      C-grade (50-59): decode >= 80 tok/s AND ttft <= 100ms — noticeable but usable
+      D-grade (40-49): ttft > 100ms at c=4 — queue-induced delay perceptible
+    expected: "Grades map to human-perceptible UX thresholds"
+    status: "designed"
+
+  # F-7: Error rate scoring
+  - id: "F-SCORE-007"
+    name: "Low error rate still scores high"
+    hypothesis: "0.7% error rate (llama.cpp) scores >= 90 on error metric"
+    test: |
+      score = compute_metric_score(0.007, error_rate_metric)
+      assert score >= 90  # 0.7% is still very reliable
+    expected: "score = 100 * (0.0 / 0.007) would be 0 — need threshold-based scoring"
+    notes: |
+      The formula must handle this: score = 100 if value <= excellent (0.0),
+      else max(0, 100 - (value - excellent) / (good - excellent) * 25)
+      At 0.7%: 100 - (0.007 / 0.01) * 25 = 100 - 17.5 = 82.5
+    status: "designed"
+
+# =============================================================================
+# SCORE COMPUTATION FORMULAS
+# =============================================================================
+#
+# Detailed formulas for implementor reference.
+
+formulas:
+  higher_is_better: |
+    if value >= excellent:
+      score = 100
+    elif value <= 0:
+      score = 0
+    else:
+      # Linear interpolation: 0 → 0, good → 75, excellent → 100
+      if value >= good:
+        score = 75 + 25 * (value - good) / (excellent - good)
+      else:
+        score = 75 * value / good
+
+  lower_is_better: |
+    if value <= excellent:
+      score = 100
+    elif value <= 0:
+      score = 100  # 0 is best for lower-is-better (e.g., error_rate)
+    else:
+      # Linear interpolation: excellent → 100, good → 75, worse → lower
+      if value <= good:
+        score = 75 + 25 * (good - value) / (good - excellent)
+      else:
+        score = max(0, 75 * good / value)
+
+  composite: |
+    raw = sum(weight_k * metric_score_k for each metric k)
+    # Apply best-in-class bonus per metric (max +5 total)
+    bonus_count = count(metrics where this runtime is best)
+    bonus = min(bonus_count * best_in_class_bonus, 5)
+    composite = min(raw + bonus, 100)
+
+  jitter_penalty: |
+    if tail_analysis is None:
+      penalty = 0
+    else:
+      spike_penalty = min(tail_analysis.jitter.spike_count * 2, 20)
+      cv_penalty = min(tail_analysis.jitter.itl_cv * 100, 10)
+      penalty = min(spike_penalty + cv_penalty, 30)
+    itl_score_adjusted = max(itl_score - penalty, 0)
+
+# =============================================================================
+# INTEGRATION WITH EXISTING TOOLS
+# =============================================================================
+
+integration:
+  makefile:
+    target: "score"
+    command: |
+      probador llm score \
+        --results bench-results-v2/ \
+        --contract contracts/scoring.yaml \
+        --format table
+
+  nightly:
+    # Add to scripts/nightly.sh after load tests
+    step: "Score computation"
+    command: |
+      probador llm score \
+        --results results/ \
+        --contract contracts/scoring.yaml \
+        --format json \
+        --output results/scorecard-$(date +%Y%m%d).json
+
+  ci_gate:
+    # Fail build if realizr drops below C+
+    command: |
+      probador llm score \
+        --results bench-results-v2/ \
+        --fail-on-grade C
