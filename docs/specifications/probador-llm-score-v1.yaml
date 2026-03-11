@@ -506,7 +506,7 @@ integration:
     command: |
       probador llm score \
         --results bench-results-v2/ \
-        --contract contracts/scoring.yaml \
+        --contract docs/specifications/scoring.yaml \
         --format table
 
   nightly:
@@ -515,7 +515,7 @@ integration:
     command: |
       probador llm score \
         --results results/ \
-        --contract contracts/scoring.yaml \
+        --contract docs/specifications/scoring.yaml \
         --format json \
         --output results/scorecard-$(date +%Y%m%d).json
 

@@ -11,7 +11,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:02Z
   updated: 2026-03-04T15:43:24Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: No .clone() in GQA attention hot path'
   - 'AC2: Memory bandwidth reduced by GQA ratio (7x for Qwen2-7B)'
@@ -33,7 +33,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:09Z
   updated: 2026-03-04T15:43:24Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: Zero GPU↔CPU transfers during FFN forward pass'
   - 'AC2: Fused kernel from cuda/executor/activations.rs used in apr_q4.rs'
@@ -55,7 +55,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:11Z
   updated: 2026-03-04T15:43:24Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: Zero GPU↔CPU transfers during standard FFN forward pass'
   - 'AC2: In-place gelu_gpu kernel used instead of CPU roundtrip'
@@ -76,7 +76,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:15Z
   updated: 2026-03-04T15:43:24Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: Zero GPU↔CPU transfers for RMSNorm'
   - 'AC2: Zero GPU↔CPU transfers for residual connections'
@@ -100,7 +100,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:22Z
   updated: 2026-03-04T15:43:25Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: Q8 KV cache infrastructure in CudaExecutor'
   - 'AC2: CPU-side quantization/dequantization (< 2% error)'
@@ -124,7 +124,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:27Z
   updated: 2026-03-04T15:43:25Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: FusedRmsNormGateUpSwigluQ4KKernel in trueno-gpu'
   - 'AC2: 1.2x speedup on FFN forward pass — PENDING BENCHMARK'
@@ -145,7 +145,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:29Z
   updated: 2026-03-04T15:43:25Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: optimal_tile_size field in CudaExecutor'
   - 'AC2: detect_optimal_tile_size() auto-detects GPU architecture'
@@ -167,7 +167,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:42Z
   updated: 2026-03-04T15:42:42Z
-  spec: contracts/components/optimization-tiers.md
+  spec: docs/specifications/components/optimization-tiers.md
   acceptance_criteria:
   - 'AC1: INT8 Q@K^T kernel implemented in trueno-gpu'
   - 'AC2: 2x speedup vs current FlashAttention on RTX 4090'
@@ -206,7 +206,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:48Z
   updated: 2026-03-04T15:42:48Z
-  spec: contracts/components/optimization-tiers.md
+  spec: docs/specifications/components/optimization-tiers.md
   acceptance_criteria:
   - 'AC1: Draft head architecture (1-layer transformer + LM head reuse)'
   - 'AC2: bf16 precision enforced for Qwen2 target models'
@@ -245,7 +245,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:42:53Z
   updated: 2026-03-04T15:42:53Z
-  spec: contracts/components/optimization-tiers.md
+  spec: docs/specifications/components/optimization-tiers.md
   acceptance_criteria:
   - 'AC1: Streaming access pattern in Q4_K GEMV'
   - 'AC2: Shared memory double buffering'
@@ -285,7 +285,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:43:00Z
   updated: 2026-03-04T15:43:00Z
-  spec: contracts/components/optimization-tiers.md
+  spec: docs/specifications/components/optimization-tiers.md
   acceptance_criteria:
   - 'AC1: DCA position remapping for Qwen architecture detection'
   - 'AC2: Passkey retrieval >= 99% at 128K context'
@@ -323,7 +323,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-04T15:43:04Z
   updated: 2026-03-04T15:43:04Z
-  spec: contracts/components/optimization-tiers.md
+  spec: docs/specifications/components/optimization-tiers.md
   acceptance_criteria:
   - 'AC1: Sparse pattern detection for attention matrices'
   - 'AC2: 3x prefill speedup for 32K+ sequences'
@@ -503,7 +503,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-08T00:00:00Z
   updated: 2026-03-08T20:00:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: GpuProfile::detect() sets sm_target from compute_capability() — DONE'
   - 'AC2: Zero hardcoded emit_ptx() calls in executor/ — DONE (contract-falsify passes)'
@@ -543,7 +543,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T18:00:00Z
   updated: 2026-03-10T17:45:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: TTFT <= 35ms on RTX 4060L at c=1 (from 46.4ms baseline)'
   - 'AC2: Prefill >= 4,000 tok/s on RTX 4060L (from 2,198)'
@@ -583,7 +583,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T18:00:00Z
   updated: 2026-03-10T22:00:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: model.write() lock held only for single GPU operation (~19ms), not full generation (~2700ms) — DONE'
   - 'AC2: New requests start prefill within 20ms of arrival (vs 2700ms) — DONE (structural)'
@@ -619,7 +619,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T18:00:00Z
   updated: 2026-03-10T23:30:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: Pending requests join active batch at next decode step — DONE: try_recv in decode loop, add_slot_to_batch with ~31ms prefill'
   - 'AC2: Variable M (1-32) within a generation session — DONE: m grows as requests join mid-batch'
@@ -658,7 +658,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T18:00:00Z
   updated: 2026-03-11T01:00:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: Finished slots immediately available for next request — DONE: recycle_slot() reuses finished slot indices, 159 recycling events in single 31s batch'
   - 'AC2: Zero idle GPU cycles between request completions — DONE for heterogeneous traffic (slots recycled immediately, ~16ms prefill per recycle)'
@@ -689,7 +689,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-11T01:00:00Z
   updated: 2026-03-11T06:00:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: FALSIFIED — BATCHED_GRAPH=1 gives ITL 22.0ms (WORSE than 19.2ms eager)'
   - 'AC2: FALSIFIED — c=4 aggregate 174.8 tok/s (WORSE than 199.7 eager)'
@@ -723,7 +723,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-11T01:00:00Z
   updated: 2026-03-11T01:00:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: ITL reduced >= 15% when 2 of 4 slots are done'
   - 'AC2: No regression when all slots active (zero-cost mask check)'
@@ -752,7 +752,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-11T01:00:00Z
   updated: 2026-03-11T01:00:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: probador supports --max-tokens-distribution flag'
   - 'AC2: Heterogeneous mode shows >= 250 tok/s at c=8 with recycling'
@@ -780,7 +780,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T21:25:08Z
   updated: 2026-03-10T23:45:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: FALSIFIED — graph replay 2.8ms slower than eager (22.0 vs 19.2ms ITL)'
   - 'AC2: Infrastructure correct — workspace/KV/aux buffer addresses stable across batches'
@@ -802,7 +802,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T21:25:09Z
   updated: 2026-03-11T00:15:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: seq_lens[i]=0 for done slots in batched/flash/graph attention paths'
   - 'AC2: Heterogeneous max_tokens (10+128) batch completes correctly'
@@ -825,7 +825,7 @@ roadmap:
   assigned_to: null
   created: 2026-03-10T21:25:09Z
   updated: 2026-03-11T00:45:00Z
-  spec: contracts/gpu-performance-spec.md
+  spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
   - 'AC1: --max-tokens N overrides all requests'
   - 'AC2: --max-tokens-distribution uniform:MIN,MAX generates varied output lengths'

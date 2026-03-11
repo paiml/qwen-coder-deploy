@@ -252,7 +252,7 @@ For complete baseline tables, threshold registry, and measurement protocol, see 
 
 ### Scorecard (Mar 11 2026, v3.1.0 — 9 dimensions, PMAT-087 clock correction)
 
-**Tool:** `probador llm score` with 9 scoring dimensions (contract: `contracts/scoring.yaml` v3.0.0).
+**Tool:** `probador llm score` with 9 scoring dimensions (contract: `scoring.yaml` v3.0.0).
 
 **RTX 4060 Laptop — yoga (c=1 and c=4, isolated, streaming, locked clocks 1900MHz):**
 

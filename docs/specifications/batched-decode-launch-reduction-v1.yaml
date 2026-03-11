@@ -1,0 +1,188 @@
+metadata:
+  version: "1.0.0"
+  created: "2026-03-09"
+  author: "PAIML Engineering"
+  description: "PMAT-046: Batched decode kernel launch reduction — bias broadcast, NEOX RoPE, Q6K GEMV"
+  references:
+    - "PMAT-046: Sequential per-slot launches at M=4 add 5.5ms/step (784 launches/step)"
+    - "kernel-launch-budget-v1.yaml — baseline 12L+2 per-token budget"
+    - "bias-add-v1.yaml — scalar bias broadcast contract"
+    - "rope-kernel-v1.yaml — RoPE norm preservation"
+
+equations:
+  batched_bias_broadcast:
+    formula: "y[s, i] = x[s, i] + bias[i] for all s in [0, M), i in [0, D)"
+    domain: "x in R^{M x D}, bias in R^D, M in [1, 32]"
+    codomain: "y in R^{M x D}"
+    invariants:
+      - "Equivalence: batched(x, bias, M) = concat([scalar(x[s], bias) for s in 0..M])"
+      - "Zero-bias identity: y = x when bias = 0"
+      - "Single launch: 1 kernel launch regardless of M (was M launches)"
+
+  batched_neox_rope:
+    formula: "NEOX_RoPE(x, m)_i = x_i * cos(m * theta_i) - x_{i+D/2} * sin(m * theta_i), NEOX_RoPE(x, m)_{i+D/2} = x_{i+D/2} * cos(m * theta_i) + x_i * sin(m * theta_i)"
+    domain: "x in R^{M x H x D}, positions in N^M, theta_i = base^(-2i/D)"
+    codomain: "R^{M x H x D}"
+    invariants:
+      - "Norm preservation: ||NEOX_RoPE(x, m)|| = ||x|| per head"
+      - "Equivalence: batched_neox(x, pos, M) = concat([scalar_neox(x[s], pos[s]) for s in 0..M])"
+      - "Single launch per Q/K: 2 launches total regardless of M (was 2*M)"
+      - "NEOX split: rotates (x[0..D/2], x[D/2..D]) not interleaved pairs"
+
+  batched_q6k_gemv:
+    formula: "y[s] = dequant_q6k(W) @ x[s] for all s in [0, M)"
+    domain: "W in Q6K^{N x K}, x in R^{M x K}"
+    codomain: "y in R^{M x N}"
+    invariants:
+      - "Equivalence: batched_q6k(W, x, M) = concat([scalar_q6k(W, x[s]) for s in 0..M])"
+      - "Single launch: 1 kernel launch regardless of M (was M launches)"
+      - "Numerical: |batched - sequential| < 1e-4 per element (f32 accumulation)"
+
+  launch_count_reduction:
+    formula: "launches_per_step(L, M) = L * (5 + 3 + 2 + 1 + 1 + 1 + 1 + 2) + 2 = 16L + 2"
+    domain: "L = layers, M = batch size"
+    codomain: "launches in Z+"
+    invariants:
+      - "BEFORE (sequential): launches = L * (5 + 3*M + 2*M + 2*M + 1 + 1 + 1 + 2) + 2"
+      - "AFTER (batched): launches = 16L + 2 (M-independent for bias/rope/q6k)"
+      - "Savings at M=4, L=28: 784 -> 450 (43% reduction, 334 fewer launches)"
+      - "Decomposition: 5(gemv/gemm) + 3(bias) + 2(rope) + 2(kv_scatter) + 1(attn) + 1(swiglu) + 1(rmsnorm) + 1(residual) = 16"
+
+proof_obligations:
+  - type: equivalence
+    property: "Batched bias matches sequential"
+    formal: "batched_bias(packed, bias, D, M) = [scalar_bias(packed[s*D..(s+1)*D], bias) for s in 0..M]"
+    tolerance: 0.0
+    applies_to: ptx
+  - type: invariant
+    property: "Zero-bias identity"
+    formal: "batched_bias(x, zeros(D), D, M) = x"
+    applies_to: all
+  - type: equivalence
+    property: "Batched NEOX RoPE matches sequential"
+    formal: "batched_neox_rope(packed, pos, H, D, M) = [scalar_neox_rope(packed[s], pos[s], H, D) for s in 0..M]"
+    tolerance: 1.0e-5
+    applies_to: ptx
+  - type: invariant
+    property: "NEOX RoPE norm preservation"
+    formal: "||batched_neox_rope(x, m)[s, h]|| = ||x[s, h]|| per head, per sequence"
+    tolerance: 1.0e-5
+    applies_to: all
+  - type: equivalence
+    property: "Batched Q6K GEMV matches sequential"
+    formal: "batched_q6k_gemv(W, packed, M) = [scalar_q6k_gemv(W, packed[s]) for s in 0..M]"
+    tolerance: 1.0e-4
+    applies_to: ptx
+  - type: bound
+    property: "Launch count reduction"
+    formal: "launches_batched(L, M) <= 16L + 2 for M in [1, 32]"
+    applies_to: all
+
+kernel_structure:
+  phases:
+    - name: batched_bias_broadcast
+      description: "Grid (ceil(D/256), M, 1) — each block handles one (seq, chunk) tile"
+      invariant: "packed[blockIdx.y * D + threadIdx.x] += bias[threadIdx.x]"
+    - name: batched_neox_rope
+      description: "Grid (num_heads, M, 1) — each block handles one (seq, head) pair"
+      invariant: "NEOX rotation on split halves: x[i] and x[i+D/2]"
+    - name: batched_q6k_gemv
+      description: "Grid scaled by M — packed input/output with M*K/M*N strides"
+      invariant: "Q6K super-block dequant with unaligned loads (210-byte stride)"
+
+falsification_tests:
+  - id: FALSIFY-BD-001
+    rule: "Batched bias equivalence"
+    prediction: "batched_bias(packed, bias, D, M) matches M sequential bias_adds"
+    test: "proptest with M in 1..8, D in {128, 512, 2048}, random packed and bias vectors"
+    if_fails: "Stride calculation wrong — packed[s*D+i] indexing error in PTX"
+  - id: FALSIFY-BD-002
+    rule: "Zero-bias identity"
+    prediction: "batched_bias(x, zeros, D, M) = x bitwise"
+    test: "direct test with zero bias vector"
+    if_fails: "Kernel modifies input even with zero bias"
+  - id: FALSIFY-BD-003
+    rule: "Batched NEOX RoPE equivalence"
+    prediction: "batched_neox_rope matches M sequential neox_rope applications"
+    test: "proptest with M in 1..8, random positions, head_dim in {64, 128}"
+    if_fails: "Position buffer indexing wrong — blockIdx.y offset error"
+  - id: FALSIFY-BD-004
+    rule: "NEOX RoPE norm preservation"
+    prediction: "||output[s,h]|| = ||input[s,h]|| within 1e-5"
+    test: "proptest computing per-head norms before and after"
+    if_fails: "sin/cos split-half rotation breaks norm (wrong index into x[i+D/2])"
+  - id: FALSIFY-BD-005
+    rule: "Batched Q6K GEMV equivalence"
+    prediction: "batched_q6k_gemv matches M sequential q6k_gemv within 1e-4"
+    test: "proptest with M in 1..4, random Q6K weights, random input"
+    if_fails: "Packed input stride wrong — reads wrong sequence's data"
+  - id: FALSIFY-BD-006
+    rule: "Launch count M-independent"
+    prediction: "Kernel launch count is 16L+2 for M=1 and M=4"
+    test: "Instrument forward pass to count cuLaunchKernel calls"
+    if_fails: "Fallback path still uses sequential loop for some weight type"
+
+enforcement:
+  batched_bias_equivalence:
+    description: "Batched bias broadcast must match sequential for all M"
+    check: "contract_tests::FALSIFY-BD-001"
+    severity: "ERROR"
+  neox_rope_equivalence:
+    description: "Batched NEOX RoPE must match sequential for all M"
+    check: "contract_tests::FALSIFY-BD-003"
+    severity: "ERROR"
+  neox_rope_norm:
+    description: "NEOX RoPE must preserve per-head vector norms"
+    check: "contract_tests::FALSIFY-BD-004"
+    severity: "ERROR"
+  q6k_gemv_equivalence:
+    description: "Batched Q6K GEMV must match sequential for all M"
+    check: "contract_tests::FALSIFY-BD-005"
+    severity: "ERROR"
+  launch_count:
+    description: "Total kernel launches must be M-independent (16L+2)"
+    check: "contract_tests::FALSIFY-BD-006"
+    severity: "WARNING"
+
+kani_harnesses:
+  - id: KANI-BD-001
+    obligation: BD-EQ-001
+    property: "Batched bias broadcast matches sequential for bounded M and D"
+    bound: 8
+    strategy: stub_float
+    solver: cadical
+    harness: verify_batched_bias_equivalence
+  - id: KANI-BD-002
+    obligation: BD-INV-001
+    property: "Zero bias produces identity output"
+    bound: 8
+    strategy: stub_float
+    solver: cadical
+    harness: verify_batched_bias_zero_identity
+  - id: KANI-BD-003
+    obligation: BD-EQ-002
+    property: "Batched NEOX RoPE norm preservation for bounded vectors"
+    bound: 4
+    strategy: stub_float
+    solver: cadical
+    harness: verify_batched_neox_rope_norm
+  - id: KANI-BD-004
+    obligation: BD-BND-001
+    property: "Launch count formula holds for bounded L and M"
+    bound: 8
+    strategy: bounded_int
+    solver: cadical
+    harness: verify_launch_count_bound
+
+qa_gate:
+  id: F-BD-001
+  name: "Batched Decode Launch Reduction Contract"
+  description: "PMAT-046: Validates correctness of batched bias, NEOX RoPE, and Q6K GEMV kernels"
+  checks:
+    - "batched_bias_equivalence"
+    - "neox_rope_equivalence"
+    - "neox_rope_norm"
+    - "q6k_gemv_equivalence"
+    - "launch_count"
+  pass_criteria: "All 6 falsification tests pass"
+  falsification: "Use wrong stride (D instead of M*D) in bias broadcast to corrupt sequences beyond first"

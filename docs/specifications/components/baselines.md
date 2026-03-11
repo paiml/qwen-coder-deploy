@@ -195,8 +195,8 @@ Implemented in PARITY-007 through PARITY-010:
 ### External Contracts
 
 For authoritative benchmark methodology and baselines, see:
-- `qwen-coder-deploy/contracts/benchmarking-v2.md`
-- `qwen-coder-deploy/contracts/inference-showdown-v1.yaml`
+- `qwen-coder-deploy/docs/specifications/benchmarking-v2.md`
+- `qwen-coder-deploy/docs/specifications/inference-showdown-v1.yaml`
 
 ---
 
