@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.24.0
+**Version:** 2.26.0
 **Status:** ACTIVE
-**Date:** 2026-03-10
+**Date:** 2026-03-11
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -249,6 +249,41 @@ TTFT: realizr 46.4ms (prompt-length dependent; 2,198 prefill tok/s = 0.46ms/tok)
 **Architecture split (v2.3.0):** Load testing moves permanently to Jetson Orin, freeing the 4090 for full-time QLoRA fine-tuning. The 4090 is only used for inference during occasional deep GPU profiling (nsys/ncu). All `probador llm load` benchmarks target Jetson-hosted services.
 
 For complete baseline tables, threshold registry, and measurement protocol, see [baselines.md](./components/baselines.md).
+
+### Scorecard (Mar 11 2026, v3.0.0 — 9 dimensions)
+
+**Tool:** `probador llm score` with 9 scoring dimensions (contract: `contracts/scoring.yaml` v3.0.0).
+
+**RTX 4060 Laptop — yoga (c=1, isolated, streaming, all dimensions):**
+
+| Dimension | realizr | llama.cpp | vLLM | ollama | Target |
+|-----------|---------|-----------|------|--------|--------|
+| **Composite** | **91 A** | 94 A | 100 A+ | 75 B | >= 90 A |
+| **Layer decode** | 89 A- | 91 A | 99 A+ | 95 A+ | >= 90 A |
+| **Output length** | 93 A | 94 A | 98 A+ | 96 A+ | >= 90 A |
+| **Correctness** | 100 A+ | — | — | — | >= 90 A |
+| **Memory** | 36.1 tok/s/GB A+ | — | — | — | >= 90 A |
+| **Power** | 3.13 tok/s/W A+ | — | — | — | >= 90 A |
+| **Concurrency scaling** | 41.5% C+ | 52.7% B | 88.1% A+ | 23.8% D- | >= 90 A |
+
+**Gap to A (score >= 90) on all dimensions:**
+
+| Dimension | Current | Need | Root Cause | Fix |
+|-----------|---------|------|------------|-----|
+| Layer decode (c=1) | 89 A- (254.6 us/layer) | 90 A (≤248 us) | ITL 7.2ms, 2.8% above A threshold | Incremental decode optimization |
+| Concurrency scaling | 62 C+ (41.5% efficiency) | 90 A (≥85% efficiency) | `model.write()` serialization, no continuous batching benefit with uniform traffic | PMAT-077 heterogeneous traffic + measure recycling benefit |
+
+**Dimensions already at A or above:**
+- Composite c=1: 91 A (decode parity, TTFT acceptable)
+- Output length: 93 A (consistent ITL across output lengths)
+- Correctness: 100 A+ (32/32 pass rate)
+- Memory: A+ (36.1 tok/s/GB — GGUF Q4K uses 3.5x less VRAM than vLLM AWQ)
+- Power: A+ (3.13 tok/s/W at 44.2W locked clocks)
+
+**Critical path to all-A: concurrency scaling (41.5% → 85%+).** This requires:
+1. Heterogeneous traffic showing recycling benefit (PMAT-077 done, need to benchmark)
+2. Or per-slot decode improvement at M=4 (ITL 19.2ms → ~9ms, requiring 2x batched decode speedup)
+3. Or c=8+ showing higher efficiency via recycling (more staggered completions)
 
 ---
 
@@ -1300,6 +1335,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.26.0 | 2026-03-11 | **Scorecard v3.0.0: 9 scoring dimensions.** Added `probador llm score` with 9 dimensions: composite, layer decode, prompt profile, output length, correctness, memory efficiency, cold start, power efficiency, concurrency scaling. realizr at A or above on 7/9 dimensions. Two gaps to A: layer decode c=1 (89 A- → need 90), concurrency scaling (41.5% C+ → need 85%). Correctness 100%, memory 36.1 tok/s/GB (A+), power 3.13 tok/s/W (A+). Concurrency scaling is the critical path — requires heterogeneous traffic benefit or batched decode speedup. |
 | 2.25.0 | 2026-03-11 | **PMAT-076: Dead slot masking — IMPLEMENTED.** Added `batched_done_mask` field to CudaExecutor, set from `BatchedDecodeState.done` before each forward pass. All three attention paths (batched, flash decode, graph replay) zero `seq_lens[i]` for done slots → early-exit (zero KV iterations). Verified: heterogeneous max_tokens (10+128) batch completes correctly. No regression: c=1=138.9, c=4=199.0 tok/s on uniform traffic. Impact scales with dead-slot ratio — needs PMAT-077 heterogeneous probador for quantitative measurement. |
 | 2.24.0 | 2026-03-11 | **PMAT-075: Batched CUDA graph infrastructure — IMPLEMENTED, FALSIFIED.** Three fixes: (1) `batched_cleanup` preserves workspace buffers via PAR-200 skip path, (2) preserves KV caches + auxiliary pointer buffers for address stability, (3) `init_batched_kv_cache_gpu` skips auxiliary realloc on reuse. Latent bug fixed: `init_prefill_workspace` now clears batched graphs on realloc. **Result:** Graphs persist across batches (confirmed via logs). But graph replay is **2.8ms SLOWER** than eager (ITL 22.0ms vs 19.2ms). Root cause: 5 synchronous `cuMemcpyHtoD` calls + graph dispatch overhead > kernel launch savings (~0.8ms). `BATCHED_GRAPH=1` remains opt-in. **Falsified hypothesis:** kernel launch overhead was NOT ~5ms/step — measured ~0.8ms. M=4 degradation is primarily batched attention scaling + L2 working set pressure. No regression on eager path: c=1=139.1, c=4=198.9. |
 | 2.23.0 | 2026-03-11 | **Post-continuous batching five-whys analysis.** Three findings: (1) Per-slot decode degrades 2.67× at M=4 (ITL 19.2ms vs 7.2ms) — root cause: no CUDA graphs in batched path (+~5ms kernel launch overhead), L2 cache spreading (+12%), batched attention 4× scaling. (2) Dead slot compute waste — done slots get zero embeddings through full forward pass, ~25% wasted compute per dead slot. (3) Uniform traffic defeats recycling — probador sends identical requests, all finish at same gen_idx. Three new work items: PMAT-075 (batched CUDA graphs), PMAT-076 (dead slot masking), PMAT-077 (probador heterogeneous traffic). Updated trajectory: 216→~290 aggregate predicted. |
