@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.28.0
+**Version:** 2.29.0
 **Status:** ACTIVE
 **Date:** 2026-03-11
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -956,6 +956,253 @@ For full analysis including the "impossible observation" (CPU outperforming GPU)
 
 ---
 
+## 5b. Continuous Batching Architecture Design (GH-141, PMAT-088)
+
+### Problem Statement
+
+Concurrency scaling is the only dimension below A (score 51, 34.1% efficiency at c=4).
+Phases 1-3 (PMAT-072/073/074) implemented step-wise decode, mid-batch joins, and slot
+recycling but delivered only +10% (197→216 tok/s). The bottleneck is **not** scheduling
+overhead — it is per-slot decode degradation at M>1 (2.55x slower per slot at M=4) caused
+by batched GEMV attention scaling linearly with M.
+
+vLLM achieves 88.9% efficiency at c=4 (598→604.7 tok/s) via three architectural innovations
+that realizr currently lacks: (1) iteration-level scheduling with token budgets, (2) paged
+KV cache, and (3) chunked prefill interleaving decode and prefill in the same forward pass.
+
+### Literature Foundation
+
+The continuous batching architecture draws from four foundational systems:
+
+**Orca** (Yu et al., OSDI 2022) — Introduced **iteration-level scheduling**: after each
+autoregressive step, finished requests leave and new requests join. Traditional request-level
+scheduling forces all requests in a batch to run to completion before admitting new work.
+Orca's selective batching applies batching only to compute-uniform ops (linear layers) while
+handling attention per-sequence. Result: 36.9x throughput over FasterTransformer. realizr's
+PMAT-072 step-wise decode is a partial implementation of this — lock release between steps
+enables join/leave, but without a token budget scheduler.
+
+**PagedAttention / vLLM** (Kwon et al., SOSP 2023) — Borrowed OS virtual memory paging for
+KV cache. Fixed-size blocks (typically 16 tokens) allocated on-demand via block tables,
+eliminating the 60-80% memory waste from pre-reserving max_seq_len per request. Physical
+blocks are non-contiguous; a per-request block table maps logical→physical (like page tables).
+Copy-on-Write enables block sharing for parallel sampling. Result: 2-4x throughput over
+FasterTransformer/Orca, <4% memory waste. vLLM's scheduler is ~2100 LOC with two priority
+queues (waiting, running), token budget system (default 2048 tokens/iteration), and
+preemption logic for overcommitted KV cache.
+
+**Sarathi-Serve** (Agrawal et al., OSDI 2024) — Solved the **prefill-decode interference**
+problem. Long prefills block ongoing decodes for seconds (generation stalls). Sarathi splits
+prefills into equal-sized chunks (256-512 tokens) and co-schedules them with decode tokens in
+each forward pass. The algorithm is decode-maximal: (1) pack all ongoing decode requests
+first, (2) fill remaining token budget with one prefill chunk. Prefill is compute-bound
+(GEMM); decode is memory-bound (GEMV) — they overlap efficiently on GPU because prefill
+saturates tensor cores while decode saturates memory bandwidth. Result: 2.6-6.9x higher
+serving capacity. Critical detail: chunk sizes must align with GPU tile dimensions (257
+tokens instead of 256 can increase prefill time by 32% due to wasted compute).
+
+**Splitwise / DistServe** (Patel et al., ISCA 2024; Zhong et al., OSDI 2024) — Demonstrated
+that prefill and decode have fundamentally different hardware requirements. Prefill is
+compute-bound (arithmetic intensity scales with sequence length); decode is memory-bound
+(arithmetic intensity ~1). This validates realizr's existing separate code paths (HGEMM
+prefill, DP4A GEMV decode) but argues for distinct scheduling policies per phase. Not
+directly applicable to single-GPU deployments, but the phase characterization is critical.
+
+### Architecture Design
+
+#### Current State (realizr v2.28.0)
+
+```
+HTTP Handler → mpsc channel → BatchScheduler → model.write() → generate_batched_streaming()
+                                                                  ├─ batched_setup_and_prefill()  (all slots)
+                                                                  ├─ batched_decode_step() loop   (M tokens/step)
+                                                                  └─ batched_cleanup()
+```
+
+**Limitations:**
+- Scheduler is 185 LOC wrapping a generate function (vLLM: ~2100 LOC dedicated scheduler)
+- Batched GEMV runs all M slots through full transformer — O(M) attention KV reads per slot
+- No token budget — batch size equals concurrent requests (no chunked prefill)
+- Prefill blocks all decode until complete (generation stalls at c>1)
+
+#### Target State (GH-141)
+
+```
+HTTP Handler → RequestQueue (lock-free)
+                    ↓
+              IterationScheduler (token budget, priority queues)
+                    ├─ running_queue: ongoing decode requests
+                    ├─ waiting_queue: pending prefill requests
+                    ├─ token_budget: max tokens per forward pass (default 2048)
+                    └─ schedule() → SchedulerOutput {
+                         scheduled_decode:  Vec<(slot_id, 1 token)>
+                         scheduled_prefill: Option<(slot_id, chunk_tokens)>
+                         preempted:         Vec<slot_id>
+                       }
+                    ↓
+              ModelExecutor (async, non-blocking)
+                    ├─ PagedKVCache: block_pool + per-request block_tables
+                    ├─ forward_mixed(decode_tokens, prefill_chunk) → logits
+                    └─ sample_tokens(logits) → next_token_ids
+                    ↓
+              SchedulerUpdate (process outputs, recycle slots, admit new)
+```
+
+#### Component 1: Iteration-Level Scheduler
+
+**Scheduling algorithm (per iteration):**
+
+```
+fn schedule(token_budget: usize) -> SchedulerOutput:
+    remaining = token_budget
+    output = SchedulerOutput::new()
+
+    # 1. Decode-maximal: always schedule ALL running decode requests first
+    for req in running_queue:
+        if req.needs_decode():
+            output.scheduled_decode.push((req.slot_id, 1))
+            remaining -= 1
+
+    # 2. Fill remaining budget with ONE prefill chunk
+    if remaining > 0 and not waiting_queue.is_empty():
+        req = waiting_queue.peek()
+        chunk_size = min(remaining, req.remaining_prefill_tokens())
+        chunk_size = align_to_tile(chunk_size, 256)  # tile quantization
+        output.scheduled_prefill = Some((req.slot_id, chunk_size))
+        remaining -= chunk_size
+
+        if req.remaining_prefill_tokens() == 0:
+            waiting_queue.pop()
+            running_queue.push(req)
+
+    # 3. Preempt if KV cache exhausted
+    if kv_cache.available_blocks() < needed_blocks(output):
+        preempt_lowest_priority(running_queue, output)
+
+    output
+```
+
+**Token budget sizing (RTX 4060 Laptop, 8GB VRAM):**
+- Model weights (Q4K): ~850 MB
+- KV cache budget: ~2 GB (128 blocks × 16 tokens × 1536 hidden × 2 KV × 2 bytes)
+- Max concurrent sequences: 8-16 (at 4096 max_seq_len)
+- Default token_budget: 512 (conservative for 8GB — Sarathi recommends profiling)
+
+#### Component 2: Paged KV Cache
+
+**Current KV cache:** Pre-allocated contiguous buffer per slot, max_seq_len × hidden_dim.
+Wastes memory for short sequences. Cannot share blocks across requests.
+
+**Paged KV cache design:**
+
+```
+BlockPool:
+    block_size: 16 tokens
+    num_blocks: 128 (2 GB / (16 * 1536 * 2 * 2 bytes) ≈ 128)
+    free_list:  DoublyLinkedList<BlockId>
+    ref_count:  Vec<u32>  # for prefix caching (future)
+
+KVCacheManager:
+    block_tables: HashMap<RequestId, Vec<BlockId>>  # logical→physical mapping
+
+    fn allocate_slots(request_id, num_new_tokens) -> Option<Vec<BlockId>>:
+        needed = ceil(num_new_tokens / block_size)
+        if free_list.len() < needed: return None  # trigger preemption
+        blocks = free_list.pop_n(needed)
+        block_tables[request_id].extend(blocks)
+        Some(blocks)
+
+    fn free_request(request_id):
+        for block in block_tables.remove(request_id):
+            ref_count[block] -= 1
+            if ref_count[block] == 0:
+                free_list.push(block)
+```
+
+**Block table indirection in attention kernel:**
+```
+// Current: contiguous KV access
+kv_ptr = kv_cache[slot_id] + seq_pos * hidden_dim
+
+// Paged: indirect via block table
+block_idx = seq_pos / BLOCK_SIZE
+block_offset = seq_pos % BLOCK_SIZE
+physical_block = block_table[request_id][block_idx]
+kv_ptr = block_pool[physical_block] + block_offset * hidden_dim
+```
+
+Memory fragmentation: <4% waste (only in last partially-filled block per request).
+Current waste at c=4 with max_seq_len=4096: 75%+ (most sequences use <1024 tokens).
+
+#### Component 3: Chunked Prefill
+
+**Problem:** realizr c=4 TTFT is 128.5ms because prefill runs all 4 requests serially
+before any decode begins. During prefill, all running decode requests stall.
+
+**Chunked prefill algorithm:**
+1. Split incoming prefill into chunks of 256 tokens (tile-aligned for sm_89)
+2. Each iteration: run 1 prefill chunk + all pending decode tokens
+3. Prefill GEMM (compute-bound) and decode GEMV (memory-bound) overlap on GPU
+4. Generation continues uninterrupted — no stalls
+
+**Expected impact on TTFT at c=4:**
+```
+Current:   4 × 46.4ms = ~186ms total prefill (sequential)
+Chunked:   125-token prompt = 1 chunk. Each chunk shares iteration with decode.
+           TTFT ≈ 46.4ms (same as c=1) — decode tokens piggyback at near-zero cost
+```
+
+**Expected impact on aggregate throughput at c=4:**
+```
+Current:   210.8 aggregate (34.1% efficiency)
+Target:    ~500 aggregate (80%+ efficiency)
+Rationale: Decode M=4 degradation (2.55x) is caused by BATCHED GEMV running all M
+           slots through attention. With chunked prefill, decode runs M=1 per slot
+           via iteration-level scheduling — each slot gets independent forward pass
+           with M=1 GEMV (no attention scaling). Aggregate = 4 × ~130 tok/s.
+           Overhead: scheduling + KV cache management ≈ 5-10%.
+```
+
+**Critical insight:** The 2.55x per-slot degradation at M=4 is NOT inherent to c=4. It is
+an artifact of batched GEMV (all M slots in one forward pass). Iteration-level scheduling
+with M=1 forward passes eliminates this entirely — each slot runs at c=1 speed. The cost
+is more kernel launches (1 per slot per iteration vs 1 batched), but PMAT-075 showed kernel
+launch overhead is only ~0.8ms at M=4 (4% of ITL), far less than the 2.55x batched penalty.
+
+### Implementation Plan
+
+| Phase | PMAT | Deliverable | Effort | Impact |
+|-------|------|-------------|--------|--------|
+| **P1: Iteration scheduler** | PMAT-088a | Token-budget scheduler with decode-maximal policy. Replace `BatchScheduler` with `IterationScheduler`. Keep contiguous KV cache. | 1 week | M=1 per-slot forward → ~500 aggregate |
+| **P2: Paged KV cache** | PMAT-088b | BlockPool + KVCacheManager + block table indirection in attention kernel. | 2 weeks | <4% memory waste, enable preemption |
+| **P3: Chunked prefill** | PMAT-088c | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | TTFT at c=4 ≈ c=1, no generation stalls |
+| **P4: CUDA graph for paged** | PMAT-088d | CUDA graph capture with block table pointer stability. | 1 week | Amortize kernel launch overhead |
+
+**Phase 1 is the critical path.** The key architectural change is moving from "batch all M
+slots into one forward pass" to "run M separate M=1 forward passes per iteration." This
+eliminates the 2.55x batched attention penalty and is the single highest-impact change for
+concurrency scaling. Phases 2-4 are incremental improvements.
+
+### Falsification Conditions
+
+| ID | Hypothesis | Prediction | Falsification |
+|----|-----------|------------|---------------|
+| H-CB4 | Iteration scheduling eliminates M=4 penalty | c=4 per-slot ITL ≤ 1.2x c=1 ITL | If per-slot ITL > 1.5x c=1: batched attention is NOT the root cause |
+| H-CB5 | Chunked prefill eliminates generation stalls | c=4 TTFT ≤ 1.5x c=1 TTFT | If TTFT > 2x c=1: prefill chunk overhead exceeds savings |
+| H-CB6 | Paged KV reduces memory waste | Memory utilization > 90% at c=8 | If waste > 20%: block fragmentation worse than expected |
+| H-CB7 | Per-slot M=1 matches c=1 throughput | Aggregate ≥ 0.8 × (M × c=1_tok/s) | If aggregate < 0.6 × theoretical: kernel launch or scheduling overhead dominates |
+
+### Academic References (added)
+
+- [Orca (OSDI 2022)](https://www.usenix.org/conference/osdi22/presentation/yu) — Yu et al. Iteration-level scheduling.
+- [Sarathi (2023)](https://arxiv.org/abs/2308.16369) — Agrawal et al. Chunked prefill + decode piggybacking.
+- [Sarathi-Serve (OSDI 2024)](https://arxiv.org/abs/2403.02310) — Agrawal et al. Decode-maximal batching, stall-free scheduling.
+- [DistServe (OSDI 2024)](https://arxiv.org/abs/2401.09670) — Zhong et al. Disaggregated prefill/decode, goodput optimization.
+- [DeepSpeed-FastGen (2024)](https://arxiv.org/abs/2401.08671) — Holmes et al. Dynamic SplitFuse, consistent forward size.
+- [FlashInfer (MLSys 2025, Best Paper)](https://arxiv.org/abs/2501.01005) — Block-sparse attention, JIT compilation.
+
+---
+
 ## 6. Optimization Roadmap
 
 ### Tier Summary (Updated Mar 6 2026 — post GH-176 HW DP4A + real BrickProfiler)
@@ -1342,14 +1589,19 @@ The following external documents are authoritative for their respective domains 
 33. [SpecInfer (ASPLOS 2024)](https://arxiv.org/abs/2305.09781) — Miao et al.
 34. [ScaleLLM (ACL 2024)](https://arxiv.org/abs/2407.00588) — Chen et al.
 35. [CPU Computations for LLM Inference (Euro-Par 2024)](https://doi.org/10.1007/978-3-031-69577-3_15) — Park & Egger
+36. [Orca (OSDI 2022)](https://www.usenix.org/conference/osdi22/presentation/yu) — Yu et al. Iteration-level scheduling.
+37. [SARATHI (2023)](https://arxiv.org/abs/2308.16369) — Agrawal et al. Chunked prefill piggybacking.
+38. [DistServe (OSDI 2024)](https://arxiv.org/abs/2401.09670) — Zhong et al. Disaggregated prefill/decode.
+39. [DeepSpeed-FastGen (2024)](https://arxiv.org/abs/2401.08671) — Holmes et al. Dynamic SplitFuse.
+40. [FlashInfer (MLSys 2025)](https://arxiv.org/abs/2501.01005) — Block-sparse paged attention, JIT compilation.
 
 ### Methodology
 
-36. [The Logic of Scientific Discovery](https://www.routledge.com/9780415278447) — Popper, 1959
-37. [Scientific Benchmarking (SC15)](https://doi.org/10.1145/2807591.2807644) — Hoefler & Belli
-38. [Statistically Rigorous Java Evaluation (OOPSLA 2007)](https://doi.org/10.1145/1297027.1297033) — Georges et al.
-39. [The Art of Computer Systems Performance Analysis](https://www.wiley.com/en-us/9780471503361) — Jain, 1991
-40. [The Toyota Way](https://www.mhprofessional.com/9780071392310-usa-the-toyota-way) — Liker, 2004
+41. [The Logic of Scientific Discovery](https://www.routledge.com/9780415278447) — Popper, 1959
+42. [Scientific Benchmarking (SC15)](https://doi.org/10.1145/2807591.2807644) — Hoefler & Belli
+43. [Statistically Rigorous Java Evaluation (OOPSLA 2007)](https://doi.org/10.1145/1297027.1297033) — Georges et al.
+44. [The Art of Computer Systems Performance Analysis](https://www.wiley.com/en-us/9780471503361) — Jain, 1991
+45. [The Toyota Way](https://www.mhprofessional.com/9780071392310-usa-the-toyota-way) — Liker, 2004
 
 ---
 
@@ -1357,6 +1609,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.29.0 | 2026-03-11 | **PMAT-088: Continuous batching architecture design (GH-141).** Added §5b with full architecture design for iteration-level scheduling, paged KV cache, and chunked prefill. Literature review: Orca (OSDI '22, iteration-level scheduling, 36.9x), PagedAttention/vLLM (SOSP '23, <4% memory waste, 2-4x), Sarathi-Serve (OSDI '24, chunked prefill, 2.6-6.9x), DistServe (OSDI '24, disaggregated phases), DeepSpeed-FastGen (Dynamic SplitFuse), FlashInfer (MLSys '25, block-sparse attention). Key insight: 2.55x per-slot M=4 degradation is artifact of batched GEMV, NOT inherent to c=4. Iteration-level scheduling with M=1 forward passes eliminates the penalty. 4-phase plan: (P1) iteration scheduler → ~500 agg, (P2) paged KV cache → <4% waste, (P3) chunked prefill → no generation stalls, (P4) CUDA graphs for paged. Added 4 falsification conditions (H-CB4 through H-CB7), 5 new academic references (#36-40). |
 | 2.28.0 | 2026-03-11 | **PMAT-087: Clock correction 1500→1900 MHz — 8/9 dimensions at A+.** SM clock was locked at 1500 MHz (26% below natural sustained boost of 1890 MHz). Corrected to 1900 MHz across all 4 yoga forjar configs. realizr c=1: 138.6→154.8 tok/s (+11.7%), 258.6→230.8 µs/layer, TTFT 46.4→13.4ms. Higher SM clocks help because Q4K dequantization is ~15% compute (DP4A, shared mem ops). Layer decode: 88 A-→97 A+. Composite: 91 A→98 A+. 8 of 9 dimensions now A+. Only remaining gap: concurrency scaling (34.1% efficiency, score 51 C) — requires GH-141 continuous batching. llama.cpp also improved: 142.9→160.7 tok/s (+12.5%), gap to realizr unchanged at ~3.7%. |
 | 2.27.0 | 2026-03-11 | **PMAT-086: Host-side batched decode optimization — IMPLEMENTED, FALSIFIED.** Pre-allocated GPU input/logits buffers (grow-only) + removed redundant stream.synchronize() before batched argmax + pre-allocated pos_buf in BatchedDecodeState. Measured impact: <0.1ms — kernel time (17-18ms at M=4) dominates. Five-Whys confirmed: per-slot ITL degradation (2.55x at M=4) is structural — attention KV scales linearly with M, GEMV computes M dot products. Host overhead was <0.5ms (not 2-4ms as estimated). Corrected scorecard: layer decode 88 A- (258.6 us/layer), concurrency scaling 57 C+ (38.0%). A-grade on scaling requires GH-141 continuous batching (architecture change). |
 | 2.26.0 | 2026-03-11 | **Scorecard v3.0.0: 9 scoring dimensions.** Added `probador llm score` with 9 dimensions: composite, layer decode, prompt profile, output length, correctness, memory efficiency, cold start, power efficiency, concurrency scaling. realizr at A or above on 5/7 dimensions. Two gaps to A: layer decode c=1 (88 A- → need 90), concurrency scaling (38% C+ → need 90%). Correctness 100%, memory A+, power A+. |
