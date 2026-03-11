@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.32.0
+**Version:** 2.33.0
 **Status:** ACTIVE
 **Date:** 2026-03-11
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1263,17 +1263,18 @@ memory-bound to compute-bound. Two optimization paths:
 | Phase | PMAT | Deliverable | Effort | Measured/Expected Impact |
 |-------|------|-------------|--------|------------------------|
 | **P1: Iteration scheduler** | PMAT-088a | Waiting queue + decode-maximal scheduling. Replace `BatchScheduler` with `IterationScheduler`. Keep contiguous KV cache. Variable-M bugfixes (3 classes). | 1 week | **DONE: +10.4% aggregate (210.8→232.7), 38.3% efficiency** |
-| **P2: HGEMM crossover + M>1 graph** | PMAT-088b | Re-test cuBLAS HGEMM at M>1 with fused gate+up enabled (PMAT-062 confound). CUDA graph capture for batched M>1 path (fix async H2D). **Root cause corrected:** penalty is GEMV compute (DP4A chains), not attention KV reads (2.8% of BW). | 1 week | Expected: ~1.35x per-step speedup (13.3→~10ms) → ~300 aggregate |
+| **P2: M>1 CUDA graph + launch reduction** | PMAT-088b | HGEMM crossover **FALSIFIED** (H-CB9): FP16 3.5× BW penalty not compensated by tensor cores at M=4. Remaining: CUDA graph capture for batched M>1 path (save ~1ms launch overhead per step). Fix 5 async H2D copies that block graph capture. | 1 week | Expected: ~1.08x per-step speedup (13.3→~12.3ms) → ~250 aggregate |
 | **P3: Chunked prefill** | PMAT-088c | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | Expected: TTFT at c=4 ≈ c=1, no generation stalls |
 | **P4: Paged KV cache** | PMAT-088d | BlockPool + KVCacheManager + block table indirection. Enable preemption. | 2 weeks | Expected: <4% memory waste, enable c>4 scaling |
 
-**Phase 2 is now the critical path.** Phase 1 delivered +10.4% via scheduling improvements
-but the dominant bottleneck is GEMV compute scaling (DP4A chains 4× at M=4, not attention
-KV reads which are only 2.8% of BW). Two interventions target the root cause:
-(a) HGEMM crossover: tensor cores replace DP4A compute at M>1 (trade BW for compute throughput)
-(b) CUDA graph for M>1: eliminate 1ms kernel launch overhead per step.
-**FlashAttention-2 de-prioritized**: attention reads are 14 MB vs 491 MB weights — optimizing
-attention would yield <3% improvement. Originally Phase 2, now deferred.
+**Phase 2 status: HGEMM crossover falsified (H-CB9).** Phase 1 delivered +10.4% via scheduling.
+The dominant bottleneck is GEMV compute scaling (DP4A chains 4× at M=4). Three HGEMM variants
+tested — none beat DP4A baseline (best: 260.5 vs 261.5 tok/s). FP16's 3.5× BW penalty
+(2944 MB vs 850 MB weight reads) is not compensated by tensor core compute on RTX 4060L.
+**Remaining Phase 2 intervention:** CUDA graph for M>1 (eliminate ~1ms kernel launch overhead).
+Requires fixing 5 synchronous H2D copies (`cuMemcpyHtoD` during graph capture → `CUDA_ERROR_ILLEGAL_ADDRESS`).
+**Phase 3 (chunked prefill) is now the higher-impact next step** — reduces c=4 TTFT stalls.
+**FlashAttention-2 de-prioritized**: attention reads are 14 MB vs 491 MB weights (<3% impact).
 
 ### Falsification Conditions
 
@@ -1284,7 +1285,7 @@ attention would yield <3% improvement. Originally Phase 2, now deferred.
 | H-CB6 | Paged KV reduces memory waste | Memory utilization > 90% at c=8 | Pending (Phase 4) |
 | H-CB7 | Per-slot M=1 matches c=1 throughput | Aggregate ≥ 0.8 × (M × c=1_tok/s) | **FALSIFIED.** 232.7 / 607.2 = 38.3% < 60% threshold. Weight BW amortization in batched GEMV is essential — M=1 per slot reads 4× more weight data. |
 | H-CB8 | Waiting queue integration improves scheduling | c=4 aggregate > baseline + 10% | **CONFIRMED.** 232.7 / 210.8 = +10.4%. Waiting queue drain reduces slot vacancy. Initial 256.9 (+21.9%) was inflated by error-retry cycles before variable-M bugfixes. |
-| H-CB9 | HGEMM crossover at M>1 beats Q4K DP4A | M=4 per-step time < 11ms (vs 13.3ms Q4K) | Pending (Phase 2). Hypothesis: at M=4, Q4K GEMV is compute-bound (9.7ms DP4A) but HGEMM is BW-bound (9.1ms FP16). Tensor cores 8× faster compute compensates for 3.5× BW increase. PMAT-062 confound: fused gate+up was disabled during HGEMM test. |
+| H-CB9 | HGEMM crossover at M>1 beats Q4K DP4A | M=4 per-step time < 11ms (vs 13.3ms Q4K) | **FALSIFIED.** Three variants tested at 1900 MHz, c=4: (1) Full HGEMM: 256.0 aggregate, 13.6ms ITL (−2.1%). (2) Hybrid (fused QKV/gate+up DP4A, HGEMM output/down): 260.5 aggregate, 13.7ms ITL (−0.4%). (3) Baseline DP4A: 261.5 aggregate, 13.4ms ITL. FP16 weights read 3.5× more BW (2 B/elem vs Q4K 0.5625 B/elem) — tensor core compute savings do NOT compensate on RTX 4060L at M=4. PMAT-062 confound resolved: re-enabling fused gate+up does not change the conclusion. |
 | H-CB10 | M=4 penalty is from GEMV compute, not attention | Attention ≤ 5% of M=4 forward time | **CONFIRMED.** Attention KV reads = 14 MB / 491 MB weight BW = 2.8%. M=4 step 13.3ms decomposed: 2.56ms BW + 9.7ms compute + 1ms launches. |
 
 ### Academic References (added)
@@ -1704,6 +1705,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.33.0 | 2026-03-11 | **PMAT-088b H-CB9 FALSIFIED: HGEMM crossover does NOT beat DP4A at M=4.** Three variants tested at 1900 MHz on RTX 4060L: (1) Full HGEMM: 256.0 aggregate, 13.6ms ITL (−2.1%). (2) Hybrid (fused QKV/gate+up DP4A + HGEMM output/down): 260.5 aggregate, 13.7ms ITL (−0.4%). (3) Baseline DP4A: 261.5 aggregate, 13.4ms ITL. FP16 weights (2 B/elem, 2944 MB) cost 3.5× more BW than Q4K (0.5625 B/elem, 850 MB) — tensor core compute savings do not compensate. PMAT-062 confound resolved: re-enabling fused gate+up does not change conclusion. Phase 2 redesigned: HGEMM dropped, remaining intervention is CUDA graph for M>1 (~1ms launch savings). Phase 3 (chunked prefill) elevated to higher priority. Infrastructure preserved: FP16 cache warmup code env-gated (`HGEMM_BATCHED_DECODE=1`) for future experimentation. |
 | 2.32.0 | 2026-03-11 | **PMAT-088b root cause corrected: M=4 penalty is GEMV compute (DP4A chains), NOT attention KV reads.** Profiled M=4 decode step (13.3ms): 2.56ms BW + 9.7ms compute + 1ms launches. Attention KV reads are 14 MB = 2.8% of weight BW (491 MB) — FlashAttention-2 would yield <3% improvement. Root cause: batched Q4K GEMV reads weights once for M=4 but runs 4× independent DP4A accumulation chains, transitioning from memory-bound (M=1) to compute-bound (M=4). Phase 2 redesigned: (a) HGEMM crossover at M>1 (tensor cores vs DP4A), (b) CUDA graph for M>1 (save 1ms launch overhead). FlashAttention-2 deferred — wrong bottleneck. Added H-CB9 (HGEMM crossover hypothesis) and H-CB10 (attention fraction, CONFIRMED at 2.8%). |
 | 2.31.0 | 2026-03-11 | **PMAT-088 corrected numbers: +10.4% aggregate (post-bugfix), variable-M buffer fixes.** Initial 256.9 measurement was inflated by error-retry cycles from 3 classes of buffer length mismatch exposed by variable M transitions (M=4→M=1→M=3). Corrected final: 232.7 aggregate (+10.4% from 210.8), 38.3% efficiency (was 34.1%). Bug classes: (1) logits buffer M×vocab vs vocab in prepare_capture_buffers, (2) input/hidden grow-only buffer vs exact copy_from_host, (3) KV ptr/seq_lens high-water-mark buffers. Fixes: exact-size realloc, from_raw_parts M-views, copy_from_host_at, clear_decode_graph on realloc. H-CB8 revised to +10.4% (still CONFIRMED). |
 | 2.30.0 | 2026-03-11 | **PMAT-088a DONE: Iteration scheduler — +21.9% initial (pre-bugfix), H-CB4/CB7 FALSIFIED.** Two hypotheses falsified: (1) H-CB4: sequential M=1 NOT faster than batched M=4 — GEMV weight amortization (828MB shared vs 4×828MB) means batched is essential. (2) H-CB7: 42.0% < 60% threshold — per-slot M=1 reads 4× more weight data. Gain came from waiting queue integration reducing slot vacancy, not M=1 scheduling. Corrected architecture: path to high scaling is reducing attention cost within batched execution (FlashAttention-2 batched, Phase 2 = new critical path), not eliminating batching. |
