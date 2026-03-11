@@ -77,12 +77,16 @@ probador llm report \
 echo "--- Computing scores ---"
 probador llm score \
     --results results/ \
-    --format table
+    --format table \
+    --by-layer --by-profile --by-correctness --by-output-length \
+    --by-memory --by-cold-start --by-power --by-scaling
 
 probador llm score \
     --results results/ \
     --format json \
-    --output "results/scorecard-${DATE}.json"
+    --output "results/scorecard-${DATE}.json" \
+    --by-layer --by-profile --by-correctness --by-output-length \
+    --by-memory --by-cold-start --by-power --by-scaling
 
 echo "--- Committing results ---"
 git add results/ performance.md README.md

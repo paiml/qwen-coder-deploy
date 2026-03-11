@@ -1,4 +1,4 @@
-# Inference Runtime Scoring Contract v2.0.0
+# Inference Runtime Scoring Contract v3.0.0
 #
 # Quantitative grading system for comparing inference runtimes:
 #   realizr (apr-cli), llama.cpp, ollama, vLLM
@@ -21,7 +21,7 @@
 #   pmat perfection-score — weighted category aggregation pattern
 
 metadata:
-  version: "2.0.0"
+  version: "3.0.0"
   created: "2026-03-11"
   author: "PAIML Engineering"
   model: "Qwen2.5-Coder-1.5B-Instruct (Q4_K_M, 1.5B params, 28 layers)"
@@ -179,6 +179,185 @@ scores:
         llamacpp:  { score: 67.1, grade: "C+" }
         realizr:   { score: 44.8, grade: "D" }
         ollama:    { score: 32.0, grade: "D-" }
+
+# =============================================================================
+# PER-LAYER DECODE EFFICIENCY (--by-layer)
+# =============================================================================
+#
+# Scores decode speed normalized per transformer layer (us/layer).
+# Uses decode_us_per_layer from LoadTestResult (requires --num-layers 28).
+#
+# Thresholds (absolute, for Q4_K_M on RTX 4060L-class hardware):
+#   excellent: 220 us/layer → score 100
+#   good:      300 us/layer → score 75
+#
+# Rationale: at 28 layers, 220us/layer = 6.16ms/token = 162 tok/s
+#            at 28 layers, 300us/layer = 8.40ms/token = 119 tok/s
+#
+# This dimension isolates compute efficiency from model size, enabling
+# cross-model comparison (e.g., 7B model at 28 layers vs 1.5B at 28 layers).
+
+layer_scoring:
+  metric: decode_us_per_layer
+  thresholds:
+    excellent: 220  # us/layer
+    good: 300       # us/layer
+  direction: lower_is_better
+
+# =============================================================================
+# PER-PROMPT-PROFILE SCORING (--by-profile)
+# =============================================================================
+#
+# Classifies requests by prompt token count into categories, then computes
+# per-category decode/TTFT/ITL metrics and composite scores.
+#
+# Categories (by avg prompt tokens per request):
+#   Micro:  < 15 tokens  (system prompt only, chat-style)
+#   Short:  < 64 tokens  (typical instruction)
+#   Medium: < 256 tokens (code context, RAG chunks)
+#   Long:   >= 256 tokens (full documents, long context)
+#
+# Consistency score: worst_score / best_score across all populated categories.
+#   1.0  = perfectly consistent (same quality at all prompt lengths)
+#   <0.5 = severe degradation for some prompt lengths
+#
+# Thresholds reuse the top-level metric thresholds. Composite weight profile
+# matches the interactive weights (decode 30%, TTFT 30%, ITL 15%, tail 15%, error 10%).
+
+profile_scoring:
+  categories:
+    micro:  { max_tokens: 15 }
+    short:  { max_tokens: 64 }
+    medium: { max_tokens: 256 }
+    long:   { max_tokens: null }  # >= 256
+  consistency:
+    target: 0.90   # goal: <10% degradation across profiles
+    warning: 0.70  # >30% degradation flags concern
+
+# =============================================================================
+# CORRECTNESS SCORING (--by-correctness)
+# =============================================================================
+#
+# Scores assertion pass rate from inline quality validation during load tests.
+# Requires --validate basic|contains:X|pattern:X during probador llm load.
+#
+# Thresholds:
+#   excellent: 100% pass rate → score 100
+#   good: 95% pass rate → score 75
+#   Below 95%: linear degradation. At 80% → ~63. At 50% → ~37.
+
+correctness_scoring:
+  metric: pass_rate
+  thresholds:
+    excellent: 1.0
+    good: 0.95
+  direction: higher_is_better
+
+# =============================================================================
+# OUTPUT LENGTH PROFILE SCORING (--by-output-length)
+# =============================================================================
+#
+# Classifies responses by output (completion) token count into buckets:
+#   Short: < 32 tokens
+#   Medium: 32-128 tokens
+#   Long: > 128 tokens
+#
+# Scores per-bucket ITL using the main ITL threshold (excellent=6ms, good=10ms).
+# Reveals KV cache scaling: longer outputs → more attention compute → higher ITL.
+# Requires request_details (populated with --stream).
+
+output_length_scoring:
+  categories:
+    short:  { max_tokens: 32 }
+    medium: { max_tokens: 128 }
+    long:   { max_tokens: null }
+  metric: itl_p50_ms  # scored per bucket
+
+# =============================================================================
+# MEMORY EFFICIENCY SCORING (--by-memory)
+# =============================================================================
+#
+# Scores decode throughput normalized by VRAM usage: tok/s per GB.
+# Requires --gpu-telemetry during load test.
+#
+# Thresholds:
+#   excellent: 40 tok/s/GB (~140 tok/s in 3.5 GB GGUF)
+#   good: 20 tok/s/GB (~160 tok/s in 8 GB)
+
+memory_scoring:
+  metric: tok_per_sec_per_gb
+  thresholds:
+    excellent: 40.0
+    good: 20.0
+  direction: higher_is_better
+
+# =============================================================================
+# COLD START SCORING (--by-cold-start)
+# =============================================================================
+#
+# Scores time from process launch to first successful health check.
+# Requires cold_start_ms in LoadTestResult (populated by probador llm bench
+# with --start-command).
+#
+# Thresholds:
+#   excellent: 500ms (Rust binary + GGUF load)
+#   good: 3000ms (acceptable for autoscaling)
+#
+# Expected ranges: realizr ~200-500ms, llama.cpp ~500-1000ms,
+#   ollama ~1-3s, vLLM ~15-30s (Python + model + CUDA init)
+
+cold_start_scoring:
+  metric: cold_start_ms
+  thresholds:
+    excellent: 500
+    good: 3000
+  direction: lower_is_better
+
+# =============================================================================
+# POWER EFFICIENCY SCORING (--by-power)
+# =============================================================================
+#
+# Scores decode throughput per watt: tok/s per W.
+# Requires --gpu-telemetry during load test (nvidia-smi power_draw).
+#
+# Thresholds:
+#   excellent: 3.0 tok/s/W (Jetson Orin class efficiency)
+#   good: 1.5 tok/s/W (desktop GPU efficiency)
+
+power_scoring:
+  metric: tok_per_watt
+  thresholds:
+    excellent: 3.0
+    good: 1.5
+  direction: higher_is_better
+
+# =============================================================================
+# CONCURRENCY SCALING SCORING (--by-scaling)
+# =============================================================================
+#
+# Scores how well a runtime scales with concurrent requests.
+# Efficiency = peak_aggregate_tok_s / (c1_decode_tok_s × peak_concurrency).
+# 1.0 = perfect linear scaling (each worker at full c=1 speed).
+#
+# Reconstructed from LoadTestResult files at different concurrency levels.
+# Runtime names matched by stripping -cN suffix.
+#
+# Thresholds:
+#   excellent: 90% (near-linear, vLLM PagedAttention class)
+#   good: 50% (acceptable batching efficiency)
+#
+# Current yoga results (PMAT-086):
+#   vLLM:      88.1% (A+) — continuous batching + PagedAttention
+#   llama.cpp: 52.7% (B)  — server-level batching
+#   realizr:   41.5% (C+) — model.write() serialization (GH-141)
+#   ollama:    23.8% (D-) — no batching (serializes at HTTP level)
+
+concurrency_scaling:
+  metric: scaling_efficiency
+  thresholds:
+    excellent: 0.90
+    good: 0.50
+  direction: higher_is_better
 
 # =============================================================================
 # GRADE THRESHOLDS

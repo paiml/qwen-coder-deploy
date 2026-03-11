@@ -828,9 +828,9 @@ report:
 
 score:
 	@echo "=== Yoga RTX 4060L Scorecard ==="
-	probador llm score --results results/ --platform yoga --concurrency 1
+	probador llm score --results results/ --platform yoga --concurrency 1 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
 	@echo ""
-	probador llm score --results results/ --platform yoga --concurrency 4
+	probador llm score --results results/ --platform yoga --concurrency 4 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
 
 score-all:
 	probador llm score --results results/
@@ -840,9 +840,9 @@ score-json:
 	probador llm score --results results/ --platform yoga --concurrency 4 --format json --output results/scorecard-yoga-c4-$(DATE).json
 
 score-jetson:
-	probador llm score --results results/ --platform jetson --concurrency 1
+	probador llm score --results results/ --platform jetson --concurrency 1 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
 	@echo ""
-	probador llm score --results results/ --platform jetson --concurrency 4
+	probador llm score --results results/ --platform jetson --concurrency 4 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
 
 score-gate:
 	probador llm score --results results/ --platform yoga --concurrency 1 --fail-on-grade C
