@@ -1,0 +1,198 @@
+# Inference Runtime Scoring Contract v1.0.0
+#
+# Quantitative grading system for comparing inference runtimes:
+#   realizr (apr-cli), llama.cpp, ollama, vLLM
+#
+# Scores are computed from probador benchmark JSON output.
+# Each runtime gets a 0-100 composite score per platform per concurrency level.
+#
+# Design principles:
+#   - Best runtime on each metric scores 100 (relative scoring, not absolute)
+#   - Weighted composite captures multi-dimensional tradeoffs
+#   - Platform-specific: RTX 4060L and Jetson Orin have different profiles
+#   - Concurrency-specific: c=1 (interactive) and c=4 (throughput) scored separately
+#   - Machine-readable: probador JSON → score computation → report
+
+metadata:
+  version: "1.0.0"
+  created: "2026-03-11"
+  author: "PAIML Engineering"
+  model: "Qwen2.5-Coder-1.5B-Instruct (Q4_K_M, 1.5B params, 28 layers)"
+  tool: "probador llm load --stream true --prompt-profile short --max-tokens 32"
+  methodology: "60s duration, 5s warmup, isolated (one runtime at a time), locked GPU clocks"
+
+# =============================================================================
+# SCORING METHODOLOGY
+# =============================================================================
+#
+# For each metric, compute a per-runtime score:
+#
+#   Higher-is-better (decode_tok_s, prefill_tok_s, throughput_scaling):
+#     score_i = (value_i / max(all_values)) * 100
+#
+#   Lower-is-better (ttft_p50, itl_p50, ttft_p999, error_rate):
+#     score_i = (min(all_values) / value_i) * 100
+#     (if value_i == 0 for error_rate, score = 100)
+#
+#   Composite score = Σ(weight_k * score_k) for all metrics k
+#
+# Interpretation:
+#   90-100: Excellent — competitive with best-in-class
+#   70-89:  Good — minor gaps in some areas
+#   50-69:  Fair — meaningful gaps, optimization opportunities
+#   30-49:  Poor — significant performance issues
+#   0-29:   Critical — major regressions or broken functionality
+
+# =============================================================================
+# METRIC WEIGHTS
+# =============================================================================
+
+weights:
+  # c=1 (interactive): prioritizes responsiveness and per-request quality
+  interactive:
+    decode_tok_s:       0.25  # Core generation speed (user-perceived typing speed)
+    ttft_p50_ms:        0.25  # Time to first token (user-perceived responsiveness)
+    itl_p50_ms:         0.15  # Inter-token latency consistency (smoothness)
+    prefill_tok_s:      0.10  # Prefill throughput (context processing speed)
+    ttft_p999_ms:       0.15  # Tail latency (worst-case responsiveness)
+    error_rate:         0.10  # Reliability
+
+  # c=4 (throughput): prioritizes aggregate capacity and scaling
+  throughput:
+    aggregate_tok_s:    0.30  # Total system throughput
+    decode_tok_s:       0.15  # Per-slot decode speed under load
+    ttft_p50_ms:        0.15  # Responsiveness under contention
+    itl_p50_ms:         0.15  # Streaming smoothness under load
+    throughput_scaling:  0.15  # c=4/c=1 aggregate ratio (batching efficiency)
+    error_rate:         0.10  # Reliability under load
+
+# =============================================================================
+# CURRENT SCORES — RTX 4060 Laptop (yoga, PMAT-086, 2026-03-11)
+# =============================================================================
+
+scores:
+  yoga_rtx4060l:
+    date: "2026-03-11"
+    gpu: "RTX 4060 Laptop (24 SMs, sm_89, 8GB VRAM)"
+    clock: "locked 1500MHz"
+
+    interactive:  # c=1, short prompt (23 tokens), stream=true, 60s
+      raw_data:
+        vllm:
+          decode_tok_s: 159.7
+          ttft_p50_ms: 13.0
+          itl_p50_ms: 6.3
+          prefill_tok_s: 7849
+          ttft_p999_ms: 14.0  # estimated
+          error_rate: 0.0
+        llamacpp:
+          decode_tok_s: 144.2
+          ttft_p50_ms: 10.9
+          itl_p50_ms: 6.9
+          prefill_tok_s: 2116
+          ttft_p999_ms: 13.3
+          error_rate: 0.007
+        ollama:
+          decode_tok_s: 145.4
+          ttft_p50_ms: 71.6
+          itl_p50_ms: 6.9
+          prefill_tok_s: 1424
+          ttft_p999_ms: 72.0  # estimated
+          error_rate: 0.0
+        realizr:
+          decode_tok_s: 138.3
+          ttft_p50_ms: 14.3
+          itl_p50_ms: 7.2
+          prefill_tok_s: 1608
+          ttft_p999_ms: 34.5
+          error_rate: 0.0
+
+      # Computed scores (best=100 per metric)
+      #
+      # decode:  vLLM=100, ollama=91.1, llamacpp=90.3, realizr=86.6
+      # ttft:    llamacpp=100, vLLM=83.8, realizr=76.2, ollama=15.2
+      # itl:     vLLM=100, llamacpp=91.3, ollama=91.3, realizr=87.5
+      # prefill: vLLM=100, llamacpp=27.0, realizr=20.5, ollama=18.1
+      # ttftp999: llamacpp=100, vLLM=95.0, realizr=38.6, ollama=18.5
+      # error:   vLLM=100, ollama=100, realizr=100, llamacpp=100 (rounding)
+      composite:
+        vllm:      { score: 94.6, grade: "A" }
+        llamacpp:  { score: 82.9, grade: "B+" }
+        realizr:   { score: 67.7, grade: "C+" }
+        ollama:    { score: 47.4, grade: "D" }
+
+    throughput:  # c=4, short prompt, stream=true, 60s
+      raw_data:
+        vllm:
+          aggregate_tok_s: 604.7
+          decode_tok_s: 154.5
+          ttft_p50_ms: 24.8
+          itl_p50_ms: 6.5
+          error_rate: 0.0
+        llamacpp:
+          aggregate_tok_s: 296.5
+          decode_tok_s: 74.4
+          ttft_p50_ms: 22.7
+          itl_p50_ms: 13.4
+          error_rate: 0.0
+        realizr:
+          aggregate_tok_s: 197.5
+          decode_tok_s: 52.2
+          ttft_p50_ms: 128.5
+          itl_p50_ms: 19.2
+          error_rate: 0.0
+        ollama:
+          aggregate_tok_s: 143.8
+          decode_tok_s: 144.6
+          ttft_p50_ms: 2678
+          itl_p50_ms: 6.9
+          error_rate: 0.0
+      # Note: throughput_scaling computed from c=4 aggregate / c=1 decode
+      # vLLM: 604.7/159.7 = 3.79x, llamacpp: 296.5/144.2 = 2.06x
+      # realizr: 197.5/138.3 = 1.43x, ollama: 143.8/145.4 = 0.99x
+      composite:
+        vllm:      { score: 96.6, grade: "A+" }
+        llamacpp:  { score: 69.2, grade: "C+" }
+        realizr:   { score: 46.4, grade: "D" }
+        ollama:    { score: 37.0, grade: "D-" }
+
+# =============================================================================
+# GRADE THRESHOLDS
+# =============================================================================
+
+grades:
+  "A+":  { min: 95, description: "Best-in-class across all metrics" }
+  "A":   { min: 90, description: "Excellent — competitive with leader" }
+  "A-":  { min: 85, description: "Very good — minor gaps" }
+  "B+":  { min: 80, description: "Good — small optimization opportunities" }
+  "B":   { min: 70, description: "Above average — known gaps with clear fix paths" }
+  "C+":  { min: 60, description: "Fair — meaningful gaps in key metrics" }
+  "C":   { min: 50, description: "Below average — significant optimization needed" }
+  "D":   { min: 40, description: "Poor — major gaps in multiple metrics" }
+  "D-":  { min: 30, description: "Very poor — fundamental architecture limitations" }
+  "F":   { min: 0,  description: "Critical — broken or unusable" }
+
+# =============================================================================
+# SCORE COMPUTATION REFERENCE
+# =============================================================================
+#
+# To compute scores from probador JSON output:
+#
+#   1. Run isolated benchmarks:
+#      probador llm load --url <url> --duration 60 --concurrency 1 \
+#        --warmup 5 --stream true --prompt-profile short --max-tokens 32
+#
+#   2. Collect metrics from JSON: decode_tok_s, ttft_p50_ms, itl_p50_ms,
+#      prefill_tok_s, ttft_p999_ms, error_rate
+#
+#   3. For each metric, find best value across all runtimes
+#
+#   4. Score = (value / best) * 100 for higher-is-better
+#      Score = (best / value) * 100 for lower-is-better
+#
+#   5. Composite = weighted sum using weights above
+#
+#   6. Assign grade from thresholds
+#
+# Implementation: scripts/compute-scores.py (TODO)
+# Integration: make report should emit scores alongside benchmark tables
