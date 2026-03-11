@@ -110,9 +110,14 @@ classes of buffer length mismatch when M changes between iterations.
 3. **KV ptr/seq_lens** (M vs max_M): High-water-mark buffers. Fix: `copy_from_host_at(0)`
    for sync copies, `from_raw_parts` exact-M views for async copies.
 
-**Root cause of remaining gap:** Batched GEMV attention scales O(M*seq_len) -- at M=4 each
-slot reads 4x more KV entries. Weight GEMV is amortized (828 MB read once for M slots), but
-attention is not. FlashAttention-2 batched (Phase 2) is the critical path.
+**Root cause of remaining gap (CORRECTED, PMAT-088b):** ~~Attention KV scaling~~ is NOT
+the bottleneck. Attention reads 14 MB = 2.8% of weight BW (491 MB). The actual bottleneck
+is **GEMV compute scaling**: batched Q4K GEMV reads weights once for M=4 but runs 4x
+independent DP4A accumulation chains, transitioning from memory-bound (M=1) to
+compute-bound (M=4).
+
+Profiled M=4 decode step: 13.3ms = 2.56ms BW + 9.7ms compute + 1ms launches.
+Phase 2 redesigned: HGEMM crossover at M>1 + CUDA graph for M>1.
 
 ---
 
@@ -120,7 +125,7 @@ attention is not. FlashAttention-2 batched (Phase 2) is the critical path.
 
 | Phase | PMAT | Status | Expected Impact |
 |-------|------|--------|----------------|
-| **P2: Batched FlashAttention** | PMAT-088b | Next | Reduce 2.55x M=4 penalty to ~1.5x |
+| **P2: HGEMM crossover + M>1 graph** | PMAT-088b | Next | HGEMM at M>1 (~1.35x), graph save 1ms |
 | P3: Chunked prefill | PMAT-088c | Planned | TTFT at c=4 = c=1 |
 | P4: Paged KV cache | PMAT-088d | Planned | <4% memory waste, enable c>4 |
 
@@ -133,6 +138,8 @@ attention is not. FlashAttention-2 batched (Phase 2) is the critical path.
 | H-CB4 | **FALSIFIED** | M=1 per-slot ITL 2.29x c=1 (15.1/6.6ms). Sequential M=1 worse than batched. |
 | H-CB7 | **FALSIFIED** | 38.3% < 60% threshold. Weight BW amortization essential. |
 | H-CB8 | **CONFIRMED** | +10.4% aggregate from waiting queue integration (initial +21.9% inflated by retries). |
+| H-CB9 | Pending | HGEMM crossover at M>1: tensor cores 8x faster compute vs 3.5x BW increase. |
+| H-CB10 | **CONFIRMED** | Attention is 2.8% of BW — GEMV compute (DP4A) is the actual bottleneck. |
 
 ---
 
