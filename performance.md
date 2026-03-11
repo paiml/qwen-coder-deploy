@@ -49,21 +49,34 @@
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 13 |
 | 2026-03-01 | realizar-gguf | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 45 |
 
-## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — 2026-03-10 (PMAT-062)
+## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — 2026-03-11 (PMAT-086)
 
-### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM)
+### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1500MHz)
+
+**Short prompt (23 tokens):**
 
 | Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
 |---------|-------------|--------------|---------------|-------------|----------|
-| **vLLM** | **159.7** | **7,849** | **13.0** | **6.3** | 75 |
+| **vLLM** | **159.7** | **7,849** | 13.0 | **6.3** | 75 |
+| llama.cpp | 144.2 | 2,116 | **10.9** | 6.9 | — |
 | ollama | 145.4 | 1,424 | 71.6 | 6.9 | 64 |
-| llama.cpp | 142.9 | 8,409 | 12.1 | 7.0 | 67 |
-| realizr | 138.6 | 2,198 | 46.4 | 7.2 | 63 |
+| realizr | 138.3 | 1,608 | 14.3 | 7.2 | 252 |
 
-**Decode: 4-way near-parity.** vLLM leads at 159.7, realizr at 138.6 = **0.87x**.
-realizr vs llama.cpp = **0.97x** (within noise).
-Prefill: llama.cpp 8,409 (fused Q4K GEMM) > vLLM 7,849 > realizr 2,198 (HGEMM FP16).
-TTFT: realizr 46.4ms — prompt-length dependent (2,198 prefill tok/s = 0.46ms/tok).
+**Decode: 4-way near-parity.** vLLM leads at 159.7, realizr at 138.3 = **0.87x**.
+realizr vs llama.cpp = **0.96x** (within noise).
+**TTFT (short): 1.31x** (14.3ms vs 10.9ms) — FP8 prefill (1 B/elem) vs Q4K (0.56 B/elem).
+PMAT-086: cuBLASLt descriptor caching + non-blocking batch drain (−1.2ms queue overhead).
+
+**Medium prompt (102 tokens):**
+
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
+|---------|-------------|--------------|---------------|-------------|----------|
+| llama.cpp | 143.9 | 9,545 | **10.7** | 6.9 | 268 |
+| realizr | 138.1 | 4,442 | 23.0 | 7.2 | 243 |
+
+**TTFT (medium): 2.15x** (23.0ms vs 10.7ms) — BW gap scales with prompt length.
+FP8 reads 1310 MB vs Q4K 736 MB per prefill; 102-token M=102 amortizes launch overhead,
+exposing the 1.78x raw BW ratio. Remaining 0.37x from absmax+convert pipeline overhead.
 
 ### RTX 4090 (128 SMs, sm_89)
 
@@ -98,12 +111,13 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 | +HGEMM prefill + graph | 32.7 | 266.3 | — | Mar 7 |
 | +Flash Decode chunk=32 | **36.3** | **411.7** | — | Mar 8 |
 | +PMAT-044 PTX parity | — | — | **140.3** | Mar 8 |
+| +PMAT-085 FP8+batch0 | — | — | 139.0 (TTFT: 46→15.5ms) | Mar 11 |
 
-### Cross-Platform Decode Summary (c=1, isolated)
+### Cross-Platform Decode Summary (c=1, isolated, streaming)
 
 | Platform | vLLM | realizr | llama.cpp | ollama |
 |----------|------|---------|-----------|--------|
-| **RTX 4060 Laptop** (24 SMs) | **159.7** | 138.6 | 142.9 | 145.4 |
+| **RTX 4060 Laptop** (24 SMs) | **159.7** | 139.0 | 144.2 | 145.4 |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs) | — | **36.3** | 33.1 | — |
 
@@ -117,20 +131,20 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 
 Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
 
-## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — 2026-03-10 (PMAT-062)
+## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — 2026-03-11 (PMAT-085)
 
-### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM)
+### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1500MHz, short prompt)
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
 |---------|----------------|-------------|---------------|-------------|----------|
 | **vLLM** | **604.7** | **154.5** | 24.8 | **6.5** | 284 |
-| llama.cpp | 296.5 | 74.4 | **22.7** | 13.4 | 140 |
-| realizr | 197.5 | 52.2 | 128.5 | 19.2 | 96 |
+| llama.cpp | 294.5 | 75.0 | **21.6** | 13.3 | 556 |
+| realizr (window=5) | 232.3 | 61.3 | 41.7 | 16.3 | 440 |
 | ollama | 143.8 | 144.6 | 2,678 | 6.9 | 71 |
 
-**vLLM dominates c=4** via continuous batching + PagedAttention (3.1x over realizr).
-llama.cpp 1.5x over realizr (4-slot parallel vs RwLock serialization).
-realizr: 197.5 aggregate (+9.2% from PMAT-062 DP4A GEMV default, disabling HGEMM batched decode).
+**vLLM dominates c=4** via continuous batching + PagedAttention (2.6x over realizr).
+llama.cpp 1.27x over realizr aggregate (4-slot parallel vs RwLock serialization).
+realizr c=4: 232.3 aggregate (+17.6% from PMAT-082/083 FP8 JIT + first token extraction).
 Ollama: no continuous batching — TTFT 2.7s (serial prefill), aggregate flat vs c=1.
 
 ### Jetson Orin Nano Super (8 SMs, sm_87, locked clocks)
