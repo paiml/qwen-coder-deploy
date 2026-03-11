@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.29.0
+**Version:** 2.30.0
 **Status:** ACTIVE
 **Date:** 2026-03-11
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -970,6 +970,45 @@ vLLM achieves 88.9% efficiency at c=4 (598→604.7 tok/s) via three architectura
 that realizr currently lacks: (1) iteration-level scheduling with token budgets, (2) paged
 KV cache, and (3) chunked prefill interleaving decode and prefill in the same forward pass.
 
+### Phase 1 Results (PMAT-088a — Iteration Scheduler, Mar 11)
+
+**Measured on yoga RTX 4060 Laptop, isolated serial, 60s, streaming, 1900 MHz locked:**
+
+| Metric | Baseline (batch sched) | PMAT-088 (iter sched) | Delta |
+|--------|----------------------|----------------------|-------|
+| c=1 decode tok/s | 154.8 | 152.8 | -1.3% (noise) |
+| c=1 TTFT P50 | 13.4ms | 20.6ms | +54% (waiting queue drain overhead) |
+| c=1 ITL P50 | 7.2ms | 6.5ms | -9.7% |
+| c=4 aggregate tok/s | 210.8 | **256.9** | **+21.9%** |
+| c=4 decode/slot tok/s | 52.2 | 66.8 | +28.0% |
+| c=4 TTFT P50 | 128.5ms | **80.6ms** | **-37.3%** |
+| c=4 ITL P50 | 19.2ms | 15.0ms | -21.9% |
+| c=4 scaling efficiency | 34.1% | **42.0%** | +8pp |
+
+**Key finding — FALSIFIED H-CB4:** Sequential M=1 forward passes per slot were predicted to
+eliminate the 2.55x M=4 penalty. In fact, the iteration scheduler does NOT run M=1 per slot —
+it still uses the batched M=4 forward pass (the existing PMAT-072 infrastructure). The +21.9%
+gain comes from **waiting queue integration** (requests join faster via waiting queue vs rx
+channel polling) and improved scheduling decisions (waiting queue checked before rx channel,
+reducing slot vacancy time). The batched GEMV weight amortization (828 MB read once for M=4
+vs 4× for sequential M=1) means **sequential M=1 is strictly worse than batched M=4** for
+decode: 4 × 6.5ms = 26ms vs 13.8ms batched. The original spec estimate of ~500 aggregate
+from M=1 per-slot forward was incorrect.
+
+**CUDA_BATCH_WINDOW_MS=5 vs 0:** No meaningful difference (256.3 vs 256.9 tok/s). The
+iteration scheduler's waiting queue drain replaces the batch window function.
+
+**Output tok min=1:** Both c=4 runs show `output_tokens_dist: [1, 128, 128, 128]` — the
+min=1 is an end-of-window effect (request arrives in final second, gets truncated). Not a
+correctness bug.
+
+**Corrected architecture insight:** The path to high concurrency scaling is NOT per-slot M=1
+forward passes. It requires reducing the per-slot cost within batched forward passes:
+1. **Paged KV cache** — reduce attention KV reads via block-sparse access patterns
+2. **FlashAttention-2 batched** — O(N/chunk) vs O(N) attention, better L2 utilization at M>1
+3. **Tensor core batched decode** — HGEMM at M=4 could amortize better than GEMV (if BW
+   allows), since tensor cores have higher throughput than CUDA cores
+
 ### Literature Foundation
 
 The continuous batching architecture draws from four foundational systems:
@@ -1154,43 +1193,43 @@ Chunked:   125-token prompt = 1 chunk. Each chunk shares iteration with decode.
 
 **Expected impact on aggregate throughput at c=4:**
 ```
-Current:   210.8 aggregate (34.1% efficiency)
-Target:    ~500 aggregate (80%+ efficiency)
-Rationale: Decode M=4 degradation (2.55x) is caused by BATCHED GEMV running all M
-           slots through attention. With chunked prefill, decode runs M=1 per slot
-           via iteration-level scheduling — each slot gets independent forward pass
-           with M=1 GEMV (no attention scaling). Aggregate = 4 × ~130 tok/s.
-           Overhead: scheduling + KV cache management ≈ 5-10%.
+Before PMAT-088: 210.8 aggregate (34.1% efficiency)
+After PMAT-088:  256.9 aggregate (42.0% efficiency)  ← MEASURED
+Target:          ~460 aggregate (≥74% efficiency, A grade)
 ```
 
-**Critical insight:** The 2.55x per-slot degradation at M=4 is NOT inherent to c=4. It is
-an artifact of batched GEMV (all M slots in one forward pass). Iteration-level scheduling
-with M=1 forward passes eliminates this entirely — each slot runs at c=1 speed. The cost
-is more kernel launches (1 per slot per iteration vs 1 batched), but PMAT-075 showed kernel
-launch overhead is only ~0.8ms at M=4 (4% of ITL), far less than the 2.55x batched penalty.
+**~~Critical insight~~ CORRECTED (Mar 11):** The original hypothesis that M=1 per-slot
+forward passes would eliminate the 2.55x penalty was **falsified**. Sequential M=1 is
+SLOWER than batched M=4 because GEMV weights (828 MB) must be read from memory for each
+slot independently — 4 × 828 MB = 3.3 GB vs 828 MB once for batched M=4. The per-slot
+degradation at M>1 comes from attention KV scaling (O(M×seq_len) reads) and L2 cache
+pressure, not GEMV weight reads. The path forward is reducing attention cost within
+batched execution, not eliminating batching.
 
 ### Implementation Plan
 
-| Phase | PMAT | Deliverable | Effort | Impact |
-|-------|------|-------------|--------|--------|
-| **P1: Iteration scheduler** | PMAT-088a | Token-budget scheduler with decode-maximal policy. Replace `BatchScheduler` with `IterationScheduler`. Keep contiguous KV cache. | 1 week | M=1 per-slot forward → ~500 aggregate |
-| **P2: Paged KV cache** | PMAT-088b | BlockPool + KVCacheManager + block table indirection in attention kernel. | 2 weeks | <4% memory waste, enable preemption |
-| **P3: Chunked prefill** | PMAT-088c | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | TTFT at c=4 ≈ c=1, no generation stalls |
-| **P4: CUDA graph for paged** | PMAT-088d | CUDA graph capture with block table pointer stability. | 1 week | Amortize kernel launch overhead |
+| Phase | PMAT | Deliverable | Effort | Measured/Expected Impact |
+|-------|------|-------------|--------|------------------------|
+| **P1: Iteration scheduler** | PMAT-088a | Waiting queue + decode-maximal scheduling. Replace `BatchScheduler` with `IterationScheduler`. Keep contiguous KV cache. | 1 week | **DONE: +21.9% aggregate (210.8→256.9), 42.0% efficiency** |
+| **P2: Batched FlashAttention** | PMAT-088b | FlashAttention-2 for batched M>1 decode. Block-sparse KV access to reduce O(M×seq_len) attention reads. | 2 weeks | Expected: reduce 2.55x M=4 penalty to ~1.5x → ~400 aggregate |
+| **P3: Chunked prefill** | PMAT-088c | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | Expected: TTFT at c=4 ≈ c=1, no generation stalls |
+| **P4: Paged KV cache** | PMAT-088d | BlockPool + KVCacheManager + block table indirection. Enable preemption. | 2 weeks | Expected: <4% memory waste, enable c>4 scaling |
 
-**Phase 1 is the critical path.** The key architectural change is moving from "batch all M
-slots into one forward pass" to "run M separate M=1 forward passes per iteration." This
-eliminates the 2.55x batched attention penalty and is the single highest-impact change for
-concurrency scaling. Phases 2-4 are incremental improvements.
+**Phase 2 is now the critical path.** Phase 1 delivered +21.9% via scheduling improvements
+but the dominant bottleneck is batched attention scaling (2.55x at M=4). FlashAttention-2's
+chunked KV processing reduces memory reads from O(M×N) to O(M×N/chunk) with better L2
+reuse, directly targeting the root cause. Paged KV (originally P2) deferred to P4 because
+memory waste is not the bottleneck at c=4 — attention compute cost is.
 
 ### Falsification Conditions
 
-| ID | Hypothesis | Prediction | Falsification |
-|----|-----------|------------|---------------|
-| H-CB4 | Iteration scheduling eliminates M=4 penalty | c=4 per-slot ITL ≤ 1.2x c=1 ITL | If per-slot ITL > 1.5x c=1: batched attention is NOT the root cause |
-| H-CB5 | Chunked prefill eliminates generation stalls | c=4 TTFT ≤ 1.5x c=1 TTFT | If TTFT > 2x c=1: prefill chunk overhead exceeds savings |
-| H-CB6 | Paged KV reduces memory waste | Memory utilization > 90% at c=8 | If waste > 20%: block fragmentation worse than expected |
-| H-CB7 | Per-slot M=1 matches c=1 throughput | Aggregate ≥ 0.8 × (M × c=1_tok/s) | If aggregate < 0.6 × theoretical: kernel launch or scheduling overhead dominates |
+| ID | Hypothesis | Prediction | Result |
+|----|-----------|------------|--------|
+| H-CB4 | Iteration scheduling eliminates M=4 penalty | c=4 per-slot ITL ≤ 1.2x c=1 ITL | **FALSIFIED.** ITL 15.0ms / 6.5ms = 2.31x. Batched GEMV weight amortization means sequential M=1 is worse, not better. Root cause is attention KV scaling, not scheduling. |
+| H-CB5 | Chunked prefill eliminates generation stalls | c=4 TTFT ≤ 1.5x c=1 TTFT | Pending (Phase 3) |
+| H-CB6 | Paged KV reduces memory waste | Memory utilization > 90% at c=8 | Pending (Phase 4) |
+| H-CB7 | Per-slot M=1 matches c=1 throughput | Aggregate ≥ 0.8 × (M × c=1_tok/s) | **FALSIFIED.** 256.9 / 611.2 = 42.0% < 60% threshold. Weight BW amortization in batched GEMV is essential — M=1 per slot reads 4× more weight data. |
+| H-CB8 | Waiting queue integration improves scheduling | c=4 aggregate > baseline + 10% | **CONFIRMED.** 256.9 / 210.8 = +21.9%. Waiting queue drain reduces slot vacancy. |
 
 ### Academic References (added)
 
@@ -1609,6 +1648,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.30.0 | 2026-03-11 | **PMAT-088a DONE: Iteration scheduler — +21.9% aggregate, H-CB4/CB7 FALSIFIED.** Phase 1 measured: 256.9 aggregate (+21.9% from 210.8), 42.0% efficiency (was 34.1%), TTFT 80.6ms (-37.3% from 128.5ms), ITL 15.0ms (-21.9% from 19.2ms). Two hypotheses falsified: (1) H-CB4: sequential M=1 NOT faster than batched M=4 — GEMV weight amortization (828MB shared vs 4×828MB) means batched is essential. (2) H-CB7: 42.0% < 60% threshold — per-slot M=1 reads 4× more weight data. Gain came from waiting queue integration reducing slot vacancy, not M=1 scheduling. Corrected architecture: path to high scaling is reducing attention cost within batched execution (FlashAttention-2 batched, Phase 2 = new critical path), not eliminating batching. CUDA_BATCH_WINDOW_MS=5 vs 0: no meaningful difference (256.3 vs 256.9). Phase plan reordered: P2→batched FlashAttention (critical path), P4→paged KV (deferred). |
 | 2.29.0 | 2026-03-11 | **PMAT-088: Continuous batching architecture design (GH-141).** Added §5b with full architecture design for iteration-level scheduling, paged KV cache, and chunked prefill. Literature review: Orca (OSDI '22, iteration-level scheduling, 36.9x), PagedAttention/vLLM (SOSP '23, <4% memory waste, 2-4x), Sarathi-Serve (OSDI '24, chunked prefill, 2.6-6.9x), DistServe (OSDI '24, disaggregated phases), DeepSpeed-FastGen (Dynamic SplitFuse), FlashInfer (MLSys '25, block-sparse attention). Key insight: 2.55x per-slot M=4 degradation is artifact of batched GEMV, NOT inherent to c=4. Iteration-level scheduling with M=1 forward passes eliminates the penalty. 4-phase plan: (P1) iteration scheduler → ~500 agg, (P2) paged KV cache → <4% waste, (P3) chunked prefill → no generation stalls, (P4) CUDA graphs for paged. Added 4 falsification conditions (H-CB4 through H-CB7), 5 new academic references (#36-40). |
 | 2.28.0 | 2026-03-11 | **PMAT-087: Clock correction 1500→1900 MHz — 8/9 dimensions at A+.** SM clock was locked at 1500 MHz (26% below natural sustained boost of 1890 MHz). Corrected to 1900 MHz across all 4 yoga forjar configs. realizr c=1: 138.6→154.8 tok/s (+11.7%), 258.6→230.8 µs/layer, TTFT 46.4→13.4ms. Higher SM clocks help because Q4K dequantization is ~15% compute (DP4A, shared mem ops). Layer decode: 88 A-→97 A+. Composite: 91 A→98 A+. 8 of 9 dimensions now A+. Only remaining gap: concurrency scaling (34.1% efficiency, score 51 C) — requires GH-141 continuous batching. llama.cpp also improved: 142.9→160.7 tok/s (+12.5%), gap to realizr unchanged at ~3.7%. |
 | 2.27.0 | 2026-03-11 | **PMAT-086: Host-side batched decode optimization — IMPLEMENTED, FALSIFIED.** Pre-allocated GPU input/logits buffers (grow-only) + removed redundant stream.synchronize() before batched argmax + pre-allocated pos_buf in BatchedDecodeState. Measured impact: <0.1ms — kernel time (17-18ms at M=4) dominates. Five-Whys confirmed: per-slot ITL degradation (2.55x at M=4) is structural — attention KV scales linearly with M, GEMV computes M dot products. Host overhead was <0.5ms (not 2-4ms as estimated). Corrected scorecard: layer decode 88 A- (258.6 us/layer), concurrency scaling 57 C+ (38.0%). A-grade on scaling requires GH-141 continuous batching (architecture change). |

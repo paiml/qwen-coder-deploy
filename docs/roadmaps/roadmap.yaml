@@ -696,11 +696,11 @@ roadmap:
   - 'AC3: PASS — No regression at c=1 (139.1 tok/s >= 138)'
   phases:
   - name: Test existing BATCHED_GRAPH=1 to measure current graph vs eager ITL delta
-    status: done
+    status: completed
     estimated_effort: null
     completion: 100
   - name: Fix graph capture issues (workspace address stability, re-capture on M change)
-    status: done
+    status: completed
     estimated_effort: null
     completion: 100
   - name: Make BATCHED_GRAPH=1 the default for batched decode
@@ -815,7 +815,7 @@ roadmap:
   - batched-decode
   - attention
   - optimization
-  notes: 'Added batched_done_mask field to CudaExecutor. Set from BatchedDecodeState.done before forward pass. All three attention paths (batched, flash, graph) zero seq_lens for done slots. Attention kernel early-exits with zero KV iterations.'
+  notes: Added batched_done_mask field to CudaExecutor. Set from BatchedDecodeState.done before forward pass. All three attention paths (batched, flash, graph) zero seq_lens for done slots. Attention kernel early-exits with zero KV iterations.
 - id: PMAT-080
   github_issue: null
   item_type: task
@@ -838,4 +838,20 @@ roadmap:
   - probador
   - benchmark
   - heterogeneous
-  notes: 'Added --max-tokens and --max-tokens-distribution flags to probador llm load. Deterministic LCG for reproducible distributions. Enables measurement of continuous batching features (PMAT-074/076).'
+  notes: Added --max-tokens and --max-tokens-distribution flags to probador llm load. Deterministic LCG for reproducible distributions. Enables measurement of continuous batching features (PMAT-074/076).
+- id: PMAT-088
+  github_issue: null
+  item_type: task
+  title: 'New task: PMAT-088'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-03-11T20:19:40.439769462+00:00
+  updated: 2026-03-11T20:19:40.439769462+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
