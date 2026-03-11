@@ -42,7 +42,7 @@ resources:
   lock-clocks:
     type: task
     machine: yoga
-    command: "sudo nvidia-smi -lgc 1500,1500 2>/dev/null || true"
+    command: "sudo nvidia-smi -lgc 1900,1900 2>/dev/null || true"
     completion_check: "nvidia-smi --query-gpu=clocks.current.graphics --format=csv,noheader 2>/dev/null | grep -q '[0-9]'"
     depends_on: [stop-ollama, stop-llamacpp, stop-apr, ufw-bench-ports]
 
