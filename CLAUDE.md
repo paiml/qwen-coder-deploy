@@ -57,6 +57,13 @@ make teardown          # Stop services
 
 # Reports
 make report            # Generate performance.md + update README
+
+# Scoring (probador llm score)
+make score             # Yoga c=1 + c=4 scorecard (table)
+make score-jetson      # Jetson scorecards
+make score-json        # JSON scorecards to results/
+make score-all         # All platforms, all concurrency levels
+make score-gate        # CI gate: fail if any runtime below C
 ```
 
 ## Model Formats
@@ -94,6 +101,8 @@ Load tests via `probador llm load` with configurable concurrency and duration.
 - `forjar.yaml` — CPU deployment configuration (intel host)
 - `prompts/correctness.yaml` — Correctness test suite
 - `contracts/gpu-performance-spec.md` — Performance specification (v2.15.0)
+- `contracts/scoring.yaml` — Quantitative scoring contract v2.0.0 (weights, thresholds, grades)
+- `contracts/probador-llm-score-v1.yaml` — Scoring CLI spec + falsification tests
 - `performance.md` — Historical performance data (auto-updated)
-- `results/` — JSON result files (git-tracked)
-- `scripts/nightly.sh` — Automated benchmark pipeline (cpu|gpu|both)
+- `results/` — JSON result files + scorecards (git-tracked)
+- `scripts/nightly.sh` — Automated benchmark + scoring pipeline (cpu|gpu|both)

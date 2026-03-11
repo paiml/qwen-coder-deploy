@@ -74,6 +74,16 @@ probador llm report \
     --output performance.md \
     --update-readme README.md
 
+echo "--- Computing scores ---"
+probador llm score \
+    --results results/ \
+    --format table
+
+probador llm score \
+    --results results/ \
+    --format json \
+    --output "results/scorecard-${DATE}.json"
+
 echo "--- Committing results ---"
 git add results/ performance.md README.md
 git commit -m "bench: $(date +%Y-%m-%d) $MODE benchmark results" || echo "No changes to commit"
