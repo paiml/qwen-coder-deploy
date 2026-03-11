@@ -74,7 +74,7 @@ resources:
   llamacpp-gpu:
     type: task
     machine: yoga
-    command: "nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --flash-attn on --ctx-size 4096 --threads 4 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
+    command: "nohup /home/noah/src/llama.cpp/build/bin/llama-server --model {{params.gguf_model}} --host 0.0.0.0 --port 8083 --n-gpu-layers 99 --flash-attn on --ctx-size 4096 --threads 4 --parallel 8 > /tmp/llamacpp-gpu.log 2>&1 & sleep 5; curl -sf http://127.0.0.1:8083/health >/dev/null"
     completion_check: "curl -sf http://127.0.0.1:8083/health >/dev/null 2>&1"
     depends_on: [llamacpp-build, lock-clocks]
 

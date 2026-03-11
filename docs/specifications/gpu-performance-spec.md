@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.34.0
+**Version:** 2.35.0
 **Status:** ACTIVE
 **Date:** 2026-03-11
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1062,9 +1062,36 @@ Theoretical ceiling per M: `M / (2.56 + M × 2.425 + 0.8)` ms/step, where 2.56ms
 (amortized), 2.425ms = DP4A compute per token, 0.8ms = kernel launch overhead. Efficiency
 improves with larger M because BW and launch costs amortize.
 
-**To exceed 412 tok/s** (the DP4A ceiling) requires W4A16 tensor core GEMM: read Q4K weights
-(0.5625 B/elem) and dequantize to FP16 for tensor core matmul. This is what vLLM AWQ achieves
-(604.7 at c=4). The matmul kernel architecture — not scheduling — is the binding constraint.
+**Comparative analysis (Mar 11) — llama.cpp uses DP4A too, but faster:**
+
+llama.cpp also uses DP4A Q4K GEMV for batched decode (M≤8, confirmed via source analysis of
+`mmvq.cuh` MMVQ_MAX_BATCH_SIZE=8). Both runtimes use the same kernel architecture. The gap
+is per-kernel efficiency and scheduling overhead:
+
+| | realizr | llama.cpp | Gap | Source |
+|--|---------|-----------|-----|--------|
+| c=1 decode | 151.6 | 159.8 | 0.95x | Kernel efficiency |
+| c=4 aggregate | 234.0 | **353.0** | **0.66x** | Kernel + scheduling |
+| c=4 ITL | 15.1ms | 11.3ms | 1.34x | Per-step compute |
+| c=4 TTFT | 82.1ms | 18.6ms | 4.4x | Prefill overhead |
+| c=8 aggregate | 306.5 | **414.1** | **0.74x** | Kernel + scheduling |
+| c=8 ITL | 21.9ms | 19.3ms | 1.13x | Per-step compute |
+
+**Two sources of c=4 gap (0.66x):**
+1. **Per-step compute (1.34x)**: llama.cpp's MMVQ DP4A kernel is ~25% faster per token
+   (compute/token: 1.94ms vs 2.43ms). Also: llama.cpp uses CUDA graphs (`USE_GRAPHS=1`)
+   and flash attention, reducing launch overhead.
+2. **Scheduling overhead (14% vs 5%)**: realizr prefills sequentially (82ms TTFT × 4 slots =
+   328ms/round stall). llama.cpp interleaves prefill+decode (18.6ms TTFT × 4 = 74ms/round).
+   Sarathi-Serve chunked prefill would reduce our 14% overhead to ~5%.
+
+**Revised Phase 2-3 priorities:**
+- Phase 2a: CUDA graph for M>1 → save 0.8ms/step (15.1→14.3ms)
+- Phase 2b: Kernel optimization (trueno GEMV) → reduce compute/token from 2.43ms toward 1.94ms
+- Phase 3: Chunked prefill → reduce scheduling overhead from 14% to ~5%
+
+**Note:** vLLM AWQ (604.7 at c=4) uses INT4→FP16 dequant + tensor core GEMM — fundamentally
+different from DP4A GEMV. That's a different kernel architecture with 2x less compute per token.
 
 ### Literature Foundation
 
@@ -1268,14 +1295,23 @@ from **GEMV compute scaling**, NOT attention KV reads. Profiling confirmed:
 - M=4 decode step: ~13.3ms = 2.56ms BW + 9.7ms compute + 1ms launch overhead
 - Ratio: 2.66x per step (DP4A becomes compute-bound at M>1)
 
-**Corrected path forward:** The batched Q4K GEMV reads weights ONCE for all M vectors but
-runs M× independent DP4A accumulation chains. At M=4, the kernel transitions from
-memory-bound to compute-bound. Two optimization paths:
-(a) **HGEMM crossover**: tensor cores have ~8x compute throughput vs CUDA INT32, but FP16
-    weights cost 3.5x more BW (9.1ms vs 2.6ms). At M=4, HGEMM's lower compute time may
-    beat Q4K's lower BW — need to re-test with fused gate+up enabled (PMAT-062 confound).
-(b) **CUDA graph for M>1**: Currently M=4 uses eager path (196 launches × ~5µs = 1ms
-    overhead). Fixing async H2D copies would enable graphed M=4 → save ~1ms per step.
+**Corrected path forward (PMAT-088b, updated Mar 11):** The batched Q4K GEMV reads weights
+ONCE for all M vectors but runs M× independent DP4A accumulation chains. At M=4, the kernel
+transitions from memory-bound to compute-bound.
+
+**HGEMM crossover FALSIFIED (H-CB9):** Three variants tested — none beat DP4A. FP16's 3.5×
+BW penalty not compensated by tensor cores at M=4..8 on RTX 4060L.
+
+**llama.cpp comparative analysis:** llama.cpp also uses DP4A Q4K GEMV (MMVQ at M≤8), but
+achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
+(a) **CUDA graphs** (USE_GRAPHS=1): llama.cpp replays a single graph; we launch 196 kernels
+    eagerly (~0.8ms overhead). Fixing async H2D copies enables graphed M>1.
+(b) **Kernel efficiency**: llama.cpp MMVQ compute/token ~1.94ms vs our 2.43ms (~25% faster).
+    Their GEMV is more heavily optimized (years of community work). Closing this requires
+    trueno GEMV kernel optimization.
+(c) **Prefill interleaving**: llama.cpp processes prefill with minimal decode stall (TTFT
+    18.6ms at c=4). Our sequential prefill stalls decode for 82ms per slot (328ms/round
+    at c=4 = 14% overhead vs llama.cpp's 5%). Chunked prefill fixes this.
 
 ### Implementation Plan
 
@@ -1724,6 +1760,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.35.0 | 2026-03-11 | **PMAT-088b comparative analysis: llama.cpp also uses DP4A but 34% faster per-step.** First proper comparative benchmark with llama.cpp --parallel 8. llama.cpp c=4: 353.0 aggregate (11.3ms ITL), c=8: 414.1 (19.3ms ITL). Two sources of gap: (1) Per-step compute 1.34× slower (compute/token 2.43ms vs 1.94ms, kernel efficiency + no CUDA graphs). (2) Scheduling overhead 14% vs 5% (sequential prefill 82ms/slot vs llama.cpp 18.6ms). HGEMM crossover FALSIFIED (H-CB9) — both runtimes use DP4A at M≤8, gap is kernel efficiency not architecture. Revised Phase 2: (a) CUDA graph for M>1 (~0.8ms/step), (b) trueno GEMV optimization, (c) chunked prefill (reduce 14%→5% scheduling overhead). |
 | 2.34.0 | 2026-03-11 | **PMAT-088b scaling analysis: DP4A aggregate ceiling = 412 tok/s.** First c=8 benchmarks with iteration scheduler (max_slots=8): 306.5 aggregate (2.02x c=1), 87% of theoretical ceiling, 21.9ms ITL. Theoretical model: `M / (2.56 + M×2.425 + 0.8)` tok/s — compute per token (2.425ms DP4A) is the binding constraint. The 3.0x c=4 target (455 tok/s) exceeds the DP4A ceiling (306 at M=4, 412 at M→∞). Reaching 3x requires W4A16 tensor core GEMM (like vLLM AWQ: Q4 storage + FP16 compute). c=16 with max_slots=16 hits CUDA_ERROR_ILLEGAL_ADDRESS during prefill (KV cache reuse bug — separate ticket). Updated forjar-yoga-realizr.yaml with ITERATION_SCHEDULER=1, CUDA_MAX_BATCH=8. |
 | 2.33.0 | 2026-03-11 | **PMAT-088b H-CB9 FALSIFIED: HGEMM crossover does NOT beat DP4A at M=4.** Three variants tested at 1900 MHz on RTX 4060L: (1) Full HGEMM: 256.0 aggregate, 13.6ms ITL (−2.1%). (2) Hybrid (fused QKV/gate+up DP4A + HGEMM output/down): 260.5 aggregate, 13.7ms ITL (−0.4%). (3) Baseline DP4A: 261.5 aggregate, 13.4ms ITL. FP16 weights (2 B/elem, 2944 MB) cost 3.5× more BW than Q4K (0.5625 B/elem, 850 MB) — tensor core compute savings do not compensate. PMAT-062 confound resolved: re-enabling fused gate+up does not change conclusion. Phase 2 redesigned: HGEMM dropped, remaining intervention is CUDA graph for M>1 (~1ms launch savings). Phase 3 (chunked prefill) elevated to higher priority. Infrastructure preserved: FP16 cache warmup code env-gated (`HGEMM_BATCHED_DECODE=1`) for future experimentation. |
 | 2.32.0 | 2026-03-11 | **PMAT-088b root cause corrected: M=4 penalty is GEMV compute (DP4A chains), NOT attention KV reads.** Profiled M=4 decode step (13.3ms): 2.56ms BW + 9.7ms compute + 1ms launches. Attention KV reads are 14 MB = 2.8% of weight BW (491 MB) — FlashAttention-2 would yield <3% improvement. Root cause: batched Q4K GEMV reads weights once for M=4 but runs 4× independent DP4A accumulation chains, transitioning from memory-bound (M=1) to compute-bound (M=4). Phase 2 redesigned: (a) HGEMM crossover at M>1 (tensor cores vs DP4A), (b) CUDA graph for M>1 (save 1ms launch overhead). FlashAttention-2 deferred — wrong bottleneck. Added H-CB9 (HGEMM crossover hypothesis) and H-CB10 (attention fraction, CONFIRMED at 2.8%). |

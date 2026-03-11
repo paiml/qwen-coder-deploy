@@ -1,0 +1,27 @@
+Load testing http://192.168.50.38:8083 (concurrency=8, duration=60s, warmup=5s, runtime=unknown)
+Health check passed
+
+--- Load Test Results ---
+Runtime:      unknown
+Requests:     208 (200 ok, 8 failed)
+Throughput:   3.2 req/s
+Latency P50:  2474.1 ms
+Latency P95:  2483.8 ms
+Latency P99:  2485.8 ms
+TTFT P50:     25.8 ms
+Tokens/sec:   414.1
+Avg tok/req:  128.0
+Prefill tok/s:3959.7
+Decode tok/s: 51.9
+ITL P50:      19.3 ms
+TPOT P50:     19.3 ms
+Error rate:   3.8%
+Output tok:   [128, 128, 128, 128] (min/p50/p90/max)
+
+--- Tail Latency Analysis ---
+ITL P99.9:    19.4 ms  (tail ratio: 1.0x)
+TTFT P99.9:   37.5 ms  (tail ratio: 1.4x)
+Lat P99.9:    2486.4 ms  (tail ratio: 1.0x)
+ITL CV:       0.00
+Warning: Latency drift detected (ITL slope: 0.29 ms/min)
+Warning: 100% of responses truncated by max_tokens — increase max_tokens or use longer prompts
