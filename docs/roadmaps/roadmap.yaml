@@ -1064,3 +1064,32 @@ roadmap:
     Root cause: Multi-prompt batched prefill (20ms for M=4) is cheaper than
     3 sequential mid-batch joins (~14ms each). Iteration scheduler creates
     variable-M transitions during ramp-up, preventing consistent FP8 dispatch.
+- id: PMAT-095
+  github_issue: null
+  item_type: task
+  title: 'PMAT-095: Adaptive batch window — zero c=1 TTFT, auto-batching c>1'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T21:00:00Z
+  updated: 2026-03-12T21:30:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=1 TTFT no regression — CONFIRMED: 14.4ms (baseline 14.0ms)'
+  - 'AC2: c=4 aggregate improves over non-adaptive — CONFIRMED: 246.9 (+4% vs 237.5)'
+  phases:
+  - name: 'Phase 1: Implement adaptive window (try_recv + 3ms wait for peers)'
+    status: completed
+  - name: 'Phase 2: Benchmark c=1, c=4, c=8'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - batching
+  - adaptive
+  - latency
+  notes: |
+    Two-phase drain: try_recv (zero-latency) + conditional 3ms wait when peers found.
+    c=1: 14.4ms TTFT (0ms penalty). c=4: 246.9 aggregate (+4%).
+    c=8: 418.3 aggregate (94% of fixed 5ms window).
+    Forjar updated: removed ITERATION_SCHEDULER=1.
