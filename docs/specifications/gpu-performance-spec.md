@@ -456,7 +456,7 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **Root cause:** Architectural — DP4A Q4K GEMV becomes compute-bound at M>1, while vLLM's Marlin W4A16 stays memory-bound. The 2.8x gap is primarily kernel architecture, not scheduling (realizr's iteration scheduler + recycling are now functional).
 
-**Fix path:** W4A16 tensor core GEMM kernel (PMAT-054B) is the only approach that breaks the DP4A ceiling. All scheduling improvements (PMAT-072→088) are complete and yielded 257.4 tok/s (84% of DP4A ceiling).
+**Fix path:** ~~W4A16 tensor core GEMM kernel (PMAT-054B) is the only approach that breaks the DP4A ceiling.~~ **PMAT-054B FALSIFIED** (see below). All scheduling improvements (PMAT-072→088) are complete and yielded 257.4 tok/s (84% of DP4A ceiling).
 
 **Trajectory (actual, PMAT-072→097 all DONE):**
 ```
@@ -467,11 +467,31 @@ Pre-CB:         197.5 aggregate tok/s (0.33x vLLM)
 + PMAT-088a:    232.7 (iteration scheduler — +10.4%) ✓
 + PMAT-088c/d:  257.4 (batch recycling + multi-prompt — 84% of DP4A ceiling) ✓
 + PMAT-097:     259.7 (adaptive batch wait — tail latency fix, +1%) ✓
++ PMAT-054B:    162.1 ✗ FALSIFIED (W4A16 WMMA 1.78x slower than DP4A at M=4)
 DP4A ceiling:   306 tok/s (M=4, compute-bound)
 vLLM AWQ:       598.0 (W4A16 tensor core GEMM, fundamentally different arch)
 ```
 
-**All scheduling improvements exhausted.** Reaching vLLM-class aggregate requires W4A16 tensor core GEMM (Marlin-style kernel, PMAT-054B) — the DP4A ceiling is structural.
+**PMAT-054B FALSIFIED: W4A16 WMMA is 1.78x SLOWER than DP4A at M=4.**
+Pre-computed FP16 scales (CPU-side `eff_scale = d * scale_int`) eliminated GGML scale decoding
+on GPU (~20→5 insn/elem), cutting the gap from 3.5x (PMAT-091) to 1.78x. But WMMA 32×32
+output tiles waste 87.5% compute at M=4 (4 of 32 rows valid), plus barrier+SHMEM overhead.
+
+| Metric | DP4A baseline | W4A16 WMMA | Change |
+|--------|-------------|------------|--------|
+| c=4 aggregate | 259.7 | 162.1 | -37.5% |
+| Decode tok/s | 72.4 | 40.8 | -43.6% |
+| ITL P50 | 13.8ms | 24.5ms | +1.78x |
+
+**Why vLLM Marlin works but realizr WMMA doesn't:** vLLM uses PagedAttention + continuous batching
+that naturally accumulates M=32+ tokens in the GEMM even at low concurrency. Marlin's m16n8k16
+MMA + 4-stage pipeline + cp.async operates at high efficiency because M is always large enough.
+realizr's CUDA batch scheduler produces M=c (e.g., M=4 at c=4), too small for WMMA.
+
+**Remaining path to break DP4A ceiling:**
+- Chunked prefill (interleave prefill with decode) — reduces c=4 TTFT
+- EAGLE speculative decoding (PMAT-009) — 2-3x effective throughput
+- Higher concurrency (c>=8) where FP8 cuBLASLt already wins (PMAT-098 crossover)
 
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
@@ -1422,7 +1442,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-095 | Adaptive batch window | +4% c=4, 0ms c=1 TTFT | ✅ DONE (try_recv drain + 3ms adaptive wait for peers) |
 | PMAT-096 | M=1 FP32 Q4K GEMV (bypass Q8) | **FALSIFIED** (1.8x slower) | MWV 82.8 vs HwDp4a 148.5 — DP4A compute advantage dominates at M=1 |
 | PMAT-097 | Adaptive batch wait (recent_batch_gt1) | **TTFT P99.9: 1889→42.8ms** | ✅ DONE (44x tail reduction, zero c=1 overhead) |
-| **PMAT-054B** | **W4A16 Marlin-style GEMM** | **2-3x c=4 aggregate** | **Planned** |
+| **PMAT-054B** | **W4A16 WMMA pre-computed scales** | **FALSIFIED** (1.78x slower at M=4) | Pre-computed FP16 scales cut gap from 3.5x (PMAT-091) to 1.78x, but WMMA 32×32 tiles waste 87.5% compute at M=4. DP4A GEMV remains optimal for M<=8. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1800,6 +1820,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.55.0 | 2026-03-12 | **PMAT-054B FALSIFIED: W4A16 WMMA pre-computed scales 1.78x SLOWER than DP4A at M=4.** Hypothesis: pre-computing `eff_scale = d * scale_int` and `eff_min = dmin * min_int` as FP16 on CPU would close the WMMA gap (3.5x in PMAT-091) by reducing GPU dequant from ~20 to ~5 insn/elem. Implementation: trueno `repack_q4k_w4a16()` repacks Q4K super-blocks into 2560B tiles (256B eff_scale + 256B eff_min + 2048B interleaved qs). realizr dispatch: W4A16 WMMA for M=2-8 Q4K projections, FP8 for M>=5 fallback, DP4A GEMV for all other. **Result:** Gap reduced from 3.5x to 1.78x (validating format design) but still SLOWER — c=4: 162.1 aggregate (DP4A baseline 259.7, -37.5%), decode 40.8 vs 72.4 (-43.6%), ITL 24.5 vs 13.8ms (+1.78x). **Root cause:** WMMA 32×32 output tiles waste 87.5% compute at M=4 (only 4 of 32 rows valid) + barrier+SHMEM overhead. **Why vLLM Marlin works:** PagedAttention accumulates M=32+ tokens even at low concurrency — Marlin's m16n8k16 MMA operates at high M where tile efficiency is >90%. realizr's batch scheduler produces M=c=4, too small for WMMA. **Remaining paths:** chunked prefill, EAGLE speculative decoding (PMAT-009), higher concurrency (c>=8 where FP8 already wins per PMAT-098). Also fixed: M<=8 upper bound on W4A16 dispatch to prevent intercepting FP8 prefill (TTFT regression 14→168ms). Three realizr commits: d0b358a (trueno format+kernel), 5ee2462 (realizr wiring), ba2b481 (M<=8 guard). |
 | 2.54.0 | 2026-03-12 | **PMAT-098: Concurrency crossover analysis — realizr beats llama.cpp at c>=8.** Full 3-runtime comparison at c=1/4/5/6/7/8 (yoga 4060L, 1900MHz, 60s, streaming, short prompt). Fresh baselines: c=1 realizr 148.5 vs llama.cpp 161.7 (0.92x) vs vLLM 153.6. c=4: 259.7 vs 348.7 (0.74x) vs 594.8 (0.44x). **c=8: realizr 447.8 vs llama.cpp 414.3 (1.08x, WINS) vs vLLM 1150.6 (0.39x).** Crossover at c≈7.5. Mechanism: FP8 cuBLASLt tensor core GEMM at M>=5 (PMAT-093) scales throughput with M, while llama.cpp's Q4K GEMV hits compute ceiling at c=6-7 (~404 tok/s). Despite FP8 reading 1.78x more weight data than Q4K (1 vs 0.5625 B/elem), tensor core throughput dominates at M>=8. Key data: c=5 306.1 (0.80x), c=6 346.9 (0.86x), c=7 394.2 (0.97x), c=8 447.8 (1.08x). llama.cpp flat at c=6-7 (404 tok/s). **Implication:** realizr is positioned for production API workloads (c=8-32). The c=4 DP4A gap (0.74x) becomes irrelevant at production concurrency. Also confirmed: Q4K HwDp4a dequant already at 5.8 insn/value (2.1x better than llama.cpp's ~12 insn/value) via PMAT-029/033/039 — no kernel instruction optimization headroom remains. |
 | 2.53.0 | 2026-03-12 | **PMAT-097: Adaptive batch wait fixes c=4 TTFT P99.9 tail latency (1889→42.8ms, 44× improvement).** Problem: PMAT-095's Phase 2 adaptive wait only triggers when `batch.len() > 1`, so singleton batches at c>1 start immediately without giving concurrent requests time to arrive. Root cause: at c=4, batch cycle is ~3.9s. All 4 clients complete simultaneously, send new requests near-simultaneously. First request arrives, scheduler recv()s it. Phase 1 `yield_now() + try_recv()` may not catch peers (HTTP latency jitter). Phase 2 skipped (batch.len()==1, old PMAT-095). Starts m=1 batch (1732ms), blocking the channel. Other 3 requests queue for ~1.7s → TTFT P99.9 = 1889ms (45.7× tail ratio). **Fix:** Track `recent_batch_gt1` — when the previous batch had `m > 1`, even singleton batches wait 2ms for peers (Phase 2b). At true c=1, `recent_batch_gt1` stays false → no wait → zero overhead. At sustained c=4, the flag is true → singletons wait 2ms → catch all 4 peers → consistent m=4 batches. **Cold-start note:** First batch at c=4 transition (from c=1) is still m=1 because `recent_batch_gt1` is false. This affects TTFT P99.9 in cold-start benchmarks (1881ms) but not sustained traffic (42.8ms, 1.1× tail ratio). **Benchmarks (yoga 4060L, 1900MHz, 60s, isolated):** c=1: 148.5 decode, 14.0ms TTFT (zero regression). c=4 warm: 259.7 aggregate, 39.8ms TTFT P50, **42.8ms TTFT P99.9** (1.1× tail ratio). c=4 cold-start: 255.7 aggregate, 39.3ms TTFT P50, 1881.8ms P99.9 (one-time transition artifact). realizr commit 591f561. |
 | 2.52.0 | 2026-03-12 | **PMAT-096 FALSIFIED: M=1 FP32 Q4K GEMV (bypass Q8 quantization) is 1.8× SLOWER.** Hypothesis: At M=1 where GEMV is memory-bound (PMAT-029), Q8 activation quantization overhead (112 kernels/step) cancels DP4A compute benefit. Bypassing Q8 via FP32 MWV GEMV should improve c=1 decode. **Falsification:** MWV (FP32) = 82.8 tok/s vs HwDp4a = 148.5 tok/s (−44%). TTFT: 41.1ms (MWV) vs 13.8ms (HwDp4a). ITL: 12.1ms vs 6.7ms. **Root cause analysis:** M=1 Q4K GEMV is NOT purely memory-bound on RTX 4060L. Bandwidth floor (515MB weights / 192 GB/s = 2.68ms) vs actual decode (6.7ms HwDp4a, 12.1ms MWV) = 2.5× and 4.5× above floor respectively. DP4A's 4× int8 throughput keeps compute within the memory latency window; FP32 accumulation stalls waiting for memory, creating pipeline bubbles. Additionally, disabling HwDp4a loses fused gate+up+SwiGLU (requires Q4K HwDp4a), compounding the regression. **Key insight:** PMAT-029 "memory-bound" conclusion was about *within-kernel* instruction reduction (93 vs 108 insn/SB). Switching entire GEMV architecture (FP32 vs int8) changes the compute/memory balance — FP32 pushes the kernel partially compute-bound. The 4× instruction advantage of DP4A is NOT "hidden behind DRAM latency" — it's essential for keeping the pipeline full. c=1 decode gap (0.96× llama.cpp) likely comes from attention kernel efficiency or graph structure, not GEMV path. |

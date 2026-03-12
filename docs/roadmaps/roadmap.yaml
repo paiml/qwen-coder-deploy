@@ -1197,3 +1197,40 @@ roadmap:
     dominates. Key implication: realizr is positioned for high-concurrency workloads
     (production API servers typically run c=8-32). The c=4 gap is structural (DP4A
     ceiling at M=4, 85% reached) but becomes irrelevant at production concurrency.
+- id: PMAT-054B
+  github_issue: null
+  item_type: optimization
+  title: 'PMAT-054B: W4A16 WMMA pre-computed FP16 scales — FALSIFIED (1.78x slower at M=4)'
+  status: falsified
+  priority: high
+  assigned_to: null
+  created: 2026-03-12T12:00:00Z
+  updated: 2026-03-12T23:59:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: W4A16 c=4 aggregate >= DP4A baseline (259.7) — FAILED: 162.1 (-37.5%)'
+  - 'AC2: W4A16 decode >= DP4A decode (72.4) — FAILED: 40.8 (-43.6%)'
+  - 'AC3: W4A16 ITL <= DP4A ITL (13.8ms) — FAILED: 24.5ms (+1.78x)'
+  phases:
+  - name: 'Phase 1: trueno W4A16 repack format (pre-computed FP16 scales)'
+    status: completed
+  - name: 'Phase 2: trueno W4A16 WMMA kernel'
+    status: completed
+  - name: 'Phase 3: realizr dispatch wiring (M=2-8 guard)'
+    status: completed
+  - name: 'Phase 4: Yoga benchmark — FALSIFIED'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - wmma
+  - w4a16
+  - falsified
+  - tensor-core
+  notes: |
+    Pre-computed FP16 scales cut gap from 3.5x (PMAT-091) to 1.78x, validating the
+    format design. But WMMA 32x32 tiles waste 87.5% compute at M=4 (4 of 32 rows valid).
+    vLLM Marlin works because PagedAttention accumulates M=32+ even at low concurrency.
+    realizr's batch scheduler produces M=c=4, too small for WMMA tile efficiency.
+    Three commits: trueno d0b358a (format+kernel), realizr 5ee2462 (wiring), ba2b481 (M<=8 guard).
+    Remaining paths: chunked prefill, EAGLE speculative decoding, higher concurrency.
