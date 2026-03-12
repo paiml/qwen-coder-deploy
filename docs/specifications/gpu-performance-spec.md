@@ -1566,9 +1566,9 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | H5 | Occupancy >50% ≈ diminishing | ratio(1024/256) < 1.2 | Pending |
 | H-APR1 | Fix mapping → >50 tok/s | After fix: >50 | ✅ EXCEEDED (740.5) |
 | H-APR3 | GQA fix → linear speedup | >50% improvement | FALSIFIED (already correct) |
-| H-CB1 | Batched decode correctness | `\|batched(r,c) - single(r,1)\| < 1e-3` | ❌ **FALSIFIED (CORRECTNESS-013)** |
-| H-CB2 | No frozen slots | Slots 1..M produce distinct tokens per step | ❌ **FALSIFIED (CORRECTNESS-013)** |
-| H-CB3 | KV cache populated for all slots | `batched_kv_lengths[i] == prefill_len ∀i` | **Pending verification** |
+| H-CB1 | Batched decode correctness | `\|batched(r,c) - single(r,1)\| < 1e-3` | ✅ **FIXED (commit 6f75ec3, stream 0 race)** |
+| H-CB2 | No frozen slots | Slots 1..M produce distinct tokens per step | ✅ **FIXED (commit 6f75ec3)** |
+| H-CB3 | KV cache populated for all slots | `batched_kv_lengths[i] == prefill_len ∀i` | ✅ **Verified (200/200 deterministic)** |
 
 ### Verification Matrix
 
@@ -1579,11 +1579,11 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | C: Attention Quant | 3 | Pending |
 | D: Launch Overhead | 3 | Pending |
 | E: APR GPU Regression | 3 | Pending |
-| F: Batched Decode Correctness | 3 | ❌ **2/3 FALSIFIED** |
+| F: Batched Decode Correctness | 3 | ✅ **3/3 FIXED (6f75ec3)** |
 
-### F: Batched Decode Correctness (CORRECTNESS-013)
+### F: Batched Decode Correctness (CORRECTNESS-013) — FIXED
 
-**Defect:** c=4 batched decode produces frozen slots. Identical prompts produce different tokens across slots (e.g., `token_ids=[21338, 21338, 304, 16]` — slots 0-1 agree, slots 2-3 diverge). With temp=0 greedy, all slots should produce identical tokens. First batch after server start is correct; subsequent batches are corrupted. Deterministic, reproducible on yoga RTX 4060 Laptop (sm_89).
+**Defect (FIXED, commit 6f75ec3):** c=4 batched decode produced frozen slots. Root cause: stream 0 / non-blocking stream race in prefill H2D copies — `GpuBuffer::from_host` uses `cuMemcpyHtoD` (stream 0) while kernels launch on `CU_STREAM_NON_BLOCKING`. Fix: replace `from_host`/`copy_from_host` with `copy_from_host_async` on `self.stream` in all prefill paths. Verified: 200/200 deterministic.
 
 **CORRECTNESS-014 (fixed):** CUDA context corruption after 3-4 requests — `CUDA_ERROR_ILLEGAL_ADDRESS` during graph replay. Root cause: `init_prefill_workspace` reallocated workspace buffers (longer prompt exceeds `buffer_capacity`), but decode graph was NOT cleared — stale pointers. Fix: clear `decode_graph` in `init_prefill_workspace` when reallocating.
 
