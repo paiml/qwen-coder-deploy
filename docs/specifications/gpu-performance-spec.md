@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.41.0
+**Version:** 2.42.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1387,7 +1387,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-088a-d | Iteration scheduler + batch recycling | 210→257 aggregate | ✅ DONE |
 | PMAT-087 | Clock correction 1500→1900 MHz | +11.7% decode | ✅ DONE |
 | PMAT-070 | CORRECTNESS-013 (stream 0 race) | Correctness fix | ✅ Fixed |
-| **PMAT-029** | **Q4K dequant instruction reduction** | **103→93 insn/SB (-9.7%)** | **In Progress (Phase 1 done: constant hoisting)** |
+| PMAT-029 | Q4K dequant instruction reduction | 108→93 insn/SB (no decode impact) | ✅ DONE (memory-bound, no throughput gain) |
 | **PMAT-054B** | **W4A16 Marlin-style GEMM** | **2-3x c=4 aggregate** | **Planned** |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
@@ -1665,7 +1665,7 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-026 | GH-176 | Half-warp DP4A Q4K GEMV (16 thr/SB, 7.0 insn/val) | ✅ Done (+66.5%) |
 | PMAT-027 | GH-176 | BrickProfiler Immediate sync (real GPU timing in cbtop) | ✅ Done |
 | PMAT-028 | — | LmHead Q6K GEMV optimization (25.7% of decode on Orin) | ✅ Completed (Q8 smem cache) |
-| PMAT-029 | — | Q4K dequant instruction reduction (constant hoisting Phase 1) | ✅ Phase 1 done (108→93 insn/SB, -14%) |
+| PMAT-029 | — | Q4K dequant instruction reduction (constant hoisting) | ✅ Done (no throughput impact — memory-bound) |
 | PMAT-070 | CORRECTNESS-013 | Batched decode frozen slots (stream 0 race) | ✅ Fixed (commit 6f75ec3) |
 | PMAT-071 | — | Wire FALSIFY-CB-006 (`probador llm test` c=1 vs c=4) | ✅ Completed |
 | PMAT-085 | — | Batch window + deferred graph clear (TTFT 21→15ms) | ✅ Completed |
@@ -1766,7 +1766,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.41.0 | 2026-03-12 | **PMAT-029 Phase 1: Q4K constant hoisting — 108→93 insn/SB (-14%).** Hoisted 3 bitmask constants (`0x3F3F3F3F`, `0x0F0F0F0F`, `0x03030303`) before inner super-block loop in all 4 Q4K DP4A kernel variants (hw_dp4a, batched_hw_dp4a, fused_gate_up_swiglu_hw_dp4a, dp4a_gemm). Root cause: `and_u32_imm()` emits `mov.u32` + `and.b32` per call — hoisting eliminates 7-10 redundant `mov` instructions per super-block. Instruction density: 6.75→5.8 insn/val. Fused variant saves 20 insn/SB (2× scale extraction). trueno commits pushed (2 commits). Needs yoga benchmark to measure throughput impact. |
+| 2.42.0 | 2026-03-12 | **PMAT-029 Phase 1 benchmarked: NO measurable decode impact — memory-bound CONFIRMED.** Yoga benchmark (1900MHz, 60s, isolated): c=1 decode 152.5 tok/s (was 154.8, -1.5% = noise), ITL 6.6ms (was 6.5), µs/layer 234.2 (was 230.8). c=4 aggregate 256.2 (was 257.4, -0.5% = noise), ITL 14.6ms (was 15.1, -3.3%). Instruction reduction (108→93 insn/SB, -14%) does not improve throughput because Q4K GEMV is **memory-bound** at M=1 — compute is fully hidden behind DRAM latency. At M=4 (more compute-bound), marginal ITL improvement within noise. PMAT-029 Phase 1 CLOSED: correct optimization but wrong bottleneck. Remaining instruction reduction phases deferred — next impactful intervention is W4A16 tensor core GEMM (PMAT-054B). |
+| 2.41.0 | 2026-03-12 | **PMAT-029 Phase 1: Q4K constant hoisting — 108→93 insn/SB (-14%).** Hoisted 3 bitmask constants (`0x3F3F3F3F`, `0x0F0F0F0F`, `0x03030303`) before inner super-block loop in all 4 Q4K DP4A kernel variants (hw_dp4a, batched_hw_dp4a, fused_gate_up_swiglu_hw_dp4a, dp4a_gemm). Root cause: `and_u32_imm()` emits `mov.u32` + `and.b32` per call — hoisting eliminates 7-10 redundant `mov` instructions per super-block. Instruction density: 6.75→5.8 insn/val. Fused variant saves 20 insn/SB (2× scale extraction). trueno commits pushed (2 commits). |
 | 2.40.0 | 2026-03-12 | **Kaizen: Stale section cleanup.** Updated executive summary (decode parity achieved, 4-way benchmark), deployment topology (yoga PRIMARY, Jetson secondary, vLLM added), Jetson baselines (40.8/36.1 at MAXN_SUPER, TTFT 1.4x PASS), optimization roadmap tiers (decode parity + prefill parity + continuous batching all DONE, W4A16 is next), priority matrix (30 items → 16, completed items consolidated). Five-Whys and PMAT ticket table already updated in v2.39.0. |
 | 2.39.0 | 2026-03-12 | **Full doc update: yoga 1900MHz + Jetson MAXN_SUPER baselines across all specs.** Updated cross-platform decode table (4060L: 168.3/154.8/160.7/163.5 at 1900MHz). Updated performance.md (c=1 and c=4 sections with 1900MHz numbers). Updated README.md performance section. Updated gguf-decode.md (Jetson baselines 40.8/36.1, yoga 1900MHz, status: parity achieved). Updated gguf-prefill.md (status 1.33x yoga / 1.4x Jetson, PASS < 2x target). Updated baselines.md (8 thresholds refreshed, all passing). Updated perf-parity-spec.md to v3.24.0 (added Jetson as secondary test target, c=1 all PASS, Jetson c=4 zero-benefit documented). |
 | 2.38.0 | 2026-03-12 | **Jetson MAXN_SUPER correction + PTX JIT target fix.** Root cause of apparent -27% Jetson regression (36.3→26.6 tok/s): Jetson had reverted to 15W power mode (GPU 612 MHz) after reboot, NOT a code bug. Fixed: `nvpmodel -m 2` (MAXN_SUPER, GPU 1020 MHz). Also fixed trueno PTX JIT target clamping (trueno#184, commit 756c85f): Blackwell commit (a0b243a) incorrectly clamped ALL sm_major>7 to sm_70 — broke Jetson sm_87. Fixed to clamp at sm_90 (PTX 8.0 ceiling). **Updated Jetson baselines (MAXN_SUPER):** realizr 40.8 tok/s (+12.4%), llama.cpp 36.1 tok/s (+9.1%). Realizr now **13% faster** than llama.cpp on decode (was 10%). TTFT: 47.8ms vs 34.0ms (1.4x, was 5.5x). FP16 warmup OOMs on 8GB unified memory (non-fatal). c=4 batching provides zero benefit on 8 SMs. Added `jetson-maxn` resource to forjar-jetson-realizr.yaml for automatic power mode setup. |
