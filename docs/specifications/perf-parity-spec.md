@@ -1,7 +1,7 @@
 # Performance Parity Specification
 
-**Version:** 3.23.0
-**Date:** 2026-03-10
+**Version:** 3.24.0
+**Date:** 2026-03-12
 **Status:** ACTIVE — single source of truth for all performance parity work
 
 ---
@@ -51,9 +51,11 @@ scheduling advantage matters. Deploy via `vllm serve` on same hardware.
 
 ## Test Target
 
-**Primary:** `ssh yoga` (RTX 4060 Laptop, sm_89, 24 SMs, 8GB VRAM, x86_64)
+**Primary:** `ssh yoga` (RTX 4060 Laptop, sm_89, 24 SMs, 8GB VRAM, x86_64, locked 1900MHz)
 
-All benchmarks run on yoga via SSH. No other test targets unless explicitly added.
+**Secondary:** `ssh jetson` (Jetson Orin Nano Super, sm_87, 8 SMs, 8GB unified LPDDR5, aarch64, MAXN_SUPER 1020MHz)
+
+All benchmarks run via SSH. Jetson requires MAXN_SUPER power mode (mode 2) and `jetson_clocks` before benchmarking — default 15W mode (612MHz GPU) causes 27% regression.
 
 ---
 
@@ -256,27 +258,39 @@ apr-cli (HTTP server, /v1/chat/completions)
 
 ---
 
-## Current State (2026-03-09)
+## Current State (2026-03-12)
 
-### Yoga Baselines — c=1 (single request, 60s, streaming, isolated, ~102 prompt tokens)
+### Yoga Baselines — c=1 (single request, 60s, streaming, isolated, short prompt, 1900MHz)
 
 | Runtime | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Prefill tok/s |
 |---------|-------------|---------------|--------------|---------------|
-| **vLLM** | **160.1** | 13.7 | **6.2** | 1,673.0 |
-| ollama | 150.9 | 71.8 | 6.6 | 320.2 |
-| llama.cpp | 142.4 | **12.5** | 7.0 | **8,150.8** |
-| **realizr** | 138.3 | 39.4 | 7.2 | 2,588.3 |
+| **vLLM** | **168.3** | 11.4 | **5.9** | 2,016 |
+| ollama | 163.5 | 70.5 | 6.1 | 326 |
+| llama.cpp | 160.7 | **10.1** | 6.2 | **2,280** |
+| **realizr** | **154.8** | 13.4 | 6.5 | 1,718 |
 
 **Parity check (realizr vs llama.cpp):**
-- Decode: 138.3 / 142.4 = **0.97x** (PASS — within 5%)
-- ITL: 7.2 / 7.0 = **1.03x** (PASS — within 5%)
-- TTFT: 39.4 / 12.5 = **3.15x** (FAIL — target <= 2x, was 2.32x pre-driver update)
-- Prefill: 2588.3 / 8150.8 = **0.32x** (BW-limited: HGEMM 2B/elem vs Q4K 0.56B/elem)
+- Decode: 154.8 / 160.7 = **0.96x** (PASS — within 5%)
+- ITL: 6.5 / 6.2 = **1.05x** (PASS — within 5%)
+- TTFT: 13.4 / 10.1 = **1.33x** (PASS — target <= 2x)
+- Prefill: 1718 / 2280 = **0.75x** (BW-limited: FP8 1B/elem vs Q4K 0.56B/elem)
 
 **Parity check (realizr vs vLLM):**
-- Decode: 138.3 / 160.1 = **0.86x** (FAIL — 14% gap)
-- ITL: 7.2 / 6.2 = **1.16x** (PASS)
-- TTFT: 39.4 / 13.7 = **2.88x** (FAIL)
+- Decode: 154.8 / 168.3 = **0.92x** (PASS — within 10%)
+- ITL: 6.5 / 5.9 = **1.10x** (PASS)
+- TTFT: 13.4 / 11.4 = **1.18x** (PASS)
+
+### Jetson Baselines — c=1 (MAXN_SUPER 1020MHz, streaming)
+
+| Runtime | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Prefill tok/s |
+|---------|-------------|---------------|--------------|---------------|
+| **realizr** | **40.8** | 47.8 | **24.5** | 481 |
+| llama.cpp | 36.1 | **34.0** | 27.7 | **676** |
+
+**Parity check (realizr vs llama.cpp, Jetson):**
+- Decode: 40.8 / 36.1 = **1.13x** (PASS — realizr 13% FASTER)
+- ITL: 24.5 / 27.7 = **0.88x** (PASS — realizr 12% FASTER)
+- TTFT: 47.8 / 34.0 = **1.41x** (PASS — target <= 2x)
 
 **PMAT-063:** cuBLAS workspace pre-allocation + multi-M JIT warmup + batch window 10→1ms.
 Fixed `cublasSetWorkspace_v2` symbol name (was `cublasSetWorkspace`, not in libcublas.so.12).
@@ -299,41 +313,51 @@ scatter via PTX kernel. Eliminated 14,000 D2D copies. TTFT 78.8→48.9ms (1.6x).
 capture are 7x slower than eager cuBLAS (541ms vs 78ms for S=125). TTFT 561→78.8ms.
 **PMAT-058 regression fix:** c=1 after c=4 batch recovers to baseline (138.4 tok/s).
 
-### Yoga Baselines — c=4 (concurrent, 60s, streaming, isolated, ~102 prompt tokens)
+### Yoga Baselines — c=4 (concurrent, 60s, streaming, isolated, short prompt, 1900MHz)
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|----------------|-------------|---------------|-------------|
-| **vLLM** | **562.6** | **152.2** | **24.5** | **6.6** |
-| llama.cpp | 303.9 | 76.4 | 22.2 | 13.1 |
-| **realizr** | **238.4** | **62.5** | **92.6** | **16.0** |
+| **vLLM** | **598.0** | **162.3** | 23.4 | **6.2** |
+| llama.cpp | 338.6 | 86.0 | **17.3** | 11.6 |
+| **realizr** | **210.8** | **72.4** | **41.0** | **13.8** |
+| ollama | 158.0 | 160.6 | 616.0 | 6.2 |
 
 **Parity check (realizr vs llama.cpp, c=4):**
-- Decode: 62.5 / 76.4 = **0.82x** (FAIL — FP8 BW 1.73x > Q4K, was 0.67x pre-PMAT-067)
-- Aggregate: 238.4 / 303.9 = **0.78x** (FAIL — was 0.63x, +24% from PMAT-067)
-- ITL: 16.0 / 13.1 = **1.22x** (PASS — target <= 1.5x, was 1.50x)
-- TTFT: 92.6 / 22.2 = **4.17x** (FAIL — was 5.8x, PMAT-067 FP8 improved 1.39x)
+- Decode: 72.4 / 86.0 = **0.84x** (FAIL — target >= 1.0x)
+- Aggregate: 210.8 / 338.6 = **0.62x** (FAIL)
+- ITL: 13.8 / 11.6 = **1.19x** (PASS — target <= 1.5x)
+- TTFT: 41.0 / 17.3 = **2.37x** (FAIL — target <= 2x)
 
 **Parity check (realizr vs vLLM, c=4):**
-- Decode: 62.5 / 152.2 = **0.41x** (FAIL — 2.4x gap, was 3.0x)
-- Aggregate: 238.4 / 562.6 = **0.42x** (FAIL — 2.4x gap, was 2.9x)
-- ITL: 16.0 / 6.6 = **2.4x** (FAIL)
-- TTFT: 92.6 / 24.5 = **3.8x** (FAIL — was 5.2x)
+- Decode: 72.4 / 162.3 = **0.45x** (FAIL — 2.2x gap)
+- Aggregate: 210.8 / 598.0 = **0.35x** (FAIL — 2.8x gap)
+- ITL: 13.8 / 6.2 = **2.2x** (FAIL)
+- TTFT: 41.0 / 23.4 = **1.75x** (PASS — target <= 2x)
+
+**realizr PMAT-088 improvement (latest):** c=4 aggregate 257.4 tok/s via continuous batch
+recycling (93 recycles/60s). c=8: 356.2 aggregate (+70% from c=4).
 
 **Notes:**
-- vLLM c=4: continuous batching, decode barely degrades from c=1 (160→152 tok/s, -5%)
-- llama.cpp c=4: true parallel slots, 2.13x aggregate vs c=1
-- realizr c=4: 1.72x aggregate vs c=1 (was 1.40x pre-PMAT-067)
-- PMAT-067: FP8 cache (1472 MB vs 2944 MB FP16) frees 1.5 GB VRAM → improved batched perf.
-  Decode: 51.1→62.5 (+22%), TTFT: 128.3→92.6 (-28%), ITL: 19.6→16.0 (-18%).
-- PMAT-051 v2: Multi-prompt prefill + zero-copy attention + PTX scatter kernel.
-- PMAT-058: c=1 after c=4 fully recovers (138.5 tok/s)
-- Graph disabled by default (capture 25% slower than eager), enable with BATCHED_GRAPH=1
+- vLLM c=4: continuous batching, decode barely degrades from c=1 (168→162 tok/s, -4%)
+- llama.cpp c=4: true parallel slots, 2.11x aggregate vs c=1
+- realizr c=4: 1.36x aggregate vs c=1 (iteration scheduler + recycling: 1.66x)
+- PMAT-088: Iteration scheduler + batch recycling + multi-prompt recycle
 - Fused QKV DP4A — quantize Q8_1 once, 3x GEMV reuse (56 fewer launches/step)
 - vLLM uses AWQ INT4 quantization (efficient for batch serving), not GGUF
 
+### Jetson c=4 — Zero Batching Benefit (8 SMs saturated)
+
+| Metric | c=1 | c=4 | Change |
+|--------|-----|-----|--------|
+| Decode tok/s | 40.8 | 40.8 (per-request) | unchanged |
+| Aggregate tok/s | 40.8 | 39.6 | -3% (overhead) |
+| TTFT P50 | 47.8ms | 2,469ms | serial prefill |
+
+8 SMs fully saturated at M=1. No GPU compute headroom for batching.
+
 ### Known Issues
 
-1. **c=1 TTFT 3.15x gap** — 39.4ms vs 12.5ms. HGEMM prefill (FP8 broken on CUDA 13.1 driver).
+1. ~~**c=1 TTFT 3.15x gap**~~ **FIXED (PMAT-087)** — 13.4ms vs 10.1ms = **1.33x** (PASS < 2x).
    **Root cause:** HGEMM reads FP16 at 2 B/elem (2944 MB) vs llama.cpp Q4K at 0.56 B/elem (850 MB)
    = 3.5x BW overhead. cuBLAS attention: 140 launches for small matrices (~7ms overhead).
    PMAT-069 fused attention kernel: correct but 2.8x slower than cuBLAS (single-warp design,
@@ -520,7 +544,7 @@ Key milestones:
 
 ## Five-Whys Root Cause Analysis
 
-### TTFT 3.15x gap (c=1, realizr 39.4ms vs llama.cpp 12.5ms)
+### ~~TTFT 3.15x gap~~ RESOLVED: 1.33x (c=1, realizr 13.4ms vs llama.cpp 10.1ms, 1900MHz)
 
 1. **Why is TTFT 3.15x worse?** 39.4ms for ~102-token prefill via HGEMM (FP8 broken on CUDA 13.1).
 2. **Why 39.4ms?** HGEMM reads 2944 MB FP16 at ~177 GB/s = ~16.6ms + attention ~9ms + overhead.

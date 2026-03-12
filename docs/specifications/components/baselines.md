@@ -2,7 +2,7 @@
 
 **Parent Spec:** [REALIZAR-GPU-PERF-001](../gpu-performance-spec.md)
 **Status:** Reference Document
-**Date:** 2026-03-04
+**Date:** 2026-03-12
 
 ---
 
@@ -215,20 +215,20 @@ For authoritative benchmark methodology and baselines, see:
 | THRESH-009 | Multi-acc SIMD speedup | >= 2x | ratio | Partial (6.6%) |
 | THRESH-010 | FlashAttention speedup | >= 4x | ratio | Pending |
 
-### Competition Benchmark Thresholds (Mar 2026)
+### Competition Benchmark Thresholds (Mar 2026, updated Mar 12)
 
 | ID | Claim | Threshold | Unit | Status |
 |----|-------|-----------|------|--------|
-| THRESH-C01 | Ollama GPU baseline | >= 500 | tok/s | ✅ 607.9 |
-| THRESH-C02 | llama.cpp GPU baseline | >= 900 | tok/s | ✅ 1,013.6 |
-| THRESH-C03 | Realizar GPU (best) | >= 50 | tok/s | ✅ 167.1 (safetensors) |
-| THRESH-C04 | Realizar GPU parity | <= 2x Ollama | ratio | ❌ **3.4x** (167.1 vs 568.9) |
-| THRESH-C05 | APR native GPU | >= 1 | tok/s | ✅ **143.3** (was BROKEN, fixed Mar 4) |
-| THRESH-C06 | GGUF GPU acceleration | >= 3x CPU | ratio | ⚠️ Pending CPU retest |
+| THRESH-C01 | Ollama GPU baseline | >= 500 | tok/s | ✅ 607.9 (4090), 163.5 decode (4060L) |
+| THRESH-C02 | llama.cpp GPU baseline | >= 900 | tok/s | ✅ 1,013.6 (4090), 160.7 decode (4060L) |
+| THRESH-C03 | Realizar decode (c=1) | >= 140 | tok/s | ✅ **154.8** (4060L, 1900MHz) |
+| THRESH-C04 | Realizar decode parity | <= 1.1x llama.cpp | ratio | ✅ **0.96x** (154.8 vs 160.7) |
+| THRESH-C05 | Realizar TTFT parity | <= 2x llama.cpp | ratio | ✅ **1.33x** (13.4 vs 10.1ms) |
+| THRESH-C06 | Jetson decode parity | >= llama.cpp | ratio | ✅ **0.88x** (40.8 vs 36.1 — realizr 13% FASTER) |
 | THRESH-C07 | llama.cpp CPU baseline | >= 150 | tok/s | ✅ 218.5 |
-| THRESH-C08 | Realizar decode parity | <= 2x llama.cpp decode | ratio | ❌ **5.5x** (43.3 vs 238.0) |
+| THRESH-C08 | vLLM decode baseline | >= 160 | tok/s | ✅ **168.3** (4060L, 1900MHz) |
 
-**Key Finding (Mar 4):** --skip-contract flag and bug fixes improved all APR formats significantly. Gap to ollama narrowed from 6.3x to 3.4x. APR native GPU regression (PMAT-018) resolved. Remaining bottleneck is kernel launch overhead (52.5% of decode time, ~180 launches/token).
+**Key Finding (Mar 12):** Decode parity achieved on all platforms. TTFT within 2x target on both yoga (1.33x) and Jetson (1.4x). Remaining gap: c=4 aggregate — realizr 210.8 vs vLLM 598.0 (2.8x gap), driven by continuous batching maturity.
 
 ---
 

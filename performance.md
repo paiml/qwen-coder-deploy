@@ -49,34 +49,24 @@
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 13 |
 | 2026-03-01 | realizar-gguf | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 45 |
 
-## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — 2026-03-11 (PMAT-086)
+## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — 2026-03-12 (PMAT-087)
 
-### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1500MHz)
+### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1900MHz)
 
 **Short prompt (23 tokens):**
 
 | Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
 |---------|-------------|--------------|---------------|-------------|----------|
-| **vLLM** | **159.7** | **7,849** | 13.0 | **6.3** | 75 |
-| llama.cpp | 144.2 | 2,116 | **10.9** | 6.9 | — |
-| ollama | 145.4 | 1,424 | 71.6 | 6.9 | 64 |
-| realizr | 138.3 | 1,608 | 14.3 | 7.2 | 252 |
+| **vLLM** | **168.3** | 2,016 | 11.4 | **5.9** | — |
+| ollama | 163.5 | 326 | 70.5 | 6.1 | — |
+| llama.cpp | 160.7 | **2,280** | **10.1** | 6.2 | — |
+| **realizr** | **154.8** | 1,718 | 13.4 | 6.5 | — |
 
-**Decode: 4-way near-parity.** vLLM leads at 159.7, realizr at 138.3 = **0.87x**.
+**Decode: 4-way near-parity.** vLLM leads at 168.3, realizr at 154.8 = **0.92x**.
 realizr vs llama.cpp = **0.96x** (within noise).
-**TTFT (short): 1.31x** (14.3ms vs 10.9ms) — FP8 prefill (1 B/elem) vs Q4K (0.56 B/elem).
+**TTFT (short): 1.33x** (13.4ms vs 10.1ms) — FP8 prefill (1 B/elem) vs Q4K (0.56 B/elem).
+PMAT-087: Clock correction 1500→1900MHz (+12% across all runtimes).
 PMAT-086: cuBLASLt descriptor caching + non-blocking batch drain (−1.2ms queue overhead).
-
-**Medium prompt (102 tokens):**
-
-| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
-|---------|-------------|--------------|---------------|-------------|----------|
-| llama.cpp | 143.9 | 9,545 | **10.7** | 6.9 | 268 |
-| realizr | 138.1 | 4,442 | 23.0 | 7.2 | 243 |
-
-**TTFT (medium): 2.15x** (23.0ms vs 10.7ms) — BW gap scales with prompt length.
-FP8 reads 1310 MB vs Q4K 736 MB per prefill; 102-token M=102 amortizes launch overhead,
-exposing the 1.78x raw BW ratio. Remaining 0.37x from absmax+convert pipeline overhead.
 
 ### RTX 4090 (128 SMs, sm_89)
 
@@ -88,19 +78,19 @@ exposing the 1.78x raw BW ratio. Remaining 0.37x from absmax+convert pipeline ov
 **Decode gap: 1.06x (near parity).** Improvement: 1.55x (266→412 tok/s) via Flash Decode chunk\_size 128→32.
 Prefill gap: 10.2x (HGEMM FP16 reads vs llama.cpp fused Q4K GEMM).
 
-### Jetson Orin Nano Super (8 SMs, sm_87, locked clocks)
+### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
 | Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Latency P50 (ms) |
 |---------|-------------|--------------|---------------|-------------|-----------------|
-| realizr | **36.3** | 449.3 | 227.0 | 27.6 | 3,734.6 |
-| llama.cpp | 33.1 | 2,492.3 | 40.9 | 30.2 | 3,878.3 |
+| **realizr** | **40.8** | 481.4 | 47.8 | **24.5** | 807.4 |
+| llama.cpp | 36.1 | **676.0** | **34.0** | 27.7 | 893.7 |
 
-**Decode: realizr 10% FASTER than llama.cpp (0.91x).** Improvement: 10.7% (32.7→36.3 tok/s).
-Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
+**Decode: realizr 13% FASTER than llama.cpp (0.88x).** Improvement: +12.4% from MAXN_SUPER (1020MHz) + PMAT-078 Q6K SMEM cache.
+Prefill gap: 1.4x (HGEMM FP16 on-demand vs fused Q4K GEMM). TTFT narrowed from 5.5x to 1.4x.
 
 ### Config: GpuProfile auto-detect (no env vars), fused\_gate\_up=true, FLASH\_DECODE\_CHUNK\_SIZE=32
 
-### Optimization History (GH-131/173/174/176, PMAT-033→044)
+### Optimization History (GH-131/173/174/176, PMAT-033→087)
 
 | Step | Jetson Decode | 4090 Decode | 4060L Decode | Date |
 |------|--------------|-------------|-------------|------|
@@ -109,17 +99,19 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 | +HW DP4A Q4K (GH-176) | 27.8 | 162.8 | — | Mar 6 |
 | +grid 16 blocks/SM | 33.7 | — | — | Mar 7 |
 | +HGEMM prefill + graph | 32.7 | 266.3 | — | Mar 7 |
-| +Flash Decode chunk=32 | **36.3** | **411.7** | — | Mar 8 |
-| +PMAT-044 PTX parity | — | — | **140.3** | Mar 8 |
-| +PMAT-085 FP8+batch0 | — | — | 139.0 (TTFT: 46→15.5ms) | Mar 11 |
+| +Flash Decode chunk=32 | 36.3 | **411.7** | — | Mar 8 |
+| +PMAT-044 PTX parity | — | — | 140.3 | Mar 8 |
+| +PMAT-086 FP8+batch0 | — | — | 139.0 (TTFT: 46→15.5ms) | Mar 11 |
+| +PMAT-087 1900MHz | — | — | **154.8** (TTFT: 13.4ms) | Mar 12 |
+| +MAXN_SUPER 1020MHz | **40.8** | — | — | Mar 12 |
 
 ### Cross-Platform Decode Summary (c=1, isolated, streaming)
 
 | Platform | vLLM | realizr | llama.cpp | ollama |
 |----------|------|---------|-----------|--------|
-| **RTX 4060 Laptop** (24 SMs) | **159.7** | 139.0 | 144.2 | 145.4 |
+| **RTX 4060 Laptop** (24 SMs, 1900MHz) | **168.3** | 154.8 | 160.7 | 163.5 |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
-| Jetson Orin (8 SMs) | — | **36.3** | 33.1 | — |
+| Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | **40.8** | 36.1 | — |
 
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
@@ -131,31 +123,33 @@ Prefill gap: 5.5x (HGEMM FP16 reads vs fused Q4K GEMM, isolated mode only).
 
 Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
 
-## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — 2026-03-11 (PMAT-085)
+## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — 2026-03-12 (PMAT-088)
 
-### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1500MHz, short prompt)
+### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1900MHz, short prompt)
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
 |---------|----------------|-------------|---------------|-------------|----------|
-| **vLLM** | **604.7** | **154.5** | 24.8 | **6.5** | 284 |
-| llama.cpp | 294.5 | 75.0 | **21.6** | 13.3 | 556 |
-| realizr (window=5) | 232.3 | 61.3 | 41.7 | 16.3 | 440 |
-| ollama | 143.8 | 144.6 | 2,678 | 6.9 | 71 |
+| **vLLM** | **598.0** | **162.3** | 23.4 | **6.2** | — |
+| llama.cpp | 338.6 | 86.0 | **17.3** | 11.6 | — |
+| realizr | 210.8 | 72.4 | 41.0 | 13.8 | — |
+| ollama | 158.0 | 160.6 | 616.0 | 6.2 | — |
 
-**vLLM dominates c=4** via continuous batching + PagedAttention (2.6x over realizr).
-llama.cpp 1.27x over realizr aggregate (4-slot parallel vs RwLock serialization).
-realizr c=4: 232.3 aggregate (+17.6% from PMAT-082/083 FP8 JIT + first token extraction).
-Ollama: no continuous batching — TTFT 2.7s (serial prefill), aggregate flat vs c=1.
+**vLLM dominates c=4** via continuous batching + PagedAttention (2.8x over realizr).
+llama.cpp 1.6x over realizr aggregate (4-slot parallel vs iteration scheduler).
+realizr c=4 latest: 257.4 aggregate (PMAT-088d, +22% via continuous batch recycling).
+Ollama: no continuous batching — TTFT 616ms (serial prefill), aggregate flat vs c=1.
 
-### Jetson Orin Nano Super (8 SMs, sm_87, locked clocks)
+### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
-| Runtime | Aggregate tok/s | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Latency P50 (ms) |
-|---------|----------------|-------------|--------------|---------------|-------------|-----------------|
-| llama.cpp | **76.4** | 19.2 | 1,417.7 | 71.9 | 52.2 | 6,702.8 |
-| realizr | 34.3 | 36.3 | 8.9 | 11,413.4 | 27.6 | 14,915.2 |
+**c=4 provides zero batching benefit on 8 SMs:**
 
-**Root cause:** No continuous batching scheduler. Batched GEMV executor (PAR-111) exists but HTTP handler doesn't use it.
-**Next:** Implement slot-based scheduler with batched decode ([realizr#141](https://github.com/paiml/realizar/issues/141)).
+| Runtime | c=1 Decode tok/s | c=4 Aggregate tok/s | TTFT P50 (ms) | ITL P50 (ms) |
+|---------|-----------------|---------------------|---------------|-------------|
+| realizr | 40.8 | 39.6 | 2,469 | 24.5 |
+| llama.cpp | 36.1 | — | — | — |
+
+**Root cause:** 8 SMs fully saturated at M=1 — no headroom for batched compute.
+Serial prefill at c=4: ~617ms each (4 × sequential). Decode unchanged from c=1.
 
 ## GPU Profiling — BrickProfiler (2026-03-06, C-GDP-001 Contract)
 

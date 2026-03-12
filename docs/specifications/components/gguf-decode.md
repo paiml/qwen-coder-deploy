@@ -1,7 +1,7 @@
 # Component: GGUF Decode (Single Request)
 
 **Parent:** [perf-parity-spec.md](../perf-parity-spec.md)
-**Status:** Active — decode parity on both Jetson and yoga, TTFT gap remains
+**Status:** Active — decode parity achieved on all platforms (0.92-0.96x llama.cpp), TTFT 1.33x on yoga
 **Test target:** ssh yoga, forjar setup/teardown, one runtime at a time
 
 ---
@@ -23,8 +23,8 @@ Qwen2.5-Coder-1.5B Q4_K_M:
 - Theoretical max: 256000 / 850 ~ 301 tok/s
 - Practical target (60% utilization): ~180 tok/s
 
-For comparison, Jetson Orin Nano Super:
-- Bandwidth: 67 GB/s -> theoretical ~79 tok/s -> achieved 33.8 tok/s (43% util)
+For comparison, Jetson Orin Nano Super (MAXN_SUPER 1020MHz):
+- Bandwidth: 67 GB/s -> theoretical ~79 tok/s -> achieved 40.8 tok/s (52% util)
 
 ---
 
@@ -52,24 +52,25 @@ Key optimizations:
 
 ---
 
-## Jetson Baselines (reference, 2026-03-07)
+## Jetson Baselines (2026-03-12, MAXN_SUPER 1020MHz, c=1, streaming)
 
-| Runtime | Decode tok/s | TTFT P50 | ITL P50 |
-|---------|-------------|----------|---------|
-| realizr | 33.8 | 228ms | 29.6ms |
-| llama.cpp | 33.0 | 41ms | 30.3ms |
-| **Gap** | **1.02x (PARITY)** | 5.6x | 0.98x |
+| Runtime | Decode tok/s | TTFT P50 | ITL P50 | Prefill tok/s |
+|---------|-------------|----------|---------|---------------|
+| **realizr** | **40.8** | 47.8ms | **24.5ms** | 481 |
+| llama.cpp | 36.1 | **34.0ms** | 27.7ms | **676** |
+| **Gap** | **0.88x (realizr 13% FASTER)** | 1.4x | 0.88x | 0.71x |
 
 ---
 
-## Yoga Baselines (2026-03-08, c=1, 60s, streaming, locked 1500MHz)
+## Yoga Baselines (2026-03-12, c=1, 60s, streaming, locked 1900MHz)
 
 | Runtime | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Prefill tok/s |
 |---------|-------------|---------------|--------------|---------------|
-| realizr | 138.7 | 114.4 | 7.2 | 891.7 |
-| llama.cpp | **143.4** | **12.1** | **7.0** | **8399.9** |
-| ollama | 145.4 | 71.5 | 6.9 | 1427.1 |
-| **Gap (r/l)** | **0.97x (PASS)** | **9.5x (FAIL)** | **1.03x (PASS)** | **0.11x** |
+| vLLM | **168.3** | 11.4 | **5.9** | 2,016 |
+| llama.cpp | 160.7 | **10.1** | 6.2 | **2,280** |
+| ollama | 163.5 | 70.5 | 6.1 | 326 |
+| realizr | 154.8 | 13.4 | 6.5 | 1,718 |
+| **Gap (r/l)** | **0.96x (PASS)** | **1.33x (PASS)** | **1.05x (PASS)** | **0.75x** |
 
 ---
 
@@ -103,8 +104,9 @@ forjar apply -f forjar-yoga-teardown.yaml --yes
 
 ### Prefill (TTFT)
 
-5.6x gap on Jetson: realizr reads FP16 (2 B/elem), llama.cpp reads Q4K
-directly (0.5625 B/elem). Fix requires fused Q4K tiled GEMM.
+1.33x gap on yoga (13.4ms vs 10.1ms): realizr reads FP8 (1 B/elem),
+llama.cpp reads Q4K directly (0.5625 B/elem). 1.4x gap on Jetson
+(47.8ms vs 34.0ms): HGEMM on-demand FP16 caching (warmup OOMs on 8GB).
 See [gguf-prefill.md](gguf-prefill.md).
 
 ### Decode instruction count

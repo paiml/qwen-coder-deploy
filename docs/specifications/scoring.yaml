@@ -98,34 +98,34 @@ weights:
 
 scores:
   yoga_rtx4060l:
-    date: "2026-03-11"
+    date: "2026-03-12"
     gpu: "RTX 4060 Laptop (24 SMs, sm_89, 8GB VRAM)"
-    clock: "locked 1500MHz"
+    clock: "locked 1900MHz"
 
     interactive:  # c=1, short prompt (23 tokens), stream=true, 60s
       raw_data:
         vllm:
-          decode_tok_s: 159.7
-          ttft_p50_ms: 13.0
-          itl_p50_ms: 6.3
+          decode_tok_s: 168.3
+          ttft_p50_ms: 11.4
+          itl_p50_ms: 5.9
           ttft_p99_ms: 14.0
           error_rate: 0.0
         llamacpp:
-          decode_tok_s: 144.2
-          ttft_p50_ms: 10.9
-          itl_p50_ms: 6.9
+          decode_tok_s: 160.7
+          ttft_p50_ms: 10.1
+          itl_p50_ms: 6.2
           ttft_p99_ms: 13.3
-          error_rate: 0.007
+          error_rate: 0.0
         ollama:
-          decode_tok_s: 145.4
-          ttft_p50_ms: 71.6
-          itl_p50_ms: 6.9
+          decode_tok_s: 163.5
+          ttft_p50_ms: 70.5
+          itl_p50_ms: 6.1
           ttft_p99_ms: 72.0
           error_rate: 0.0
         realizr:
-          decode_tok_s: 138.3
-          ttft_p50_ms: 14.3
-          itl_p50_ms: 7.2
+          decode_tok_s: 154.8
+          ttft_p50_ms: 13.4
+          itl_p50_ms: 6.5
           ttft_p99_ms: 34.5
           error_rate: 0.0
 
@@ -147,33 +147,33 @@ scores:
     throughput:  # c=4, short prompt, stream=true, 60s
       raw_data:
         vllm:
-          aggregate_tok_s: 604.7
-          decode_tok_s: 154.5
-          ttft_p50_ms: 24.8
-          itl_p50_ms: 6.5
+          aggregate_tok_s: 598.0
+          decode_tok_s: 162.3
+          ttft_p50_ms: 23.4
+          itl_p50_ms: 6.2
           error_rate: 0.0
-          throughput_scaling: 3.79  # 604.7/159.7
+          throughput_scaling: 3.55  # 598.0/168.3
         llamacpp:
-          aggregate_tok_s: 296.5
-          decode_tok_s: 74.4
-          ttft_p50_ms: 22.7
-          itl_p50_ms: 13.4
+          aggregate_tok_s: 338.6
+          decode_tok_s: 86.0
+          ttft_p50_ms: 17.3
+          itl_p50_ms: 11.6
           error_rate: 0.0
-          throughput_scaling: 2.06  # 296.5/144.2
+          throughput_scaling: 2.11  # 338.6/160.7
         realizr:
-          aggregate_tok_s: 197.5
-          decode_tok_s: 52.2
-          ttft_p50_ms: 128.5
-          itl_p50_ms: 19.2
+          aggregate_tok_s: 210.8
+          decode_tok_s: 72.4
+          ttft_p50_ms: 41.0
+          itl_p50_ms: 13.8
           error_rate: 0.0
-          throughput_scaling: 1.43  # 197.5/138.3
+          throughput_scaling: 1.36  # 210.8/154.8
         ollama:
-          aggregate_tok_s: 143.8
-          decode_tok_s: 144.6
-          ttft_p50_ms: 2678
-          itl_p50_ms: 6.9
+          aggregate_tok_s: 158.0
+          decode_tok_s: 160.6
+          ttft_p50_ms: 616.0
+          itl_p50_ms: 6.2
           error_rate: 0.0
-          throughput_scaling: 0.99  # 143.8/145.4
+          throughput_scaling: 0.97  # 158.0/163.5
       composite:
         vllm:      { score: 98.2, grade: "A+" }
         llamacpp:  { score: 67.1, grade: "C+" }

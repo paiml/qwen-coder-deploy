@@ -84,7 +84,7 @@ Every template includes `completion_check` on every resource. Additionally:
 |----------|-----------|-----------|
 | `cuda-version-check` | `/usr/local/cuda/bin/nvcc` reports release 12+ | llamacpp |
 | `ufw-bench-ports` | UFW allows 8081:8084/tcp from 192.168.50.0/24 | realizr, llamacpp, ollama |
-| `lock-clocks` | GPU clocks locked at 1500MHz | realizr, llamacpp, ollama |
+| `lock-clocks` | GPU clocks locked at 1900MHz | realizr, llamacpp, ollama, vllm |
 | Health checks | `curl -sf http://127.0.0.1:<port>/health` | realizr, llamacpp, ollama |
 
 If any contract fails, `policy.failure: stop_on_first` halts the deploy.

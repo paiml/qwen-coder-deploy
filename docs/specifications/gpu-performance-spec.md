@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.38.0
+**Version:** 2.39.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -107,37 +107,36 @@ For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./co
 
 Standardized load test: `probador llm load` (60s, streaming, isolated). Model: Qwen2.5-Coder-1.5B Q4_K_M.
 
-**RTX 4060 Laptop — yoga (Mar 10 2026, c=1, isolated, streaming, PMAT-062):**
+**RTX 4060 Laptop — yoga (Mar 12 2026, c=1, isolated, streaming, 1900MHz, PMAT-087):**
 
-| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
-|---------|-------------|--------------|---------------|-------------|----------|
-| **vLLM** | **159.7** | **7,849** | **13.0** | **6.3** | 75 |
-| ollama | 145.4 | 1,424 | 71.6 | 6.9 | 64 |
-| llama.cpp | 142.9 | 8,409 | 12.1 | 7.0 | 67 |
-| realizr | 138.6 | 2,198 | 46.4 | 7.2 | 63 |
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) |
+|---------|-------------|--------------|---------------|-------------|
+| **vLLM** | **168.3** | 2,016 | 11.4 | **5.9** |
+| ollama | 163.5 | 326 | 70.5 | 6.1 |
+| llama.cpp | 160.7 | **2,280** | **10.1** | 6.2 |
+| realizr | 154.8 | 1,718 | 13.4 | 6.5 |
 
-**DECODE PARITY ACHIEVED (c=1).** realizr 138.6 vs llama.cpp 142.9 = **0.97x** — within measurement noise. All four runtimes within 13% on decode.
-Prefill gap: 3.8x (2,198 vs 8,409 tok/s) — HGEMM FP16 reads vs llama.cpp fused Q4K GEMM.
-TTFT: realizr 46.4ms (prompt-length dependent; 2,198 prefill tok/s = 0.46ms/tok).
+**DECODE PARITY ACHIEVED (c=1).** realizr 154.8 vs llama.cpp 160.7 = **0.96x** — within measurement noise. All four runtimes within 8% on decode.
+TTFT: realizr 13.4ms vs llama.cpp 10.1ms = **1.33x** (PASS < 2x target). FP8 prefill via cuBLASLt.
 
-**RTX 4060 Laptop — yoga (Mar 10 2026, c=4, isolated, streaming, PMAT-062):**
+**RTX 4060 Laptop — yoga (Mar 12 2026, c=4, isolated, streaming, 1900MHz, PMAT-088):**
 
-| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
-|---------|----------------|-------------|---------------|-------------|----------|
-| **vLLM** | **604.7** | **154.5** | 24.8 | **6.5** | 284 |
-| llama.cpp | 296.5 | 74.4 | **22.7** | 13.4 | 140 |
-| realizr | 197.5 | 52.2 | 128.5 | 19.2 | 96 |
-| ollama | 143.8 | 144.6 | 2,678 | 6.9 | 71 |
+| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
+|---------|----------------|-------------|---------------|-------------|
+| **vLLM** | **598.0** | **162.3** | 23.4 | **6.2** |
+| llama.cpp | 338.6 | 86.0 | **17.3** | 11.6 |
+| realizr | 210.8 | 72.4 | 41.0 | 13.8 |
+| ollama | 158.0 | 160.6 | 616.0 | 6.2 |
 
-**c=4 gap: 1.5x aggregate (realizr vs llama.cpp), 3.1x vs vLLM.** realizr improved 180.9→197.5 (+9.2%) from PMAT-062 (disable HGEMM batched decode, enable fused gate+up DP4A). Root causes of remaining gap: (1) RwLock serialization — `model.write()` held for entire batch generation, (2) no continuous batching — slots can't join/leave mid-batch. vLLM dominates via continuous batching + PagedAttention.
+**c=4 gap: 1.6x aggregate (realizr vs llama.cpp), 2.8x vs vLLM.** realizr PMAT-088d latest: 257.4 aggregate (+22% via continuous batch recycling). Root causes of remaining gap: (1) DP4A GEMV ceiling at M=4 = 306 tok/s — need W4A16 tensor core GEMM, (2) serial prefill overhead. vLLM dominates via continuous batching + PagedAttention.
 
 **Cross-platform decode summary (c=1, isolated, streaming):**
 
 | Platform | vLLM | realizr | llama.cpp | ollama |
 |----------|------|---------|-----------|--------|
-| **RTX 4060 Laptop** (24 SMs) | **159.7** | 138.6 | 142.9 | 145.4 |
+| **RTX 4060 Laptop** (24 SMs, 1900MHz) | **168.3** | 154.8 | 160.7 | 163.5 |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
-| Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
+| Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | **40.8** | 36.1 | — |
 
 **RTX 4090 (Mar 4 2026 — historical, c=4, non-streaming):**
 
@@ -1783,6 +1782,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.39.0 | 2026-03-12 | **Full doc update: yoga 1900MHz + Jetson MAXN_SUPER baselines across all specs.** Updated cross-platform decode table (4060L: 168.3/154.8/160.7/163.5 at 1900MHz). Updated performance.md (c=1 and c=4 sections with 1900MHz numbers). Updated README.md performance section. Updated gguf-decode.md (Jetson baselines 40.8/36.1, yoga 1900MHz, status: parity achieved). Updated gguf-prefill.md (status 1.33x yoga / 1.4x Jetson, PASS < 2x target). Updated baselines.md (8 thresholds refreshed, all passing). Updated perf-parity-spec.md to v3.24.0 (added Jetson as secondary test target, c=1 all PASS, Jetson c=4 zero-benefit documented). |
 | 2.38.0 | 2026-03-12 | **Jetson MAXN_SUPER correction + PTX JIT target fix.** Root cause of apparent -27% Jetson regression (36.3→26.6 tok/s): Jetson had reverted to 15W power mode (GPU 612 MHz) after reboot, NOT a code bug. Fixed: `nvpmodel -m 2` (MAXN_SUPER, GPU 1020 MHz). Also fixed trueno PTX JIT target clamping (trueno#184, commit 756c85f): Blackwell commit (a0b243a) incorrectly clamped ALL sm_major>7 to sm_70 — broke Jetson sm_87. Fixed to clamp at sm_90 (PTX 8.0 ceiling). **Updated Jetson baselines (MAXN_SUPER):** realizr 40.8 tok/s (+12.4%), llama.cpp 36.1 tok/s (+9.1%). Realizr now **13% faster** than llama.cpp on decode (was 10%). TTFT: 47.8ms vs 34.0ms (1.4x, was 5.5x). FP16 warmup OOMs on 8GB unified memory (non-fatal). c=4 batching provides zero benefit on 8 SMs. Added `jetson-maxn` resource to forjar-jetson-realizr.yaml for automatic power mode setup. |
 | 2.37.0 | 2026-03-12 | **PMAT-088d: Multi-prompt batch recycle — TTFT 63.6→60.7ms (-4.6%).** Replaced sequential `recycle_slot` (N × `run_prefill` + `force_workspace_reinit`) with single `prefill_multi_prompt` call using `slot_indices: Option<&[usize]>` for targeted KV scatter. N=1 recycle 17.3→16.3ms (-6%, no workspace reinit), N=2 batch 34.6→29.8ms (-14%, one weight read). 33% of recycles batched at N=2. c=4 aggregate 257.4 tok/s (84% of DP4A ceiling). TTFT bottleneck analysis: staggered slot finish pattern → reconnect(5ms) + decode wait(7.5ms) + recycle(16ms) + decode(15ms) = ~44ms typical, ~61ms P50. Further improvement requires chunked prefill or dual-stream prefill. H-CB14 CONFIRMED (modest). |
 | 2.36.0 | 2026-03-12 | **PMAT-088b H-CB11 FALSIFIED: Batched CUDA graph 3ms SLOWER than eager.** 654 kernel launches/step (23/layer × 28 + 10 final) = 2.6ms overhead (revised from 0.8ms). Graph replay 18.1ms vs eager 15.1ms ITL despite async H2D fixes. Root causes: (1) attention grid dims frozen at capture (dummy seq_lens=1 → wrong grid for seq_lens=128+), (2) RoPE positions frozen at [0,...,M-1], (3) 654-node graph management overhead, (4) HGEMM guard blocks cuBLAS during capture. Phase 2 CLOSED — both HGEMM (H-CB9) and CUDA graph (H-CB11) falsified. Revised priorities: Phase 2b (trueno GEMV kernel optimization) and Phase 3 (chunked prefill) are the remaining impactful interventions. Theoretical model corrected: launch overhead 2.6ms not 0.8ms. |

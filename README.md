@@ -36,25 +36,33 @@ make teardown          # Stop CPU services
 | vLLM | 8084 | AWQ INT4 | CUDA (PagedAttention, continuous batching) |
 
 <!-- PERFORMANCE_START -->
-## Performance — RTX 4060 Laptop (2026-03-10, PMAT-062)
+## Performance — RTX 4060 Laptop (2026-03-12, PMAT-087, locked 1900MHz)
 
 ### Decode Speed (c=1, isolated, streaming, 60s)
 
 | Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|-------------|--------------|---------------|-------------|
-| **vLLM** | **159.7** | **7,849** | **13.0** | **6.3** |
-| ollama | 145.4 | 1,424 | 71.6 | 6.9 |
-| llama.cpp | 142.9 | 8,409 | 12.1 | 7.0 |
-| realizr | 138.6 | 2,198 | 46.4 | 7.2 |
+| **vLLM** | **168.3** | 2,016 | 11.4 | **5.9** |
+| ollama | 163.5 | 326 | 70.5 | 6.1 |
+| llama.cpp | 160.7 | **2,280** | **10.1** | 6.2 |
+| realizr | 154.8 | 1,718 | 13.4 | 6.5 |
 
 ### Aggregate Throughput (c=4, isolated, streaming, 60s)
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|----------------|-------------|---------------|-------------|
-| **vLLM** | **604.7** | **154.5** | 24.8 | **6.5** |
-| llama.cpp | 296.5 | 74.4 | **22.7** | 13.4 |
-| realizr | 197.5 | 52.2 | 128.5 | 19.2 |
-| ollama | 143.8 | 144.6 | 2,678 | 6.9 |
+| **vLLM** | **598.0** | **162.3** | 23.4 | **6.2** |
+| llama.cpp | 338.6 | 86.0 | **17.3** | 11.6 |
+| realizr | 210.8 | 72.4 | 41.0 | 13.8 |
+| ollama | 158.0 | 160.6 | 616.0 | 6.2 |
+
+### Cross-Platform Decode (c=1, isolated, streaming)
+
+| Platform | vLLM | realizr | llama.cpp | ollama |
+|----------|------|---------|-----------|--------|
+| **RTX 4060L** (24 SMs, 1900MHz) | **168.3** | 154.8 | 160.7 | 163.5 |
+| RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
+| Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
 See [performance.md](performance.md) for full history across RTX 4090, Jetson Orin, and CPU.
 <!-- PERFORMANCE_END -->
