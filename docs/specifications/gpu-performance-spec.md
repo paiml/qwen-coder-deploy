@@ -1391,7 +1391,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-029 | Q4K dequant instruction reduction | 108→93 insn/SB (no decode impact) | ✅ DONE (memory-bound, no throughput gain) |
 | PMAT-089 | Q4K block size + warp reduction | Both FALSIFIED (no impact) | ✅ DONE (4 warps: -2% regpressure; parallel reduce: 0%) |
 | PMAT-090 | FP8 cuBLASLt batched decode (M≥2) | +4.3% c=4, **+33% c=8** | ✅ DONE (breaks DP4A compute ceiling at high M) |
-| **PMAT-091** | **W4A16 coalesced WMMA GEMM** | **Est. +34% c=4 aggregate** | **In progress** (Phase 1-2 done: repack + kernel) |
+| PMAT-091 | W4A16 coalesced WMMA GEMM | **FALSIFIED** (3.5x slower) | Custom PTX WMMA underperforms FP8/DP4A — needs double-buffer, k-tiling |
 | **PMAT-054B** | **W4A16 Marlin-style GEMM** | **2-3x c=4 aggregate** | **Planned** |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
