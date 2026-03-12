@@ -11,10 +11,10 @@
 Serve M=2..32 concurrent `/v1/chat/completions` requests with true weight
 sharing, achieving aggregate throughput proportional to batch size.
 
-| Concurrency | Target (aggregate tok/s) | Current (Mar 12, PMAT-088c) | Theoretical Ceiling | Status |
+| Concurrency | Target (aggregate tok/s) | Current (Mar 12, PMAT-088c recycle) | Theoretical Ceiling | Status |
 |-------------|-------------------------|-------------------------------|--------------------|---------|
-| c=1 | Baseline (single-request) | 151.6 tok/s | 151.6 | PASS |
-| c=4 | >= 3.0x baseline (>=455) | 221.7 tok/s (1.46x, 72% of ceiling) | 306 tok/s | GAP |
+| c=1 | Baseline (single-request) | 153.5 tok/s | 153.5 | PASS |
+| c=4 | >= 3.0x baseline (>=455) | **256.3 tok/s** (1.67x, 84% of ceiling) | 306 tok/s | GAP |
 | c=8 | >= 5.0x baseline (>=758) | **306.5 tok/s** (2.02x, 87% of ceiling) | 352 tok/s | GAP |
 | c=∞ | — | — | **412 tok/s** (DP4A limit) | Ceiling |
 
@@ -130,6 +130,29 @@ compute-bound (M=4).
 
 Profiled M=4 decode step: 13.3ms = 2.56ms BW + 8.1ms compute + 2.6ms launches (654 kernels).
 Phase 2 CLOSED: HGEMM (H-CB9) and CUDA graph (H-CB11) both FALSIFIED.
+
+### Continuous Batch Recycling (PMAT-088c — Mar 12)
+
+Three fixes to enable true continuous batching without batch restarts:
+
+1. **Continuous loop**: Keep decode loop alive when all slots finish but pending
+   requests exist (prevents 20ms+ `batched_setup_and_prefill` restart overhead per cycle)
+2. **Recycle-first priority**: Try `recycle_slot` before `add_slot_to_batch` when done
+   slots exist (prevents M growing to `max_kv_slots` with wasted done-slot GPU cycles)
+3. **Channel-close on done**: Drop callback + error sender for finished slots so SSE
+   handler receives channel closure → sends `[DONE]` → probador reconnects → recycling
+   gets new requests (was blocking all recycling because SSE never ended)
+
+| Metric | Before (batch restart) | After (recycle) | Delta |
+|--------|----------------------|-----------------|-------|
+| c=4 aggregate tok/s | 207.4 | **256.3** | **+24%** |
+| c=4 TTFT P50 | 116.5ms | **63.6ms** | **-45%** |
+| c=4 TTFT P99.9 | 2866ms | **112ms** | **-96%** |
+| c=4 ITL P50 | 15.1ms | 15.2ms | Same |
+| c=4 ITL CV | 0.22 | **0.01** | Stable |
+| Batch restarts / 60s | 45 | **3** (warmup only) | -93% |
+| Slot recycles / 60s | 0 | **124** | ∞ |
+| c=4 scaling efficiency | 34.1% | **41.8%** | +7.7pp |
 
 ---
 
