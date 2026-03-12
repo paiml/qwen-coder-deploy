@@ -1197,6 +1197,34 @@ roadmap:
     dominates. Key implication: realizr is positioned for high-concurrency workloads
     (production API servers typically run c=8-32). The c=4 gap is structural (DP4A
     ceiling at M=4, 85% reached) but becomes irrelevant at production concurrency.
+- id: PMAT-101
+  github_issue: null
+  item_type: analysis
+  title: 'PMAT-101: Precise crossover at c=7 — ITL parity, realizr wins c>=7'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T23:59:00Z
+  updated: 2026-03-12T23:59:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Identify exact crossover — DONE: c=7 (ITL 16.7ms = 16.7ms)'
+  - 'AC2: Characterize c=4 gap — DONE: 3.3ms ITL overhead (29% slower per step)'
+  phases:
+  - name: 'Phase 1: Full c=1-8 sweep both runtimes'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - benchmark
+  - scaling
+  - crossover
+  notes: |
+    Updated crossover from c≈7.5 (PMAT-098) to exact c=7.
+    llama.cpp aggregate saturates at ~405 tok/s (c=6-7, DP4A ceiling).
+    realizr keeps climbing via FP8 tensor cores: 410→464 (c=7→8, +13%).
+    c=4 gap (0.78x) is structural: 3.3ms ITL overhead from no CUDA graphs,
+    kernel launch overhead, attention scaling. Reverses at c=7+ via FP8.
 - id: PMAT-100
   github_issue: null
   item_type: analysis
