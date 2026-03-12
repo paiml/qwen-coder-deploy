@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.37.0
+**Version:** 2.38.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -137,7 +137,7 @@ TTFT: realizr 46.4ms (prompt-length dependent; 2,198 prefill tok/s = 0.46ms/tok)
 |----------|------|---------|-----------|--------|
 | **RTX 4060 Laptop** (24 SMs) | **159.7** | 138.6 | 142.9 | 145.4 |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
-| Jetson Orin (8 SMs) | — | **36.3** | 33.1 | — |
+| Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
 **RTX 4090 (Mar 4 2026 — historical, c=4, non-streaming):**
 
@@ -191,6 +191,16 @@ TTFT: realizr 46.4ms (prompt-length dependent; 2,198 prefill tok/s = 0.46ms/tok)
 | **+GH-176 half-warp DP4A Q4K** | **27.8** | **+66.5% total** |
 
 **GH-176 half-warp DP4A Q4K GEMV (trueno #175):** 16 threads per super-block (vs 32 in MWV), matching llama.cpp's QI4_K=32/VDR=2 architecture. 112 inner-loop instructions / 16 values = 7.0 insn/value (vs MWV 12.4, 1.77x fewer). All threads load scales directly (L1 coalesced, no shfl broadcast). Integer `mul.lo.s32(scale, dot)` avoids 2 cvt per sub-block. Env var: `HW_DP4A_Q4K=1`.
+
+**Jetson Orin Nano Super (Mar 12 2026 — MAXN_SUPER 1020MHz, PMAT-078/088d, isolated, c=1, 60s streaming):**
+
+| Runtime | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Prefill tok/s |
+|---------|-------------|-------------|--------------|--------------|
+| **realizr** | **40.8** | **24.5** | 47.8 | 481 |
+| llama.cpp | 36.1 | 27.7 | **34.0** | **676** |
+| **Gap** | **0.88x (realizr 13% faster)** | **0.88x** | **1.4x** | **1.4x** |
+
+**Key change:** Previous baselines (36.3/33.1 tok/s) were measured at MAXN_SUPER but Jetson later reverted to 15W mode (GPU 612 MHz) after a reboot — not a code regression. MAXN_SUPER (GPU 1020 MHz, `nvpmodel -m 2 && jetson_clocks`) is required for all Jetson benchmarks. Also: trueno#184 PTX JIT target fix (sm_90 clamp instead of sm_70), PMAT-078 Q6K shared memory Q8 cache, PMAT-088d continuous batching. c=4 provides zero benefit (8 SMs saturated at M=1).
 
 **PMAT-024 cuBLAS GEMM for prefill (Mar 6 2026):** Implemented dequant Q4K→FP32 + cuBLAS SGEMM for all Q4K weight projections during prefill (M >= 4). Q6K weights (attn_v, ffn_down, LM head) still use batched GEMV.
 
@@ -563,7 +573,7 @@ sm_89+), so prefill uses cuBLAS HGEMM from dequantized FP16 weights.
 2. Why is LmHead #1? → Single Q6K GEMV with n=151,936, k=1536. 10,948µs per call.
 3. Why are FFN gate/down expensive? → 28 layers × ~370µs each. Q4K GEMV with k=8960.
 
-**Resolution (PMAT-040, Mar 8)**: Flash Decode chunk_size 128→32 fix (sequences <128 got 1 chunk = zero split-K parallelism). **realizr now 10% FASTER than llama.cpp on Jetson**: 36.3 vs 33.1 tok/s, 27.6ms vs 30.2ms ITL. Decode gap CLOSED.
+**Resolution (PMAT-040, Mar 8)**: Flash Decode chunk_size 128→32 fix (sequences <128 got 1 chunk = zero split-K parallelism). **realizr now 13% FASTER than llama.cpp on Jetson**: 40.8 vs 36.1 tok/s, 24.5ms vs 27.7ms ITL (MAXN_SUPER 1020MHz, Mar 12). Decode gap CLOSED.
 
 **Remaining gap: Prefill 5.5x** (449 vs 2492 tok/s, TTFT 227ms vs 41ms). Jetson sm_87 has no FP8 E4M3 (requires sm_89+), so prefill uses cuBLAS HGEMM from dequantized FP16 weights — 3.5x more BW than llama.cpp's fused Q4K GEMM.
 
@@ -1512,17 +1522,17 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | Q6K decode GEMV (Orin) | 442µs (1.65x slower) | nsys Mar 5 |
 | *Decode gap (pre-040)* | *1.19x (27.8 vs 33.1 tok/s)* | *probador --stream Mar 6, GH-176 HW DP4A* |
 | *Prefill gap (pre-HGEMM)* | *25x (1045 vs 41ms TTFT)* | *probador --stream Mar 6, GH-176 + cuBLAS* |
-| **Jetson prefill throughput** | **447.7 tok/s** (vs 2488.9 llama.cpp, **5.6x**) | HGEMM prefill, Mar 8 |
+| **Jetson prefill throughput** | **481 tok/s** (vs 676 llama.cpp, **1.4x**) | HGEMM on-demand, MAXN_SUPER, Mar 12 |
 | **BW utilization (realizr)** | 35.2% of 67 GB/s | HW DP4A, Mar 6 |
 | **BW utilization (llama.cpp)** | 40.9% of 67 GB/s | calculated |
 | **LmHead % of decode** | 25.7% (10,948µs per call) | BrickProfiler Immediate sync, Jetson, Mar 6 |
 | **FFN (gate+down) % of decode** | 48.5% | BrickProfiler Immediate sync, Jetson, Mar 6 |
 | **4090 decode (PMAT-040)** | **1.06x** (411.7 vs 436.9 tok/s, avg_tok=128) | isolated c=1, 60s stream, Mar 8 |
-| **Jetson decode (PMAT-040)** | **0.91x** (36.2 vs 33.0 tok/s) — **realizr 10% FASTER** | isolated c=1, 60s stream, Mar 8 |
+| **Jetson decode (PMAT-040+078)** | **0.88x** (40.8 vs 36.1 tok/s) — **realizr 13% FASTER** | isolated c=1, 60s stream, MAXN_SUPER, Mar 12 |
 | *4090 decode gap (pre-040)* | *1.64x short, 1.92x long* | *GpuProfile auto, serial c=1, Mar 6-7* |
 | **4090 TTFT P50** | 58.8 vs 5.8 ms (10.1x) | prefill-dominated, HGEMM prefill |
 | **4090 prefill tok/s** | 1734 vs 17620 (10.2x) | FP16 reads vs Q4K fused GEMM |
-| **Jetson prefill tok/s** | 447.7 vs 2488.9 (5.6x) | HGEMM prefill, isolated |
+| **Jetson prefill tok/s** | 481 vs 676 (1.4x) | HGEMM on-demand, MAXN_SUPER, Mar 12 |
 | *4090 decode gap (before)* | *2.70x per layer (334.3 vs 123.8 µs/layer)* | *MWV DP4A, same methodology* |
 | **4090 LmHead % of decode** | 4.5% (493.7µs per call) | BrickProfiler Immediate sync, 4090, Mar 6 |
 | **4090 Norms+Res % of decode** | 31.0% (raw), 23.0% (sync-corrected) | BrickProfiler 4090, Mar 6 |
@@ -1773,6 +1783,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.38.0 | 2026-03-12 | **Jetson MAXN_SUPER correction + PTX JIT target fix.** Root cause of apparent -27% Jetson regression (36.3→26.6 tok/s): Jetson had reverted to 15W power mode (GPU 612 MHz) after reboot, NOT a code bug. Fixed: `nvpmodel -m 2` (MAXN_SUPER, GPU 1020 MHz). Also fixed trueno PTX JIT target clamping (trueno#184, commit 756c85f): Blackwell commit (a0b243a) incorrectly clamped ALL sm_major>7 to sm_70 — broke Jetson sm_87. Fixed to clamp at sm_90 (PTX 8.0 ceiling). **Updated Jetson baselines (MAXN_SUPER):** realizr 40.8 tok/s (+12.4%), llama.cpp 36.1 tok/s (+9.1%). Realizr now **13% faster** than llama.cpp on decode (was 10%). TTFT: 47.8ms vs 34.0ms (1.4x, was 5.5x). FP16 warmup OOMs on 8GB unified memory (non-fatal). c=4 batching provides zero benefit on 8 SMs. Added `jetson-maxn` resource to forjar-jetson-realizr.yaml for automatic power mode setup. |
 | 2.37.0 | 2026-03-12 | **PMAT-088d: Multi-prompt batch recycle — TTFT 63.6→60.7ms (-4.6%).** Replaced sequential `recycle_slot` (N × `run_prefill` + `force_workspace_reinit`) with single `prefill_multi_prompt` call using `slot_indices: Option<&[usize]>` for targeted KV scatter. N=1 recycle 17.3→16.3ms (-6%, no workspace reinit), N=2 batch 34.6→29.8ms (-14%, one weight read). 33% of recycles batched at N=2. c=4 aggregate 257.4 tok/s (84% of DP4A ceiling). TTFT bottleneck analysis: staggered slot finish pattern → reconnect(5ms) + decode wait(7.5ms) + recycle(16ms) + decode(15ms) = ~44ms typical, ~61ms P50. Further improvement requires chunked prefill or dual-stream prefill. H-CB14 CONFIRMED (modest). |
 | 2.36.0 | 2026-03-12 | **PMAT-088b H-CB11 FALSIFIED: Batched CUDA graph 3ms SLOWER than eager.** 654 kernel launches/step (23/layer × 28 + 10 final) = 2.6ms overhead (revised from 0.8ms). Graph replay 18.1ms vs eager 15.1ms ITL despite async H2D fixes. Root causes: (1) attention grid dims frozen at capture (dummy seq_lens=1 → wrong grid for seq_lens=128+), (2) RoPE positions frozen at [0,...,M-1], (3) 654-node graph management overhead, (4) HGEMM guard blocks cuBLAS during capture. Phase 2 CLOSED — both HGEMM (H-CB9) and CUDA graph (H-CB11) falsified. Revised priorities: Phase 2b (trueno GEMV kernel optimization) and Phase 3 (chunked prefill) are the remaining impactful interventions. Theoretical model corrected: launch overhead 2.6ms not 0.8ms. |
 | 2.35.0 | 2026-03-11 | **PMAT-088b comparative analysis: llama.cpp also uses DP4A but 34% faster per-step.** First proper comparative benchmark with llama.cpp --parallel 8. llama.cpp c=4: 353.0 aggregate (11.3ms ITL), c=8: 414.1 (19.3ms ITL). Two sources of gap: (1) Per-step compute 1.34× slower (compute/token 2.43ms vs 1.94ms, kernel efficiency + no CUDA graphs). (2) Scheduling overhead 14% vs 5% (sequential prefill 82ms/slot vs llama.cpp 18.6ms). HGEMM crossover FALSIFIED (H-CB9) — both runtimes use DP4A at M≤8, gap is kernel efficiency not architecture. Revised Phase 2: (a) CUDA graph for M>1 (~0.8ms/step), (b) trueno GEMV optimization, (c) chunked prefill (reduce 14%→5% scheduling overhead). |
