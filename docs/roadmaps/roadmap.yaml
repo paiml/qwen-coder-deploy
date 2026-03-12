@@ -934,3 +934,33 @@ roadmap:
   - batched-decode
   - tensor-cores
   notes: 'FP8 benefit scales with M: marginal at M=4 (pipeline overhead ~2ms/GEMM), substantial at M=8 (overhead amortizes). Original 1.5x c=4 hypothesis partially falsified. Default ON sm_89+.'
+- id: PMAT-091
+  github_issue: null
+  item_type: task
+  title: 'W4A16 coalesced WMMA GEMM — column-interleaved Q4K weight repacking + kernel'
+  status: in_progress
+  priority: critical
+  assigned_to: null
+  created: 2026-03-12T20:00:00Z
+  updated: 2026-03-12T20:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: repack_q4k_interleaved() correctly transforms weights — 8 unit tests pass'
+  - 'AC2: InterleavedWmmaQ4KGemmKernel emits valid PTX — 6 unit tests pass'
+  - 'AC3: Numerical correctness vs CPU reference (pending Phase 3 GPU test)'
+  - 'AC4: c=4 aggregate >= FP8 baseline (264.6 tok/s) (pending benchmark)'
+  phases:
+  - name: 'Phase 1: CPU weight repacking utility (trueno 20c0b57)'
+    status: completed
+  - name: 'Phase 2: Coalesced WMMA kernel with interleaved loads (trueno 00f40c5)'
+    status: completed
+  - name: 'Phase 3: Wire into realizr batched decode + benchmark'
+    status: planned
+  subtasks: []
+  estimated_effort: 3d
+  labels:
+  - wmma
+  - coalescing
+  - w4a16
+  - tensor-cores
+  notes: 'Root cause: WMMA B loads stride 864B between columns (num_sb * 144B). Interleaved tiles group 16 cols into 2304B with byte-interleaved qs. Column-first thread mapping (col = tid % 32) gives perfect 128B coalescing. At 70% WMMA efficiency: est. ~355 tok/s c=4 (+34%), approaching llama.cpp 338.6.'
