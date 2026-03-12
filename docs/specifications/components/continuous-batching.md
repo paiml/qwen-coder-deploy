@@ -1,7 +1,7 @@
 # Component: Continuous Batching (PMAT-044 / PMAT-088)
 
 **Parent:** [gpu-performance-spec.md](../gpu-performance-spec.md) §5b
-**Status:** Active — Phase 1 complete (corrected), Phase 2 is critical path
+**Status:** Active — Phase 1 done, Phase 2 CLOSED (falsified), Phase 3 is critical path
 **Test target:** ssh yoga, forjar setup/teardown, isolated serial benchmarks
 
 ---
@@ -123,8 +123,8 @@ is **GEMV compute scaling**: batched Q4K GEMV reads weights once for M=4 but run
 independent DP4A accumulation chains, transitioning from memory-bound (M=1) to
 compute-bound (M=4).
 
-Profiled M=4 decode step: 13.3ms = 2.56ms BW + 9.7ms compute + 1ms launches.
-Phase 2 redesigned: HGEMM crossover at M>1 + CUDA graph for M>1.
+Profiled M=4 decode step: 13.3ms = 2.56ms BW + 8.1ms compute + 2.6ms launches (654 kernels).
+Phase 2 CLOSED: HGEMM (H-CB9) and CUDA graph (H-CB11) both FALSIFIED.
 
 ---
 
@@ -133,8 +133,96 @@ Phase 2 redesigned: HGEMM crossover at M>1 + CUDA graph for M>1.
 | Phase | PMAT | Status | Expected Impact |
 |-------|------|--------|----------------|
 | **P2: M>1 CUDA graph** | PMAT-088b | **CLOSED** — HGEMM falsified (H-CB9), graph falsified (H-CB11) | Graph 3ms SLOWER than eager |
-| P3: Chunked prefill | PMAT-088c | Planned | TTFT at c=4 = c=1 |
+| **P3: Chunked prefill** | PMAT-088c | **In Progress** | TTFT at c=4 ≈ c=1, no decode stalls |
 | P4: Paged KV cache | PMAT-088d | Planned | <4% memory waste, enable c>4 |
+
+---
+
+## Phase 3: Chunked Prefill (PMAT-088c)
+
+### Problem
+
+Current prefill is monolithic: `batched_setup_and_prefill` processes all S prompt tokens
+per slot sequentially, blocking the decode loop for 14-82ms per new slot join. At c=4,
+this produces 14% scheduling overhead (82ms TTFT × 4 = 328ms stall per round) vs
+llama.cpp's 5% (18.6ms TTFT × 4 = 74ms). The decode ITL spike during prefill degrades
+user experience for in-flight requests.
+
+### Architecture: Interleaved Chunk-Decode
+
+```
+Current (monolithic prefill — stalls decode):
+  [========= PREFILL slot 0 (82ms) =========][=== PREFILL slot 1 (82ms) ===]
+                                                                             [DECODE step 1]
+
+Chunked prefill (interleaved — no decode stalls):
+  [CHUNK 0a (4ms)][DECODE 1 (13ms)][CHUNK 0b (4ms)][DECODE 2 (13ms)]...
+  └─ slot 0 tokens 0-255            └─ slot 0 tokens 256-511
+  All M existing slots decode every ~17ms instead of waiting 164ms+
+```
+
+### Implementation Plan
+
+**Step 1: `prefill_chunk()` method** (realizr: `prefill.rs`)
+- New method: `prefill_chunk(embeddings_slice, positions_slice, chunk_start, chunk_end)`
+- Processes tokens [chunk_start..chunk_end) through all 28 layers
+- Writes K/V to single-request cache at positions [chunk_start..chunk_end)
+- Returns hidden state of last position (for first-token extraction on final chunk)
+- Chunk size: `PREFILL_CHUNK_SIZE` env var, default 256 tokens (~4ms on RTX 4060L)
+
+**Step 2: `ChunkedPrefillState` tracker** (realizr: `generate_batched_streaming.rs`)
+```
+struct ChunkedPrefillState {
+    slot_idx: usize,
+    prompt_tokens: Vec<u32>,
+    tokens_prefilled: usize,      // How many tokens in KV cache so far
+    chunk_size: usize,            // Default 256
+    single_kv_cache: allocated,   // Gradually filled
+    on_token: callback,           // SSE callback for first decode token
+}
+```
+
+**Step 3: Iteration scheduler integration** (realizr: `iteration_scheduler.rs`)
+```
+Loop:
+  1. Drain rx → waiting_queue
+  2. If pending_prefill.is_some():
+     a. Execute ONE chunk of pending prefill (~4ms)
+     b. If chunk is final: scatter to batched cache, add slot to decode batch
+  3. batched_decode_step for all M active decode slots (~13ms)
+  4. distribute_tokens
+  5. If waiting_queue.not_empty() && active_slots < max_slots:
+     a. Start new ChunkedPrefillState from next waiting request
+```
+
+**Step 4: Buffer management**
+- Workspace sized for `max(chunk_size, M)` at init — no mid-chunk realloc
+- Single KV cache reused between slots (already exists for M=1 path)
+- Batched KV cache scatter only on final chunk (unchanged from current)
+
+### Constraints
+
+- **No CUDA graph during chunked prefill**: Eager path only (PREFILL_GRAPH already disabled)
+- **One prefill at a time**: Only one slot can be in chunked-prefill state
+  (single KV cache shared). Multiple concurrent prefills need paged KV (Phase 4).
+- **Decode graph invalidation**: When M changes (new slot joins), clear batched decode graph
+  (already handled by `clear_decode_graph` on M change)
+
+### Expected Impact
+
+| Metric | Current (PMAT-088b) | Expected (PMAT-088c) | Delta |
+|--------|---------------------|----------------------|-------|
+| c=4 TTFT P50 | 82.1ms | ~18ms (chunk + 1 decode) | -78% |
+| c=4 ITL P99 (during join) | ~100ms (blocked) | ~17ms (chunk + decode) | -83% |
+| c=4 aggregate tok/s | 234.0 | ~250 (+7% from less stall) | +7% |
+| Scheduling overhead | 14% | ~5% (matching llama.cpp) | -9pp |
+
+### Falsification Condition
+
+| ID | Hypothesis | Prediction |
+|----|-----------|------------|
+| H-CB12 | Chunked prefill eliminates decode stalls | c=4 ITL P99 ≤ 1.5x c=1 ITL P99 during prefill |
+| H-CB13 | Chunked prefill matches llama.cpp TTFT | c=4 TTFT ≤ 2x llama.cpp TTFT (37ms) |
 
 ---
 
