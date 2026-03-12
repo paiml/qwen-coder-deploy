@@ -1164,3 +1164,36 @@ roadmap:
     2ms for peers. Zero overhead at true c=1. Cold-start (c=1→c=4 transition)
     still sees one m=1 batch — benign for production (sustained traffic stays warm).
     realizr commit 591f561.
+
+- id: PMAT-098
+  github_issue: null
+  item_type: analysis
+  title: 'PMAT-098: Concurrency crossover analysis — realizr beats llama.cpp at c>=8'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T23:45:00Z
+  updated: 2026-03-12T23:45:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Identify exact crossover concurrency level — DONE: c≈7.5 (0.97x at c=7, 1.08x at c=8)'
+  - 'AC2: Explain mechanism — DONE: FP8 tensor core scaling vs DP4A GEMV ceiling'
+  phases:
+  - name: 'Phase 1: Benchmark c=5,6,7 for both runtimes'
+    status: completed
+  - name: 'Phase 2: Identify crossover point and mechanism'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - benchmark
+  - scaling
+  - fp8
+  notes: |
+    llama.cpp aggregate flattens at c=6-7 (~404 tok/s) — Q4K GEMV scales linearly
+    with M (compute-bound). realizr keeps climbing via FP8 cuBLASLt at M>=5:
+    +14%/step from c=5→8. FP8 tensor cores process M rows in parallel even though
+    they read 1.78x more weight data than Q4K. At c>=8, tensor core throughput
+    dominates. Key implication: realizr is positioned for high-concurrency workloads
+    (production API servers typically run c=8-32). The c=4 gap is structural (DP4A
+    ceiling at M=4, 85% reached) but becomes irrelevant at production concurrency.

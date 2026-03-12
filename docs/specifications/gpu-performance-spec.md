@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.53.0
+**Version:** 2.54.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -144,11 +144,24 @@ TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 pre
 
 **c=4 gap: 0.74x aggregate (realizr vs llama.cpp), 0.44x vs vLLM.** DP4A GEMV ceiling at M=4 = 306 tok/s — realizr at 259.7 = 85% of ceiling. Need W4A16 tensor core GEMM to break ceiling. vLLM dominates via Marlin W4A16 + PagedAttention.
 
+**Concurrency scaling crossover — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-098):**
+
+| c | realizr tok/s | llama.cpp tok/s | Ratio | Mechanism |
+|---|--------------|----------------|-------|-----------|
+| 1 | 148.5 | 161.7 | 0.92x | DP4A GEMV (both) |
+| 4 | 259.7 | 348.7 | 0.74x | DP4A ceiling (M=4) |
+| 5 | 306.1 | 384.4 | 0.80x | **FP8 threshold** (PMAT-093) |
+| 6 | 346.9 | 404.3 | 0.86x | FP8 tensor core scaling |
+| 7 | 394.2 | 404.7 | **0.97x** | llama.cpp ceiling |
+| 8 | **447.8** | 414.3 | **1.08x** | **realizr WINS** |
+
+**Key insight:** llama.cpp aggregate flattens at c=6-7 (~404 tok/s ceiling) — Q4K GEMV scales linearly with M. realizr keeps climbing via FP8 tensor cores (+14%/step from c=5→8). **Crossover at c≈7.5.** At c>=8, realizr's FP8 cuBLASLt GEMM (1 B/elem, tensor cores) beats llama.cpp's Q4K GEMV (0.56 B/elem, scalar DP4A) despite reading 1.78x more weight data — tensor core throughput dominates.
+
 **Cross-platform decode summary (c=1, isolated, streaming):**
 
 | Platform | vLLM | realizr | llama.cpp | ollama |
 |----------|------|---------|-----------|--------|
-| **RTX 4060 Laptop** (24 SMs, 1900MHz) | **168.3** | 154.8 | 160.7 | 163.5 |
+| **RTX 4060 Laptop** (24 SMs, 1900MHz) | 153.6 | 148.5 | **161.7** | — |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | **40.8** | 36.1 | — |
 
@@ -1787,6 +1800,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.54.0 | 2026-03-12 | **PMAT-098: Concurrency crossover analysis — realizr beats llama.cpp at c>=8.** Full 3-runtime comparison at c=1/4/5/6/7/8 (yoga 4060L, 1900MHz, 60s, streaming, short prompt). Fresh baselines: c=1 realizr 148.5 vs llama.cpp 161.7 (0.92x) vs vLLM 153.6. c=4: 259.7 vs 348.7 (0.74x) vs 594.8 (0.44x). **c=8: realizr 447.8 vs llama.cpp 414.3 (1.08x, WINS) vs vLLM 1150.6 (0.39x).** Crossover at c≈7.5. Mechanism: FP8 cuBLASLt tensor core GEMM at M>=5 (PMAT-093) scales throughput with M, while llama.cpp's Q4K GEMV hits compute ceiling at c=6-7 (~404 tok/s). Despite FP8 reading 1.78x more weight data than Q4K (1 vs 0.5625 B/elem), tensor core throughput dominates at M>=8. Key data: c=5 306.1 (0.80x), c=6 346.9 (0.86x), c=7 394.2 (0.97x), c=8 447.8 (1.08x). llama.cpp flat at c=6-7 (404 tok/s). **Implication:** realizr is positioned for production API workloads (c=8-32). The c=4 DP4A gap (0.74x) becomes irrelevant at production concurrency. Also confirmed: Q4K HwDp4a dequant already at 5.8 insn/value (2.1x better than llama.cpp's ~12 insn/value) via PMAT-029/033/039 — no kernel instruction optimization headroom remains. |
 | 2.53.0 | 2026-03-12 | **PMAT-097: Adaptive batch wait fixes c=4 TTFT P99.9 tail latency (1889→42.8ms, 44× improvement).** Problem: PMAT-095's Phase 2 adaptive wait only triggers when `batch.len() > 1`, so singleton batches at c>1 start immediately without giving concurrent requests time to arrive. Root cause: at c=4, batch cycle is ~3.9s. All 4 clients complete simultaneously, send new requests near-simultaneously. First request arrives, scheduler recv()s it. Phase 1 `yield_now() + try_recv()` may not catch peers (HTTP latency jitter). Phase 2 skipped (batch.len()==1, old PMAT-095). Starts m=1 batch (1732ms), blocking the channel. Other 3 requests queue for ~1.7s → TTFT P99.9 = 1889ms (45.7× tail ratio). **Fix:** Track `recent_batch_gt1` — when the previous batch had `m > 1`, even singleton batches wait 2ms for peers (Phase 2b). At true c=1, `recent_batch_gt1` stays false → no wait → zero overhead. At sustained c=4, the flag is true → singletons wait 2ms → catch all 4 peers → consistent m=4 batches. **Cold-start note:** First batch at c=4 transition (from c=1) is still m=1 because `recent_batch_gt1` is false. This affects TTFT P99.9 in cold-start benchmarks (1881ms) but not sustained traffic (42.8ms, 1.1× tail ratio). **Benchmarks (yoga 4060L, 1900MHz, 60s, isolated):** c=1: 148.5 decode, 14.0ms TTFT (zero regression). c=4 warm: 259.7 aggregate, 39.8ms TTFT P50, **42.8ms TTFT P99.9** (1.1× tail ratio). c=4 cold-start: 255.7 aggregate, 39.3ms TTFT P50, 1881.8ms P99.9 (one-time transition artifact). realizr commit 591f561. |
 | 2.52.0 | 2026-03-12 | **PMAT-096 FALSIFIED: M=1 FP32 Q4K GEMV (bypass Q8 quantization) is 1.8× SLOWER.** Hypothesis: At M=1 where GEMV is memory-bound (PMAT-029), Q8 activation quantization overhead (112 kernels/step) cancels DP4A compute benefit. Bypassing Q8 via FP32 MWV GEMV should improve c=1 decode. **Falsification:** MWV (FP32) = 82.8 tok/s vs HwDp4a = 148.5 tok/s (−44%). TTFT: 41.1ms (MWV) vs 13.8ms (HwDp4a). ITL: 12.1ms vs 6.7ms. **Root cause analysis:** M=1 Q4K GEMV is NOT purely memory-bound on RTX 4060L. Bandwidth floor (515MB weights / 192 GB/s = 2.68ms) vs actual decode (6.7ms HwDp4a, 12.1ms MWV) = 2.5× and 4.5× above floor respectively. DP4A's 4× int8 throughput keeps compute within the memory latency window; FP32 accumulation stalls waiting for memory, creating pipeline bubbles. Additionally, disabling HwDp4a loses fused gate+up+SwiGLU (requires Q4K HwDp4a), compounding the regression. **Key insight:** PMAT-029 "memory-bound" conclusion was about *within-kernel* instruction reduction (93 vs 108 insn/SB). Switching entire GEMV architecture (FP32 vs int8) changes the compute/memory balance — FP32 pushes the kernel partially compute-bound. The 4× instruction advantage of DP4A is NOT "hidden behind DRAM latency" — it's essential for keeping the pipeline full. c=1 decode gap (0.96× llama.cpp) likely comes from attention kernel efficiency or graph structure, not GEMV path. |
 | 2.51.0 | 2026-03-12 | **PMAT-095: Adaptive batch window — zero c=1 TTFT penalty, auto-batching c>1.** Problem: Fixed batch window (CUDA_BATCH_WINDOW_MS=5) improves c=4 aggregate by +9% but adds 4ms to c=1 TTFT (14→18ms). Solution: Two-phase drain in cuda_batch_scheduler. Phase 1: zero-latency `yield_now() + try_recv()` (captures requests queued during GPU processing). Phase 2: if try_recv found ≥1 peer AND batch not full, 3ms timed wait for stragglers. At c=1, try_recv finds nothing → Phase 2 skipped → 0ms overhead. At c=4, try_recv finds 1-3 → 3ms wait → consistent M=4 batches. **Benchmarks:** c=1: 14.4ms TTFT (baseline 14.0ms, no penalty). c=4: 246.9 aggregate (+4% vs non-adaptive 237.5, 96% of window=5ms 258.5). c=8: 418.3 aggregate (94% of window=5ms 447.4). Forjar config updated: removed ITERATION_SCHEDULER=1 (PMAT-094 showed it's worse). Default config now auto-adapts without env vars. realizr commit ec56459. |
