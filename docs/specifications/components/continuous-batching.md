@@ -24,6 +24,12 @@ linearly with M. The 3.0x target at c=4 (455 tok/s) **exceeds the theoretical DP
 (306 tok/s)** and cannot be achieved without changing the matmul kernel architecture.
 Reaching 3.0x requires W4A16 tensor core GEMM (like vLLM AWQ: Q4 storage + FP16 compute).
 
+**Jetson Orin (8 SMs, MAXN_SUPER 1020MHz, Mar 12):** c=4 batching provides **zero benefit**
+on Jetson — 39.6 aggregate tok/s (same as c=1 40.8). With only 8 SMs, the GPU is fully
+saturated at M=1 (24.5ms/token = 875µs/layer). Batched M=4 decode would take ~4x longer per
+step with no reduction in weight reads (8 SMs can't parallelize the additional DP4A chains).
+Jetson optimization is c=1 only; continuous batching targets Yoga/4090 exclusively.
+
 ---
 
 ## Architecture
