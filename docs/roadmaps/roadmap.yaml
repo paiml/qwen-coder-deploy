@@ -911,3 +911,26 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: PMAT-090
+  github_issue: null
+  item_type: task
+  title: 'FP8 cuBLASLt batched decode — +4.3% c=4, +33% c=8 (breaks DP4A ceiling)'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-12T18:00:00Z
+  updated: 2026-03-12T18:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: FP8 decode routes through cuBLASLt when M>=2 on sm_89+'
+  - 'AC2: No c=1 regression (M=1 path unchanged)'
+  - 'AC3: c=4 aggregate >= DP4A baseline — ACTUAL: +4.3% (264.6 vs 253.8)'
+  - 'AC4: c=8 aggregate breaks DP4A ceiling — ACTUAL: +33% (432.3 vs 324.8)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1d
+  labels:
+  - fp8
+  - batched-decode
+  - tensor-cores
+  notes: 'FP8 benefit scales with M: marginal at M=4 (pipeline overhead ~2ms/GEMM), substantial at M=8 (overhead amortizes). Original 1.5x c=4 hypothesis partially falsified. Default ON sm_89+.'
