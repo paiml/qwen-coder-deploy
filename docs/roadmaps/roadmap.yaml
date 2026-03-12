@@ -898,7 +898,7 @@ roadmap:
 - id: PMAT-089
   github_issue: null
   item_type: task
-  title: 'Q4K GEMV block size + warp reduction — BOTH FALSIFIED (no impact)'
+  title: Q4K GEMV block size + warp reduction — BOTH FALSIFIED (no impact)
   status: completed
   priority: medium
   assigned_to: null
@@ -914,7 +914,7 @@ roadmap:
 - id: PMAT-090
   github_issue: null
   item_type: task
-  title: 'FP8 cuBLASLt batched decode — +4.3% c=4, +33% c=8 (breaks DP4A ceiling)'
+  title: FP8 cuBLASLt batched decode — +4.3% c=4, +33% c=8 (breaks DP4A ceiling)
   status: completed
   priority: high
   assigned_to: null
@@ -937,7 +937,7 @@ roadmap:
 - id: PMAT-091
   github_issue: null
   item_type: task
-  title: 'W4A16 coalesced WMMA GEMM — column-interleaved Q4K weight repacking + kernel'
+  title: W4A16 coalesced WMMA GEMM — column-interleaved Q4K weight repacking + kernel
   status: completed
   priority: critical
   assigned_to: null
@@ -952,12 +952,20 @@ roadmap:
   phases:
   - name: 'Phase 1: CPU weight repacking utility (trueno 20c0b57)'
     status: completed
+    estimated_effort: null
+    completion: 0
   - name: 'Phase 2: Coalesced WMMA kernel with interleaved loads (trueno 00f40c5)'
     status: completed
+    estimated_effort: null
+    completion: 0
   - name: 'Phase 3: Wire into realizr batched decode (realizr 92cc697)'
     status: completed
+    estimated_effort: null
+    completion: 0
   - name: 'Phase 4: Benchmark W4A16 vs FP8 on yoga — FALSIFIED (3.5x slower)'
     status: completed
+    estimated_effort: null
+    completion: 0
   subtasks: []
   estimated_effort: 3d
   labels:
@@ -966,3 +974,32 @@ roadmap:
   - w4a16
   - tensor-cores
   notes: 'FALSIFIED: Custom PTX WMMA 3.5x slower than FP8/DP4A baseline. step_ms=50.5 vs ~15ms at c=4. Coalesced layout correct but WMMA compute path needs double-buffering, k-tiling, register management. cuBLAS FP8 already provides tensor core acceleration at 1 B/elem. Default OFF.'
+- id: PMAT-092
+  github_issue: null
+  item_type: task
+  title: 'PMAT-092: Fused batched residual+RMSNorm — FALSIFIED (5% regression)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T16:06:12Z
+  updated: 2026-03-12T17:30:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Fused kernel saves 28 launches/step — FALSIFIED (5% regression)'
+  phases:
+  - name: 'Phase 1: trueno kernel (3becd01)'
+    status: completed
+  - name: 'Phase 2: realizr wiring (c448225)'
+    status: completed
+  - name: 'Phase 3: benchmark (FALSIFIED) + revert (0b0a3f1)'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: |
+    FALSIFIED: Fused kernel restricts CTA parallelism to (1,M) for RMSNorm
+    reduction, losing 6x vs separate residual_add (6,M). For hidden_dim=1536,
+    residual buffer (6KB) fits in L2 cache — extra memory round-trip is free.
+    c=4: 235.0 vs 235.0 (revert baseline) = no impact from fusion itself.
+    Earlier 248.0 baseline was from a different binary build.
+  notes: null
