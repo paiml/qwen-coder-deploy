@@ -938,7 +938,7 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'W4A16 coalesced WMMA GEMM — column-interleaved Q4K weight repacking + kernel'
-  status: in_progress
+  status: falsified
   priority: critical
   assigned_to: null
   created: 2026-03-12T20:00:00Z
@@ -956,8 +956,8 @@ roadmap:
     status: completed
   - name: 'Phase 3: Wire into realizr batched decode (realizr 92cc697)'
     status: completed
-  - name: 'Phase 4: Benchmark W4A16 vs FP8 on yoga (c=1, c=4)'
-    status: planned
+  - name: 'Phase 4: Benchmark W4A16 vs FP8 on yoga — FALSIFIED (3.5x slower)'
+    status: completed
   subtasks: []
   estimated_effort: 3d
   labels:
@@ -965,4 +965,4 @@ roadmap:
   - coalescing
   - w4a16
   - tensor-cores
-  notes: 'Root cause: WMMA B loads stride 864B between columns (num_sb * 144B). Interleaved tiles group 16 cols into 2304B with byte-interleaved qs. Column-first thread mapping (col = tid % 32) gives perfect 128B coalescing. At 70% WMMA efficiency: est. ~355 tok/s c=4 (+34%), approaching llama.cpp 338.6.'
+  notes: 'FALSIFIED: Custom PTX WMMA 3.5x slower than FP8/DP4A baseline. step_ms=50.5 vs ~15ms at c=4. Coalesced layout correct but WMMA compute path needs double-buffering, k-tiling, register management. cuBLAS FP8 already provides tensor core acceleration at 1 B/elem. Default OFF.'
