@@ -1128,3 +1128,39 @@ roadmap:
     memory latency window; FP32 stalls create pipeline bubbles. Also loses fused
     gate+up+SwiGLU kernel (requires HwDp4a). c=1 gap vs llama.cpp (0.96×) is
     NOT from GEMV path — likely attention kernel or graph structure differences.
+
+- id: PMAT-097
+  github_issue: null
+  item_type: task
+  title: 'PMAT-097: Adaptive batch wait — fix c=4 TTFT P99.9 tail latency'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-12T23:00:00Z
+  updated: 2026-03-12T23:30:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=4 TTFT P99.9 < 100ms (sustained traffic) — PASSED: 42.8ms (1.1× tail ratio)'
+  - 'AC2: c=1 zero regression — PASSED: 148.5 decode, 14.0ms TTFT (identical to baseline)'
+  - 'AC3: c=4 aggregate no regression — PASSED: 259.7 tok/s (vs 240.4 baseline)'
+  phases:
+  - name: 'Phase 1: Diagnose m=1 batch pattern at c=4'
+    status: completed
+  - name: 'Phase 2: Implement recent_batch_gt1 tracking'
+    status: completed
+  - name: 'Phase 3: Benchmark c=1 (zero regression) + c=4 (tail fix)'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - scheduler
+  - latency
+  - tail-latency
+  notes: |
+    Root cause: PMAT-095 Phase 2 only waited when batch.len()>1, so singleton
+    batches at c>1 started immediately. At c=4, HTTP jitter causes 1 request to
+    arrive before peers → m=1 batch (1732ms) blocks channel → TTFT P99.9 = 1889ms.
+    Fix: Track recent_batch_gt1. When prior batch was concurrent, singletons wait
+    2ms for peers. Zero overhead at true c=1. Cold-start (c=1→c=4 transition)
+    still sees one m=1 batch — benign for production (sustained traffic stays warm).
+    realizr commit 591f561.
