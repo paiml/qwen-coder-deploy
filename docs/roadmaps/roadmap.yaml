@@ -1093,3 +1093,38 @@ roadmap:
     c=1: 14.4ms TTFT (0ms penalty). c=4: 246.9 aggregate (+4%).
     c=8: 418.3 aggregate (94% of fixed 5ms window).
     Forjar updated: removed ITERATION_SCHEDULER=1.
+
+- id: PMAT-096
+  github_issue: null
+  item_type: task
+  title: 'PMAT-096: M=1 FP32 Q4K GEMV (bypass Q8 quantization) — FALSIFIED'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T22:00:00Z
+  updated: 2026-03-12T22:30:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: FP32 MWV decode >= HwDp4a at c=1 — FALSIFIED: 82.8 vs 148.5 (−44%)'
+  - 'AC2: TTFT no regression — FALSIFIED: 41.1ms vs 13.8ms (3× worse)'
+  phases:
+  - name: 'Phase 1: Add MWV_Q4K env var override in gpu_profile.rs'
+    status: completed
+  - name: 'Phase 2: Build and deploy to yoga'
+    status: completed
+  - name: 'Phase 3: Benchmark c=1 with MWV vs HwDp4a'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - decode
+  - gemv
+  - falsified
+  notes: |
+    Hypothesis: Q8 activation quantization overhead (112 kernels/step) cancels DP4A
+    compute benefit at M=1 memory-bound regime. Bypassing Q8 via FP32 MWV should help.
+    FALSIFIED: M=1 is NOT purely memory-bound. Bandwidth floor is 2.68ms but actual
+    decode is 6.7ms (2.5× above floor). DP4A's 4× int8 throughput keeps compute within
+    memory latency window; FP32 stalls create pipeline bubbles. Also loses fused
+    gate+up+SwiGLU kernel (requires HwDp4a). c=1 gap vs llama.cpp (0.96×) is
+    NOT from GEMV path — likely attention kernel or graph structure differences.
