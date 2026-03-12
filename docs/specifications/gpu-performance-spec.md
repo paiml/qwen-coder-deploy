@@ -41,11 +41,10 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 12, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (c=1, 60s, streaming):
-- **Decode parity:** realizr 154.8 tok/s vs llama.cpp 160.7 (**0.96x**), vLLM 168.3, ollama 163.5
-- **TTFT parity:** realizr 13.4ms vs llama.cpp 10.1ms (**1.33x**, PASS < 2x target)
-- **c=4 aggregate:** realizr 259.7 vs llama.cpp 338.6 (0.77x) vs vLLM 598.0 (0.43x) — DP4A fused at M=4 (PMAT-093)
-- **c=8 aggregate:** realizr 447.4 tok/s (FP8 M>=5) vs 329.1 (DP4A) — **+36%**, adaptive threshold beats both
+**Competition Reality (Mar 12, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (60s, streaming, short prompt):
+- **c=1 decode:** realizr 148.5 vs llama.cpp 161.7 (**0.92x**), vLLM 153.6, TTFT 14.0ms vs 10.2ms (1.37x, PASS < 2x)
+- **c=4 aggregate:** realizr 259.7 vs llama.cpp 348.7 (0.74x) vs vLLM 594.8 (0.44x) — DP4A fused at M=4 (PMAT-093)
+- **c=8 aggregate:** realizr **447.8** vs llama.cpp 414.3 (**1.08x**, WINS) vs vLLM 1150.6 (0.39x) — FP8 crossover (PMAT-093)
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
 **Methodology:**
@@ -114,28 +113,36 @@ For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./co
 
 Standardized load test: `probador llm load` (60s, streaming, isolated). Model: Qwen2.5-Coder-1.5B Q4_K_M.
 
-**RTX 4060 Laptop — yoga (Mar 12 2026, c=1, isolated, streaming, 1900MHz, PMAT-087):**
+**RTX 4060 Laptop — yoga (Mar 12 2026, c=1, isolated, streaming, 1900MHz, PMAT-097 era):**
 
 | Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|-------------|--------------|---------------|-------------|
-| **vLLM** | **168.3** | 2,016 | 11.4 | **5.9** |
-| ollama | 163.5 | 326 | 70.5 | 6.1 |
-| llama.cpp | 160.7 | **2,280** | **10.1** | 6.2 |
-| realizr | 154.8 | 1,718 | 13.4 | 6.5 |
+| llama.cpp | **161.7** | **2,255** | **10.2** | **6.2** |
+| vLLM | 153.6 | 1,831 | 12.6 | 6.5 |
+| realizr | 148.5 | 1,640 | 14.0 | 6.7 |
 
-**DECODE PARITY ACHIEVED (c=1).** realizr 154.8 vs llama.cpp 160.7 = **0.96x** — within measurement noise. All four runtimes within 8% on decode.
-TTFT: realizr 13.4ms vs llama.cpp 10.1ms = **1.33x** (PASS < 2x target). FP8 prefill via cuBLASLt.
+**c=1 decode: near-parity.** realizr 148.5 vs llama.cpp 161.7 = **0.92x**. All three runtimes within 8% on decode.
+TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 prefill via cuBLASLt.
 
-**RTX 4060 Laptop — yoga (Mar 12 2026, c=4, isolated, streaming, 1900MHz, PMAT-088):**
+**RTX 4060 Laptop — yoga (Mar 12 2026, c=4, isolated, streaming, 1900MHz, PMAT-097 era):**
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) |
 |---------|----------------|-------------|---------------|-------------|
-| **vLLM** | **598.0** | **162.3** | 23.4 | **6.2** |
-| llama.cpp | 338.6 | 86.0 | **17.3** | 11.6 |
-| realizr | 210.8 | 72.4 | 41.0 | 13.8 |
-| ollama | 158.0 | 160.6 | 616.0 | 6.2 |
+| **vLLM** | **594.8** | **150.4** | 25.3 | **6.7** |
+| llama.cpp | 348.7 | 89.2 | **26.0** | 11.2 |
+| realizr | 259.7 | 65.6 | 39.8 | 15.3 |
 
-**c=4 gap: 1.6x aggregate (realizr vs llama.cpp), 2.8x vs vLLM.** realizr PMAT-088d latest: 257.4 aggregate (+22% via continuous batch recycling). Root causes of remaining gap: (1) DP4A GEMV ceiling at M=4 = 306 tok/s — need W4A16 tensor core GEMM, (2) serial prefill overhead. vLLM dominates via continuous batching + PagedAttention.
+**RTX 4060 Laptop — yoga (Mar 12 2026, c=8, isolated, streaming, 1900MHz, PMAT-097 era):**
+
+| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Error % |
+|---------|----------------|-------------|---------------|-------------|---------|
+| **vLLM** | **1,150.6** | **145.8** | **30.2** | **6.9** | 0% |
+| **realizr** | **447.8** | 56.7 | 54.6 | 17.6 | **0%** |
+| llama.cpp | 414.3 | 53.1 | 44.3 | 18.8 | 0.5% |
+
+**c=8: realizr BEATS llama.cpp** (447.8 vs 414.3, **+8%**). FP8 tensor core GEMM at M>=5 (PMAT-093) gives realizr an architectural advantage at higher concurrency. llama.cpp has 0.5% error rate at c=8; realizr 0%.
+
+**c=4 gap: 0.74x aggregate (realizr vs llama.cpp), 0.44x vs vLLM.** DP4A GEMV ceiling at M=4 = 306 tok/s — realizr at 259.7 = 85% of ceiling. Need W4A16 tensor core GEMM to break ceiling. vLLM dominates via Marlin W4A16 + PagedAttention.
 
 **Cross-platform decode summary (c=1, isolated, streaming):**
 
