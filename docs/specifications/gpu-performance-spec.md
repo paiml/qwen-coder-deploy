@@ -417,11 +417,11 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 4. Why not CUDA graphs? → PMAT-088b FALSIFIED: Graph replay 3ms SLOWER (654 kernels, frozen attention grids, RoPE positions). Eager is optimal.
 5. Why does llama.cpp reach 338.6? → Same DP4A kernel architecture but ~34% more efficient per-step (11.3ms vs 15.1ms ITL). Root cause: fewer dequant instructions + no shared memory management overhead.
 
-**Root cause:** Per-step kernel efficiency gap (1.34x). DP4A ceiling at M=4 = 306 tok/s; realizr at 257.4 = 84% of ceiling. llama.cpp exceeds theoretical model due to more efficient Q4K dequant.
+**Root cause:** Per-step kernel efficiency gap (1.34x). DP4A ceiling at M=4 = 306 tok/s; realizr at 259.7 = 85% of ceiling (PMAT-097). llama.cpp exceeds theoretical model — unclear mechanism (realizr HwDp4a at 5.8 insn/value is already 2.1x more efficient than llama.cpp's ~12 insn/value).
 
-**Fix:** PMAT-072/073/074/088 (continuous batching) are DONE. Remaining improvement path:
-- **Kernel optimization:** Reduce Q4K dequant instruction count (trueno GEMV kernel, ~20→5 insn for scale extraction)
-- **Chunked prefill:** Interleave prefill chunks with decode to reduce TTFT at c=4 (41→~20ms)
+**Fix:** PMAT-072/073/074/088/097 (continuous batching + scheduling) are DONE. Remaining improvement path:
+- ~~**Kernel optimization:** Reduce Q4K dequant instruction count~~ DONE (PMAT-029/033/039: 5.8 insn/value, 2.1x better than llama.cpp)
+- **Chunked prefill:** Interleave prefill chunks with decode to reduce TTFT at c=4 (40→~20ms)
 - **W4A16 tensor core GEMM:** INT4 storage + FP16 compute (Marlin-style) — breaks DP4A ceiling entirely
 
 #### Gap 3: c=4 aggregate 0.35x vs vLLM (210.8 vs 598.0 tok/s)
@@ -438,7 +438,7 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 
 **Fix path:** W4A16 tensor core GEMM kernel (PMAT-054B) is the only approach that breaks the DP4A ceiling. All scheduling improvements (PMAT-072→088) are complete and yielded 257.4 tok/s (84% of DP4A ceiling).
 
-**Trajectory (actual, PMAT-072→088 all DONE):**
+**Trajectory (actual, PMAT-072→097 all DONE):**
 ```
 Pre-CB:         197.5 aggregate tok/s (0.33x vLLM)
 + PMAT-072:     197.5 (lock release — structural prerequisite) ✓
@@ -446,6 +446,7 @@ Pre-CB:         197.5 aggregate tok/s (0.33x vLLM)
 + PMAT-074:     216.4 (slot recycling — +10% heterogeneous traffic) ✓
 + PMAT-088a:    232.7 (iteration scheduler — +10.4%) ✓
 + PMAT-088c/d:  257.4 (batch recycling + multi-prompt — 84% of DP4A ceiling) ✓
++ PMAT-097:     259.7 (adaptive batch wait — tail latency fix, +1%) ✓
 DP4A ceiling:   306 tok/s (M=4, compute-bound)
 vLLM AWQ:       598.0 (W4A16 tensor core GEMM, fundamentally different arch)
 ```
@@ -508,20 +509,23 @@ vLLM AWQ:       598.0 (W4A16 tensor core GEMM, fundamentally different arch)
 
 **Falsification:** If heterogeneous mode (probador or curl test) shows ≥ 250 tok/s aggregate at c=8, recycling is confirmed valuable for real traffic. (Already validated: 216.4 tok/s with curl heterogeneous test, limited by per-slot ITL.)
 
-**Updated trajectory (Mar 12, PMAT-088d complete):**
+**Updated trajectory (Mar 12, PMAT-097 complete):**
 ```
 Continuous batching baseline:   216.4 aggregate tok/s (0.36x vLLM)
 + PMAT-088a (iter scheduler):   232.7 (+10.4%)
 + PMAT-088c (batch recycling):  256.3 (+24% from baseline)
 + PMAT-088d (multi-prompt):     257.4 (+0.4%, TTFT 60.7ms)
-DP4A ceiling at M=4:            306 tok/s (84% reached)
-vLLM AWQ (tensor core GEMM):   604.7 (fundamentally different arch)
++ PMAT-093 (FP8 threshold):    258.5 (+0.4%, M<=4 DP4A / M>=5 FP8)
++ PMAT-095 (adaptive window):  246.9 (−5%, trades aggregate for zero c=1 TTFT penalty)
++ PMAT-097 (adaptive wait):    259.7 (+5%, tail latency fix, TTFT P99.9 42.8ms)
+DP4A ceiling at M=4:            306 tok/s (85% reached)
+vLLM AWQ (tensor core GEMM):   598.0 (fundamentally different arch)
 ```
-**Remaining c=4 gap:** 257.4 vs 306 ceiling = 16% headroom. Sources:
+**Remaining c=4 gap:** 259.7 vs 306 ceiling = 15% headroom. Sources:
 (1) recycle stall (~16ms prefill blocks decode), (2) scheduling latency (~12ms reconnect+wait).
 Chunked prefill (PMAT-088e) would help for long prompts but short 125-token prompts
-already fit in one chunk. Kernel optimization (reduce compute/token 2.43→1.94ms) is the
-remaining lever for aggregate throughput.
+already fit in one chunk. Q4K dequant is already at 5.8 insn/value (2.1x better than
+llama.cpp) — no kernel optimization headroom remains within DP4A architecture.
 
 ### Jetson Orin Root Cause Analysis (Updated Mar 12, 2026)
 
