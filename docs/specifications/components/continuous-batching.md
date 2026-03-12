@@ -1,7 +1,7 @@
 # Component: Continuous Batching (PMAT-044 / PMAT-088)
 
 **Parent:** [gpu-performance-spec.md](../gpu-performance-spec.md) §5b
-**Status:** Active — Phase 1 done, Phase 2 CLOSED (falsified), Phase 3 is critical path
+**Status:** Active — Phase 1 done, Phase 2 CLOSED (falsified), Phase 2b done (PMAT-088d), Phase 3 planned
 **Test target:** ssh yoga, forjar setup/teardown, isolated serial benchmarks
 
 ---
@@ -11,10 +11,10 @@
 Serve M=2..32 concurrent `/v1/chat/completions` requests with true weight
 sharing, achieving aggregate throughput proportional to batch size.
 
-| Concurrency | Target (aggregate tok/s) | Current (Mar 12, PMAT-088c recycle) | Theoretical Ceiling | Status |
+| Concurrency | Target (aggregate tok/s) | Current (Mar 12, PMAT-088d multi-prompt recycle) | Theoretical Ceiling | Status |
 |-------------|-------------------------|-------------------------------|--------------------|---------|
-| c=1 | Baseline (single-request) | 153.5 tok/s | 153.5 | PASS |
-| c=4 | >= 3.0x baseline (>=455) | **256.3 tok/s** (1.67x, 84% of ceiling) | 306 tok/s | GAP |
+| c=1 | Baseline (single-request) | 152.9 tok/s | 153.5 | PASS |
+| c=4 | >= 3.0x baseline (>=455) | **257.4 tok/s** (1.68x, 84% of ceiling) | 306 tok/s | GAP |
 | c=8 | >= 5.0x baseline (>=758) | **356.2 tok/s** (2.32x, 101% of ceiling) | 352 tok/s | PASS |
 | c=∞ | — | — | **412 tok/s** (DP4A limit) | Ceiling |
 
@@ -156,6 +156,46 @@ Three fixes to enable true continuous batching without batch restarts:
 | c=8 aggregate tok/s | 306.5 | **356.2** | **+16%** |
 | c=8 TTFT P50 | — | **78.0ms** | — |
 
+### Multi-Prompt Batch Recycle (PMAT-088d — Mar 12)
+
+Replaces sequential `recycle_slot` (N calls × `run_prefill` + `force_workspace_reinit`)
+with single `prefill_multi_prompt` call using `slot_indices` parameter for targeted KV scatter.
+
+**Changes:**
+1. **`prefill_multi_prompt` slot targeting**: New `slot_indices: Option<&[usize]>` parameter
+   maps prompt_idx to arbitrary batched KV cache slots (realizr: `prefill.rs`)
+2. **`recycle_slots_batch` method**: Collects all done slots + pending requests, executes
+   one `prefill_multi_prompt` call with `Some(&slot_indices)` (realizr: `generate_batched_streaming.rs`)
+3. **Iteration scheduler batch-collect**: Replaces per-slot recycle with batch-collect loop
+   that gathers all recyclable (done, pending request) pairs before single `recycle_slots_batch` call
+
+**Why faster:** `prefill_multi_prompt` does NOT call `force_workspace_reinit()` (unlike `run_prefill`),
+avoiding CUDA malloc churn (~1ms per call). For N>1, weights are read once instead of N times.
+
+| Metric | PMAT-088c (recycle_slot) | PMAT-088d (multi-prompt) | Delta |
+|--------|------------------------|-------------------------|-------|
+| c=4 TTFT P50 | 63.6ms | **60.7ms** | **-4.6%** |
+| c=4 TTFT P99.9 | 112ms | **110.3ms** | -1.5% |
+| c=4 aggregate tok/s | 256.3 | **257.4** | +0.4% |
+| c=4 ITL P50 | 15.2ms | **15.1ms** | Same |
+| c=4 ITL CV | 0.01 | **0.01** | Stable |
+| N=1 recycle time | 17.3ms | **16.3ms** | **-1.0ms** (-6%) |
+| N=2 batch recycle | 34.6ms (sequential) | **29.8ms** | **-4.8ms** (-14%) |
+| Batch recycle rate | 0% (all single) | **33%** (31/93 at N=2) | New |
+
+**TTFT bottleneck analysis:** c=4 TTFT P50 = 60.7ms is fundamentally limited by the
+scheduling pattern. At steady-state with 128-token generation, slots finish one at a time
+(staggered by ~1 decode step from previous recycle timing). TTFT per recycled request:
+- Channel close + probador reconnect: ~5ms
+- Wait for current decode step to complete: ~7.5ms (average half of 15ms step)
+- Recycle prefill: 16.3ms (N=1) or 14.9ms/slot (N=2)
+- First decode step: 15ms
+- **Total: ~44ms typical, ~61ms P50** (with scheduling jitter)
+
+Further TTFT improvement requires either: (a) chunked prefill interleaved with decode
+(eliminates the 16ms recycle stall on in-flight requests), or (b) dual-stream overlapped
+prefill (prefill on stream 2 while decode runs on stream 1).
+
 ---
 
 ## Remaining Phases
@@ -163,20 +203,21 @@ Three fixes to enable true continuous batching without batch restarts:
 | Phase | PMAT | Status | Expected Impact |
 |-------|------|--------|----------------|
 | **P2: M>1 CUDA graph** | PMAT-088b | **CLOSED** — HGEMM falsified (H-CB9), graph falsified (H-CB11) | Graph 3ms SLOWER than eager |
-| **P3: Chunked prefill** | PMAT-088c | **In Progress** | TTFT at c=4 ≈ c=1, no decode stalls |
-| P4: Paged KV cache | PMAT-088d | Planned | <4% memory waste, enable c>4 |
+| **P2b: Multi-prompt recycle** | PMAT-088d | **DONE** — -4.6% TTFT, -6% per-recycle time | 1ms/recycle from no workspace reinit |
+| **P3: Chunked prefill** | PMAT-088e | Planned | TTFT at c=4 ≈ c=1, no decode stalls |
+| P4: Paged KV cache | PMAT-088f | Planned | <4% memory waste, enable c>4 |
 
 ---
 
-## Phase 3: Chunked Prefill (PMAT-088c)
+## Phase 3: Chunked Prefill (PMAT-088e)
 
 ### Problem
 
-Current prefill is monolithic: `batched_setup_and_prefill` processes all S prompt tokens
-per slot sequentially, blocking the decode loop for 14-82ms per new slot join. At c=4,
-this produces 14% scheduling overhead (82ms TTFT × 4 = 328ms stall per round) vs
-llama.cpp's 5% (18.6ms TTFT × 4 = 74ms). The decode ITL spike during prefill degrades
-user experience for in-flight requests.
+Current prefill is monolithic: `prefill_multi_prompt` processes all S prompt tokens
+per slot sequentially, blocking the decode loop for 16ms per slot recycle. At c=4,
+recycle stalls 3-4 in-flight requests per cycle. With PMAT-088d multi-prompt recycle,
+TTFT P50 = 60.7ms. Chunked prefill would interleave small prefill chunks with decode
+steps, keeping ITL stable during slot joins.
 
 ### Architecture: Interleaved Chunk-Decode
 
@@ -240,19 +281,23 @@ Loop:
 
 ### Expected Impact
 
-| Metric | Current (PMAT-088b) | Expected (PMAT-088c) | Delta |
+| Metric | Current (PMAT-088d) | Expected (PMAT-088e) | Delta |
 |--------|---------------------|----------------------|-------|
-| c=4 TTFT P50 | 82.1ms | ~18ms (chunk + 1 decode) | -78% |
-| c=4 ITL P99 (during join) | ~100ms (blocked) | ~17ms (chunk + decode) | -83% |
-| c=4 aggregate tok/s | 234.0 | ~250 (+7% from less stall) | +7% |
-| Scheduling overhead | 14% | ~5% (matching llama.cpp) | -9pp |
+| c=4 TTFT P50 | 60.7ms | ~35ms (chunk + 1 decode) | -42% |
+| c=4 ITL P99 (during join) | 15.3ms | ~17ms (chunk + decode) | Same |
+| c=4 aggregate tok/s | 257.4 | ~265 (+3% from less stall) | +3% |
+
+**Note:** With short prompts (125 tokens, chunk_size=256), chunked prefill fits in 1 chunk
+and provides minimal benefit. Primary benefit is for long prompts (>256 tokens) where
+monolithic prefill stalls decode for 30ms+ per slot. For short prompts, TTFT is dominated
+by scheduling latency (reconnect + decode wait), not prefill duration.
 
 ### Falsification Condition
 
 | ID | Hypothesis | Prediction |
 |----|-----------|------------|
-| H-CB12 | Chunked prefill eliminates decode stalls | c=4 ITL P99 ≤ 1.5x c=1 ITL P99 during prefill |
-| H-CB13 | Chunked prefill matches llama.cpp TTFT | c=4 TTFT ≤ 2x llama.cpp TTFT (37ms) |
+| H-CB12 | Chunked prefill eliminates decode stalls for long prompts | c=4 ITL P99 ≤ 1.5x c=1 ITL P99 during 512-token prefill |
+| H-CB13 | Chunked prefill matches llama.cpp TTFT | c=4 TTFT ≤ 2x llama.cpp TTFT (34ms) with 512-token prompt |
 
 ---
 
@@ -266,6 +311,7 @@ Loop:
 | H-CB9 | **FALSIFIED** | Three variants tested at 1900 MHz: full HGEMM 256.0, hybrid 260.5, DP4A 261.5 aggregate. FP16 3.5x BW penalty not compensated by tensor cores at M=4. |
 | H-CB10 | **CONFIRMED** | Attention is 2.8% of BW — GEMV compute (DP4A) is the actual bottleneck. |
 | H-CB11 | **FALSIFIED** | Batched CUDA graph 3ms SLOWER than eager (18.1ms vs 15.1ms ITL). 654 launches/step = 2.6ms overhead, but attention grid dims frozen at capture (dummy seq_lens=1). |
+| H-CB14 | **CONFIRMED (modest)** | Multi-prompt recycle saves 1ms/slot (no workspace reinit). N=2 batch 14% faster than sequential. TTFT P50 63.6→60.7ms (-4.6%). Fundamentally limited by staggered finish pattern. |
 
 ---
 
@@ -292,10 +338,10 @@ probador llm load \
 ## Pass Criteria
 
 1. **Correctness:** c=4 and c=8 produce coherent output (PASS -- zero errors at c=4, 0 errors at c=8)
-2. **Throughput:** c=4 aggregate >= 3x c=1 (**INFEASIBLE** -- 1.54x, DP4A ceiling = 2.02x at c=4)
-3. **No regression:** c=1 through iteration scheduler matches baseline (PASS -- 151.6 vs 154.8)
+2. **Throughput:** c=4 aggregate >= 3x c=1 (**INFEASIBLE** -- 1.68x, DP4A ceiling = 2.02x at c=4)
+3. **No regression:** c=1 through iteration scheduler matches baseline (PASS -- 152.9 vs 154.8)
 4. **Stability:** 60-second load test at c=8 with zero errors (PASS -- 0 failures)
-5. **Efficiency:** Aggregate ≥ 85% of theoretical DP4A ceiling (c=8: 87% PASS, c=4: 76% GAP)
+5. **Efficiency:** Aggregate ≥ 85% of theoretical DP4A ceiling (c=8: 87% PASS, c=4: 84% GAP)
 
 **Note (PMAT-088b):** The 3.0x target at c=4 requires 455 tok/s, but the theoretical DP4A
 ceiling at M=4 is 306 tok/s. Reaching 3.0x requires a different matmul kernel architecture

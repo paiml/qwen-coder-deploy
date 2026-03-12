@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.36.0
+**Version:** 2.37.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -517,19 +517,20 @@ The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our D
 
 **Falsification:** If heterogeneous mode (probador or curl test) shows ≥ 250 tok/s aggregate at c=8, recycling is confirmed valuable for real traffic. (Already validated: 216.4 tok/s with curl heterogeneous test, limited by per-slot ITL.)
 
-**Updated trajectory with next fixes:**
+**Updated trajectory (Mar 12, PMAT-088d complete):**
 ```
-Continuous batching complete:  216.4 aggregate tok/s (0.36x vLLM)
-+ PMAT-075 (batched graphs):  FALSIFIED — graph replay 2.8ms slower (22.0 vs 19.2ms ITL)
-                               Infrastructure complete but disabled. Need async H2D or
-                               combined upload to overcome graph dispatch overhead.
-+ PMAT-076 (dead slot mask):  IMPLEMENTED — attention early-exit for done slots.
-                               Impact: 0% on uniform traffic (no dead slots).
-                               Needs PMAT-077 heterogeneous traffic for measurement.
-+ PMAT-077 (probador hetero):  measurement-only (enables accurate benchmarking)
-Theoretical:                   ~550 (4 × 138 decode, overhead)
-vLLM:                          604.7
+Continuous batching baseline:   216.4 aggregate tok/s (0.36x vLLM)
++ PMAT-088a (iter scheduler):   232.7 (+10.4%)
++ PMAT-088c (batch recycling):  256.3 (+24% from baseline)
++ PMAT-088d (multi-prompt):     257.4 (+0.4%, TTFT 60.7ms)
+DP4A ceiling at M=4:            306 tok/s (84% reached)
+vLLM AWQ (tensor core GEMM):   604.7 (fundamentally different arch)
 ```
+**Remaining c=4 gap:** 257.4 vs 306 ceiling = 16% headroom. Sources:
+(1) recycle stall (~16ms prefill blocks decode), (2) scheduling latency (~12ms reconnect+wait).
+Chunked prefill (PMAT-088e) would help for long prompts but short 125-token prompts
+already fit in one chunk. Kernel optimization (reduce compute/token 2.43→1.94ms) is the
+remaining lever for aggregate throughput.
 
 ### Jetson Orin Root Cause Analysis (Updated Mar 5, 2026)
 
@@ -1078,21 +1079,19 @@ is per-kernel efficiency and scheduling overhead:
 | c=8 aggregate | 306.5 | **414.1** | **0.74x** | Kernel + scheduling |
 | c=8 ITL | 21.9ms | 19.3ms | 1.13x | Per-step compute |
 
-**Two sources of c=4 gap (0.66x):**
+**Two sources of c=4 gap (0.76x llama.cpp, updated Mar 12 PMAT-088d):**
 1. **Per-step compute (1.34x)**: llama.cpp's MMVQ DP4A kernel is ~25% faster per token
    (compute/token: 1.94ms vs 2.43ms). Also: llama.cpp uses CUDA graphs (`USE_GRAPHS=1`)
    and flash attention, reducing launch overhead.
-2. **Scheduling overhead (14% vs 5%)**: realizr prefills sequentially (82ms TTFT × 4 slots =
-   328ms/round stall). llama.cpp interleaves prefill+decode (18.6ms TTFT × 4 = 74ms/round).
-   Sarathi-Serve chunked prefill would reduce our 14% overhead to ~5%.
+2. **Scheduling overhead (~8%)**: PMAT-088c/d recycling reduced overhead from 14% to ~8%.
+   Recycle prefill: 16.3ms/slot (was 82ms). TTFT P50: 60.7ms (was 82.1ms). Remaining
+   overhead from: reconnect wait (~5ms), decode step wait (~7.5ms avg), recycle prefill (16ms).
 
-**Revised Phase 2-3 priorities (updated Mar 12, PMAT-088b graph investigation):**
-- ~~Phase 2a: CUDA graph for M>1~~ → **FALSIFIED** (H-CB11). 654 kernel launches/step = 2.6ms
-  overhead (not 0.8ms as estimated), but graph replay is 3ms SLOWER than eager despite async
-  H2D fixes. Root cause: attention grid dimensions frozen at capture time (seq_lens=1 during
-  capture → wrong grid size during replay with seq_lens=128+). Fundamental redesign needed.
-- Phase 2b: Kernel optimization (trueno GEMV) → reduce compute/token from 2.43ms toward 1.94ms
-- Phase 3: Chunked prefill → reduce scheduling overhead from 14% to ~5%
+**Phase status (updated Mar 12, PMAT-088d):**
+- ~~Phase 2a: CUDA graph for M>1~~ → **FALSIFIED** (H-CB11). Graph replay 3ms SLOWER than eager.
+- ~~Phase 2b: Multi-prompt recycle~~ → **DONE** (PMAT-088d). TTFT 63.6→60.7ms (-4.6%).
+- Phase 3: Chunked prefill (PMAT-088e) → interleave prefill chunks with decode steps
+- Phase 4: Paged KV cache (PMAT-088f) → dynamic KV allocation, enable c>4
 
 **Note:** vLLM AWQ (604.7 at c=4) uses INT4→FP16 dequant + tensor core GEMM — fundamentally
 different from DP4A GEMV. That's a different kernel architecture with 2x less compute per token.
@@ -1323,8 +1322,9 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 |-------|------|-------------|--------|------------------------|
 | **P1: Iteration scheduler** | PMAT-088a | Waiting queue + decode-maximal scheduling. Replace `BatchScheduler` with `IterationScheduler`. Keep contiguous KV cache. Variable-M bugfixes (3 classes). | 1 week | **DONE: +10.4% aggregate (210.8→232.7), 38.3% efficiency** |
 | **P2: M>1 CUDA graph + launch reduction** | PMAT-088b | HGEMM crossover **FALSIFIED** (H-CB9). Batched CUDA graph **FALSIFIED** (H-CB11): 654 kernel launches/step = 2.6ms overhead, but graph replay 3ms slower than eager. Root cause: attention kernel grid dimensions frozen at capture time (dummy seq_lens=1), positions/seq_lens cannot be runtime parameters in graph. Both interventions exhausted — Phase 2 closed. | 1 week | **FALSIFIED: graph adds 3ms overhead vs saving 2.6ms** |
-| **P3: Chunked prefill** | PMAT-088c | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | Expected: TTFT at c=4 ≈ c=1, no generation stalls |
-| **P4: Paged KV cache** | PMAT-088d | BlockPool + KVCacheManager + block table indirection. Enable preemption. | 2 weeks | Expected: <4% memory waste, enable c>4 scaling |
+| **P2b: Multi-prompt recycle** | PMAT-088d | `recycle_slots_batch` via `prefill_multi_prompt` with `slot_indices`. Eliminates `force_workspace_reinit` overhead. | 1 day | **DONE: TTFT 63.6→60.7ms (-4.6%), N=1 recycle 17.3→16.3ms (-6%)** |
+| **P3: Chunked prefill** | PMAT-088e | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | Expected: TTFT at c=4 ≈ c=1, no decode stalls for long prompts |
+| **P4: Paged KV cache** | PMAT-088f | BlockPool + KVCacheManager + block table indirection. Enable preemption. | 2 weeks | Expected: <4% memory waste, enable c>4 scaling |
 
 **Phase 2 status: CLOSED — both interventions falsified.**
 - H-CB9: HGEMM crossover falsified. Three variants tested — none beat DP4A (best: 260.5 vs 261.5).
@@ -1770,6 +1770,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.37.0 | 2026-03-12 | **PMAT-088d: Multi-prompt batch recycle — TTFT 63.6→60.7ms (-4.6%).** Replaced sequential `recycle_slot` (N × `run_prefill` + `force_workspace_reinit`) with single `prefill_multi_prompt` call using `slot_indices: Option<&[usize]>` for targeted KV scatter. N=1 recycle 17.3→16.3ms (-6%, no workspace reinit), N=2 batch 34.6→29.8ms (-14%, one weight read). 33% of recycles batched at N=2. c=4 aggregate 257.4 tok/s (84% of DP4A ceiling). TTFT bottleneck analysis: staggered slot finish pattern → reconnect(5ms) + decode wait(7.5ms) + recycle(16ms) + decode(15ms) = ~44ms typical, ~61ms P50. Further improvement requires chunked prefill or dual-stream prefill. H-CB14 CONFIRMED (modest). |
 | 2.36.0 | 2026-03-12 | **PMAT-088b H-CB11 FALSIFIED: Batched CUDA graph 3ms SLOWER than eager.** 654 kernel launches/step (23/layer × 28 + 10 final) = 2.6ms overhead (revised from 0.8ms). Graph replay 18.1ms vs eager 15.1ms ITL despite async H2D fixes. Root causes: (1) attention grid dims frozen at capture (dummy seq_lens=1 → wrong grid for seq_lens=128+), (2) RoPE positions frozen at [0,...,M-1], (3) 654-node graph management overhead, (4) HGEMM guard blocks cuBLAS during capture. Phase 2 CLOSED — both HGEMM (H-CB9) and CUDA graph (H-CB11) falsified. Revised priorities: Phase 2b (trueno GEMV kernel optimization) and Phase 3 (chunked prefill) are the remaining impactful interventions. Theoretical model corrected: launch overhead 2.6ms not 0.8ms. |
 | 2.35.0 | 2026-03-11 | **PMAT-088b comparative analysis: llama.cpp also uses DP4A but 34% faster per-step.** First proper comparative benchmark with llama.cpp --parallel 8. llama.cpp c=4: 353.0 aggregate (11.3ms ITL), c=8: 414.1 (19.3ms ITL). Two sources of gap: (1) Per-step compute 1.34× slower (compute/token 2.43ms vs 1.94ms, kernel efficiency + no CUDA graphs). (2) Scheduling overhead 14% vs 5% (sequential prefill 82ms/slot vs llama.cpp 18.6ms). HGEMM crossover FALSIFIED (H-CB9) — both runtimes use DP4A at M≤8, gap is kernel efficiency not architecture. Revised Phase 2: (a) CUDA graph for M>1 (~0.8ms/step), (b) trueno GEMV optimization, (c) chunked prefill (reduce 14%→5% scheduling overhead). |
 | 2.34.0 | 2026-03-11 | **PMAT-088b scaling analysis: DP4A aggregate ceiling = 412 tok/s.** First c=8 benchmarks with iteration scheduler (max_slots=8): 306.5 aggregate (2.02x c=1), 87% of theoretical ceiling, 21.9ms ITL. Theoretical model: `M / (2.56 + M×2.425 + 0.8)` tok/s — compute per token (2.425ms DP4A) is the binding constraint. The 3.0x c=4 target (455 tok/s) exceeds the DP4A ceiling (306 at M=4, 412 at M→∞). Reaching 3x requires W4A16 tensor core GEMM (like vLLM AWQ: Q4 storage + FP16 compute). c=16 with max_slots=16 hits CUDA_ERROR_ILLEGAL_ADDRESS during prefill (KV cache reuse bug — separate ticket). Updated forjar-yoga-realizr.yaml with ITERATION_SCHEDULER=1, CUDA_MAX_BATCH=8. |

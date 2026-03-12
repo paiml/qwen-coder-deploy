@@ -842,16 +842,40 @@ roadmap:
 - id: PMAT-088
   github_issue: null
   item_type: task
-  title: 'New task: PMAT-088'
-  status: inprogress
-  priority: medium
+  title: 'Continuous batching iteration scheduler + recycling + multi-prompt recycle'
+  status: completed
+  priority: critical
   assigned_to: null
-  created: 2026-03-11T20:19:40.439769462+00:00
-  updated: 2026-03-11T20:19:40.439769462+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
+  created: 2026-03-11T20:19:40Z
+  updated: 2026-03-12T12:00:00Z
+  spec: docs/specifications/components/continuous-batching.md
+  acceptance_criteria:
+  - 'AC1: PMAT-088a iteration scheduler — c=4 aggregate 232.7 tok/s (+10.4%) — DONE'
+  - 'AC2: PMAT-088b M>1 CUDA graph + HGEMM — FALSIFIED (both slower)'
+  - 'AC3: PMAT-088c continuous batch recycling — c=4 aggregate 256.3 tok/s (+24%) — DONE'
+  - 'AC4: PMAT-088d multi-prompt batch recycle — TTFT 63.6→60.7ms (-4.6%) — DONE'
+  phases:
+  - name: 'PMAT-088a: Iteration-level scheduler with waiting queue'
+    status: completed
+    estimated_effort: 2d
+    completion: 100
+  - name: 'PMAT-088b: M>1 CUDA graph + HGEMM (FALSIFIED)'
+    status: completed
+    estimated_effort: 1d
+    completion: 100
+  - name: 'PMAT-088c: Continuous batch recycling (3 fixes)'
+    status: completed
+    estimated_effort: 1d
+    completion: 100
+  - name: 'PMAT-088d: Multi-prompt batch recycle via prefill_multi_prompt'
+    status: completed
+    estimated_effort: 1d
+    completion: 100
   subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
+  estimated_effort: 5d
+  labels:
+  - continuous-batching
+  - scheduler
+  - recycling
+  - tier0
+  notes: 'Final state: c=4 aggregate 257.4 tok/s (84% of DP4A ceiling 306), TTFT P50 60.7ms, ITL P50 15.1ms, ITL CV 0.01. c=8 aggregate 356.2 tok/s (101% ceiling). c=1 decode 152.9 tok/s (no regression). 93 recycles/60s, 33% batched at N=2.'
