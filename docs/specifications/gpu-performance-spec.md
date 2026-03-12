@@ -387,88 +387,63 @@ For kernel implementation details and code samples, see [kernel-specifications.m
 - **Kernel launch overhead:** 52.5% of decode time from ~180 kernel launches/token (PMAT-015/017)
 - **Concurrency lock contention:** RwLock serialization at c=4 drops decode from ~270 tok/s (raw) to 40.8 tok/s (probador). Single-request path is 153 tok/s due to prefill + HTTP overhead.
 
-### Remaining Gaps — Five-Whys Root Cause Analysis (Mar 10 2026, PMAT-062 baseline)
+### Remaining Gaps — Five-Whys Root Cause Analysis (Mar 12 2026, PMAT-088 baseline)
 
-**Three gaps remain after c=1 decode parity (0.97x). All have identified root causes and implementation plans.**
+**c=1 decode parity achieved (0.96x) and TTFT within target (1.33x). Two gaps remain: c=4 aggregate vs llama.cpp and vs vLLM.**
 
-#### Gap 1: TTFT/Prefill 3.8x (46.4ms / 2,198 tok/s vs llama.cpp 12.1ms / 8,409 tok/s)
+#### ~~Gap 1: TTFT/Prefill~~ RESOLVED (PMAT-071→087, Mar 12)
 
-**Five-Whys:**
+**TTFT: 13.4ms vs 10.1ms = 1.33x (PASS < 2x target).** Closed from 9.4x (Mar 8) via:
+- PMAT-053b: FP8 E4M3 per-tensor absmax scaling via cuBLASLt alpha parameter
+- PMAT-079→086: Async FP8 pipeline, JIT warmup, descriptor caching, non-blocking drain
+- PMAT-087: Clock correction 1500→1900MHz
 
-1. Why is TTFT 3.8x slower? → Prefill reads 3.5x more weight data per layer from VRAM.
-2. Why 3.5x more data? → cuBLAS HGEMM reads FP16 weights (2 B/elem, 2944 MB total). llama.cpp reads Q4K directly (0.5625 B/elem, ~850 MB).
-3. Why FP16? → cuBLAS cannot consume Q4K — requires pre-dequantized input. Our dequant+HGEMM pipeline reads full FP16 matrices.
-4. Why not a fused Q4K GEMM? → GH-182 attempt was **16x slower** — serial per-thread accumulation, no shared memory tiling, CUDA cores vs tensor cores.
-5. Why was it slow? → Naive per-thread dot product. No warp-cooperative tiling. No shared-memory weight reuse across M rows.
+**Remaining 0.33x (3.3ms):** FP8 reads 1 B/elem vs Q4K 0.56 B/elem (1.78x BW ratio). Further improvement requires direct Q4K tensor-core GEMM — all tested approaches (DP4A, WMMA, L2 dequant) were slower than cuBLAS on sm_89.
 
-**Root cause:** No tiled Q4K GEMM kernel. cuBLAS dequant+HGEMM reads 3.5x more VRAM bandwidth than llama.cpp's fused `mul_mat_q4_K` which processes compressed weights directly.
+#### Gap 2: c=4 aggregate 0.62x vs llama.cpp (210.8 vs 338.6 tok/s)
 
-**PMAT-071 Experimental Results (Mar 10 2026, RTX 4060 Laptop sm_89):**
+**Five-Whys (updated for PMAT-088):**
 
-| Approach | TTFT P50 | vs HGEMM | Status |
-|----------|----------|----------|--------|
-| cuBLAS HGEMM (baseline) | 46.4ms | 1.0x | Production default |
-| **FP8 cuBLASLt** | **31.6ms** | **1.47x faster** | Garbled output (3-bit mantissa precision loss across 28 layers) |
-| L2 dequant + HGEMM | 64.5ms | 1.39x slower | Dequant kernel overhead exceeds BW savings |
-| DP4A Q4K GEMM (PMAT-066) | 159ms | 3.4x slower | Compute-bound: CUDA core DP4A ~50 TOPS vs tensor core ~96 TFLOPS on sm_89 |
-| MW WMMA Q4K (PMAT-045) | 235ms | 5.1x slower | Uncoalesced per-byte Q4K loads (`ld_global_u8`), low occupancy |
-| llama.cpp (target) | 12.1ms | 3.8x faster | Fused `mul_mat_q4_K` with tiled DP4A + cooperative loading |
+1. Why 0.62x aggregate? → DP4A GEMV is compute-bound at M=4 (2.425ms/token/slot).
+2. Why compute-bound? → Q4K dequant requires ~70 instructions per super-block. At M=4, 4× independent DP4A accumulation chains saturate INT32 units.
+3. Why not tensor cores? → PMAT-088b FALSIFIED: HGEMM at M=4 reads 3.5x more BW (FP16 2 B/elem vs Q4K 0.5625) — tensor core savings don't compensate. Both approaches tested identically (256 vs 261 aggregate).
+4. Why not CUDA graphs? → PMAT-088b FALSIFIED: Graph replay 3ms SLOWER (654 kernels, frozen attention grids, RoPE positions). Eager is optimal.
+5. Why does llama.cpp reach 338.6? → Same DP4A kernel architecture but ~34% more efficient per-step (11.3ms vs 15.1ms ITL). Root cause: fewer dequant instructions + no shared memory management overhead.
 
-**Analysis:**
-- **DP4A GEMM fails** because CUDA core INT32 throughput (50 TOPS) is ~2x less than FP16 tensor core throughput (96 TFLOPS) on sm_89. Even with 3.5x BW savings, the compute deficit makes DP4A slower than HGEMM at M=125.
-- **MW WMMA fails** because Phase 2 (Q4K dequant) does 512 individual `ld_global_u8` calls — completely uncoalesced. The dequant cost exceeds the BW savings from reading Q4K vs FP16. Additionally, Phase 1 reads activations as FP32 (4 B/elem), making total bandwidth WORSE than HGEMM (4.56 vs 4.0 B/elem).
-- **FP8 cuBLASLt succeeds** at the GEMM level (reasonable per-layer output values) but E4M3's 3-bit mantissa introduces ~12.5% relative error per element, which compounds across 28 transformer layers to produce garbled text. Needs per-tensor scaling or FP8 E5M2 for weights.
-- **L2 dequant fails** because per-matmul Q4K→FP16 kernel launch overhead (dequant + write) exceeds the DRAM BW savings from L2-cached HGEMM reads.
+**Root cause:** Per-step kernel efficiency gap (1.34x). DP4A ceiling at M=4 = 306 tok/s; realizr at 257.4 = 84% of ceiling. llama.cpp exceeds theoretical model due to more efficient Q4K dequant.
 
-**Fix (revised):** PMAT-071 has two viable paths:
-1. **FP8 with per-tensor scaling** — Scale weights to fill E4M3 dynamic range, compensate in GEMM alpha. Needs cuBLASLt scale descriptor support. Expected: ~32ms TTFT. Priority: **high** (lowest engineering effort).
-2. **Cooperative WMMA kernel** — Complete rewrite of MW WMMA with: (a) cooperative coalesced Q4K super-block loading to SHMEM, (b) Q8 activation loading instead of FP32, (c) 64×64 output tiles with 8 warps. Expected: ~15-20ms TTFT. Priority: **medium** (multi-week effort).
+**Fix:** PMAT-072/073/074/088 (continuous batching) are DONE. Remaining improvement path:
+- **Kernel optimization:** Reduce Q4K dequant instruction count (trueno GEMV kernel, ~20→5 insn for scale extraction)
+- **Chunked prefill:** Interleave prefill chunks with decode to reduce TTFT at c=4 (41→~20ms)
+- **W4A16 tensor core GEMM:** INT4 storage + FP16 compute (Marlin-style) — breaks DP4A ceiling entirely
 
-**Falsification:** If FP8 with per-tensor scaling produces correct output (cosine similarity >0.999 vs HGEMM) AND TTFT ≤ 35ms, Path 1 is confirmed. If scaling cannot fix precision, Path 2 is required.
+#### Gap 3: c=4 aggregate 0.35x vs vLLM (210.8 vs 598.0 tok/s)
 
-#### Gap 2: c=4 aggregate 0.67x (197.5 vs 296.5 tok/s llama.cpp)
+**Five-Whys (updated for PMAT-088):**
 
-**Five-Whys:**
+1. Why 2.8x gap to vLLM? → vLLM c=4 decode barely degrades from c=1 (162 vs 168, -4%). realizr degrades 53% (72.4 vs 154.8).
+2. Why does realizr degrade? → DP4A GEMV compute-bound at M>1 (4× accumulation chains). vLLM Marlin kernel maintains M=1 efficiency at M=4 via tensor core HMMA.
+3. Why doesn't vLLM degrade? → W4A16 architecture: INT4 weight storage + FP16 tensor core compute. Memory-bound even at M=4 (reads INT4, computes FP16). PagedAttention: <4% memory waste.
+4. Why can't realizr do this? → Q4K format requires scalar dequant to Q8_1 before DP4A. No INT4→FP16 in-kernel dequant path.
+5. Why no Marlin-style kernel? → Requires offline INT4 weight reshuffling + FP16 activation path + HMMA PTX. Multi-week implementation (PMAT-054B).
 
-1. Why is c=4 aggregate 0.67x? → Batches process sequentially with no overlap between batches.
-2. Why sequential? → `model.write()` RwLock held for entire batch lifetime (prefill + all decode steps, ~2.7s for M=4).
-3. Why held so long? → `process_cuda_batch()` in `cuda_batch_scheduler.rs:174` acquires lock, calls `generate_batched_streaming()` which does prefill→decode→cleanup as a monolithic operation.
-4. Why can't requests overlap? → New requests enqueued in mpsc channel cannot start prefill until previous batch completes. Finished slots cannot exit early.
-5. Why monolithic? → Initial implementation prioritized correctness — single lock ensures no concurrent CUDA state mutation. KV cache IS already partitioned per-slot, but scheduler doesn't exploit this.
+**Root cause:** Architectural — DP4A Q4K GEMV becomes compute-bound at M>1, while vLLM's Marlin W4A16 stays memory-bound. The 2.8x gap is primarily kernel architecture, not scheduling (realizr's iteration scheduler + recycling are now functional).
 
-**Root cause:** Batch-then-wait scheduler. `model.write()` held for ~2.7s blocks all new requests. No continuous batching — slots can't join/leave mid-batch.
+**Fix path:** W4A16 tensor core GEMM kernel (PMAT-054B) is the only approach that breaks the DP4A ceiling. All scheduling improvements (PMAT-072→088) are complete and yielded 257.4 tok/s (84% of DP4A ceiling).
 
-**Fix:** Three phases, each independently shippable:
-- **PMAT-072 Phase 1 (DONE):** Decouple prefill/decode lock scope — release lock between decode steps (19ms hold vs 2700ms). Refactored `generate_batched_streaming` into step-wise API: `batched_setup_and_prefill` → `batched_decode_step` (loop) → `batched_cleanup`. Scheduler releases lock between decode steps. **Result:** 196.9 tok/s (baseline 197.5) — lock release alone does NOT improve throughput because single scheduler thread has no concurrent consumer. This is a **structural prerequisite** for PMAT-073, not a standalone improvement.
-- **PMAT-073 Phase 2:** Mid-batch joins — pending requests join active batch at next decode step. Batched GEMV already supports variable M (1-32). Target: ~350 aggregate. **DONE** — 3 bugs fixed: GPU buffer padding, RwLock contention in HTTP handler, m=1 fast path preserved. Mid-batch joins verified working (4 joins during c=4 benchmark). No throughput gain at c=4 because probador sends all 4 simultaneously → initial batch is already 4. Gains expected at c>4 or staggered c=2-3.
-- **PMAT-074 Phase 3:** Mid-batch exits — finished slots recycled immediately for next pending request. True continuous batching. Target: ~450 aggregate. **DONE** — `recycle_slot()` method reuses finished slot indices (KV overwrite, state replacement). 159 recycling events in single 31s batch. Heterogeneous traffic (mixed max_tokens 16-128, c=8): 216 tok/s (+10% vs uniform 197). Uniform traffic (probador max_tokens=128): no gain because all slots finish simultaneously. No regressions: c=1=138.8, c=4=196.7.
-
-**Falsification (PMAT-072 result):** Phase 1 lock release did NOT improve aggregate (196.9 ≈ 197.5), confirming the falsification condition: "aggregate stays <220 tok/s" → bottleneck is NOT lock scope alone but the absence of mid-batch scheduling. Phase 2 is the critical path for actual throughput gains.
-
-#### Gap 3: c=4 aggregate 0.33x vs vLLM (197.5 vs 604.7 tok/s)
-
-**Five-Whys:**
-
-1. Why 3.1x gap to vLLM? → vLLM per-slot decode barely degrades at c=4 (154.5 vs 159.7 c=1 = -3%). realizr degrades 62% (52.2 vs 138.6 c=1).
-2. Why does realizr degrade? → Sequential prefill (4 × ~130ms = 520ms under lock) + serialized decode (128.5ms TTFT eating throughput budget).
-3. Why doesn't vLLM degrade? → Continuous batching: new requests join running batch, prefill interleaved with decode. PagedAttention: dynamic KV memory allocation.
-4. Why can't realizr do this? → Monolithic `generate_batched_streaming()` owns the full lifecycle. No mechanism for mid-generation slot management.
-5. Why architectural gap? → vLLM's scheduler is a dedicated component (~3K LOC) separate from the model executor. realizr's scheduler is 185 LOC wrapping a generate function.
-
-**Root cause:** Architectural — realizr lacks a true scheduling layer. Closing fully requires both Gap 1 fix (faster prefill via fused Q4K GEMM) and Gap 2 fix (continuous batching scheduler).
-
-**Expected trajectory with fixes:**
+**Trajectory (actual, PMAT-072→088 all DONE):**
 ```
-Current:        197.5 aggregate tok/s (0.33x vLLM)
-+ PMAT-072:     197.5 (lock release alone — no improvement, structural prerequisite) ✓ DONE
-+ PMAT-071:     ~220 (faster prefill → shorter TTFT)
-+ PMAT-073:     197.4 (mid-batch joins DONE — no gain at c=4 when all arrive together) ✓ DONE
-+ PMAT-074:     216.4 (slot recycling DONE — +10% with heterogeneous traffic, no gain with uniform) ✓ DONE
-Theoretical:    ~550 (4 × 138 decode, overhead)
-vLLM:           604.7
+Pre-CB:         197.5 aggregate tok/s (0.33x vLLM)
++ PMAT-072:     197.5 (lock release — structural prerequisite) ✓
++ PMAT-073:     197.4 (mid-batch joins — no gain when all arrive together) ✓
++ PMAT-074:     216.4 (slot recycling — +10% heterogeneous traffic) ✓
++ PMAT-088a:    232.7 (iteration scheduler — +10.4%) ✓
++ PMAT-088c/d:  257.4 (batch recycling + multi-prompt — 84% of DP4A ceiling) ✓
+DP4A ceiling:   306 tok/s (M=4, compute-bound)
+vLLM AWQ:       598.0 (W4A16 tensor core GEMM, fundamentally different arch)
 ```
 
-The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our DP4A Q4K GEMV — a kernel-level optimization, not architectural.
+**All scheduling improvements exhausted.** Reaching vLLM-class aggregate requires W4A16 tensor core GEMM (Marlin-style kernel, PMAT-054B) — the DP4A ceiling is structural.
 
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
@@ -543,10 +518,10 @@ remaining lever for aggregate throughput.
 
 ### Jetson Orin Root Cause Analysis (Updated Mar 12, 2026)
 
-**Decode parity ACHIEVED (Mar 8, PMAT-040).** realizr 36.3 tok/s vs llama.cpp 33.1 tok/s
-— **10% faster** after flash decode chunk_size fix. The remaining gap is entirely prefill:
-449 vs 2492 tok/s (5.5x), TTFT 227ms vs 41ms. Jetson sm_87 cannot use FP8 prefill (requires
-sm_89+), so prefill uses cuBLAS HGEMM from dequantized FP16 weights.
+**Decode parity ACHIEVED (Mar 8, PMAT-040).** realizr 40.8 tok/s vs llama.cpp 36.1 tok/s
+— **13% faster** after flash decode chunk_size fix + MAXN_SUPER power mode (1020 MHz GPU).
+TTFT: 47.8ms vs 34.0ms (1.4x, PASS < 2x target). Jetson sm_87 cannot use FP8 prefill
+(requires sm_89+), so prefill uses cuBLAS HGEMM from on-demand FP16 weight cache.
 
 **Five-Whys: realizr 1816ms prefill vs llama.cpp 41ms on Orin (44x gap, post-PMAT-024)**
 
@@ -1675,19 +1650,23 @@ For full hypothesis definitions, F-tests, pre-flight controls, and QA checklist,
 | PMAT-016 | — | APR Native GPU Regression RCA | ✅ Completed |
 | PMAT-017 | QWEN-014 | CUDA Graphs / Fusion (launch overhead) | Planned |
 | PMAT-018 | QWEN-015 | APR Native GPU Fix | ✅ Fixed (--skip-contract) |
-| PMAT-019 | GH #118 | **Q6K MWV GEMV kernel** (31.9% GPU time) | **Planned — 2-4x Q6K speedup** |
-| PMAT-020 | — | Jetson Orin load test migration | **In Progress** |
-| PMAT-021 | GH #121 | **DP4A Q4K default on Orin sm_87** | **Validated (+13%)** |
+| PMAT-019 | GH #118 | Q6K MWV GEMV kernel (31.9% GPU time) | ✅ Completed (+22% on Jetson) |
+| PMAT-020 | — | Jetson Orin load test migration | ✅ Completed |
+| PMAT-021 | GH #121 | DP4A Q4K default on Orin sm_87 | ✅ Completed (+13%) |
 | PMAT-022 | GH #118 | Q6K MWV GEMV default (was 442µs single-warp) | ✅ Done (MWV default, Refs #118) |
-| PMAT-023 | — | **Batched prefill default (DONE)** | ✅ DONE (148x → 86x gap) |
-| PMAT-024 | — | **Prefill GEMM kernel (cuBLAS, 3542ms → target <100ms)** | **NEW — #1 PRIORITY (86x gap)** |
+| PMAT-023 | — | Batched prefill default | ✅ Completed (TTFT 7.2s→816ms, 9x) |
+| PMAT-024 | — | Prefill GEMM kernel (cuBLAS FP8) | ✅ Completed (TTFT 13.4ms, 1.33x llama.cpp) |
 | PMAT-025 | GH-176 | `.maxnreg 255` PTX directive (no impact — 34 regs) | ✅ Done (no perf change) |
-| PMAT-026 | GH-176 | **Half-warp DP4A Q4K GEMV** (16 thr/SB, 7.0 insn/val) | **✅ DONE (+66.5%, 1.19x gap)** |
-| PMAT-027 | GH-176 | **BrickProfiler Immediate sync** (real GPU timing in cbtop) | **✅ DONE (cbtop JSON grade "R")** |
-| PMAT-028 | — | **LmHead Q6K GEMV optimization** (25.7% of decode on Orin, n=151936) | **NEW — #1 PRIORITY (Orin)** |
-| PMAT-029 | — | **Vectorized byte-mask scale extraction** (Q4K compute→memory bound) | **NEW — #1 PRIORITY (4090)** |
-| PMAT-070 | CORRECTNESS-013 | **Batched decode frozen slots** (c=4 slots 1-3 constant tokens) | **NEW — #0 PRIORITY (CORRECTNESS)** |
-| PMAT-071 | — | **Wire FALSIFY-CB-006** (`probador llm test` c=1 vs c=4 equivalence) | **NEW — blocks PMAT-070** |
+| PMAT-026 | GH-176 | Half-warp DP4A Q4K GEMV (16 thr/SB, 7.0 insn/val) | ✅ Done (+66.5%) |
+| PMAT-027 | GH-176 | BrickProfiler Immediate sync (real GPU timing in cbtop) | ✅ Done |
+| PMAT-028 | — | LmHead Q6K GEMV optimization (25.7% of decode on Orin) | ✅ Completed (Q8 smem cache) |
+| PMAT-029 | — | Vectorized byte-mask scale extraction (Q4K compute→memory) | Planned |
+| PMAT-070 | CORRECTNESS-013 | Batched decode frozen slots (stream 0 race) | ✅ Fixed (commit 6f75ec3) |
+| PMAT-071 | — | Wire FALSIFY-CB-006 (`probador llm test` c=1 vs c=4) | ✅ Completed |
+| PMAT-085 | — | Batch window + deferred graph clear (TTFT 21→15ms) | ✅ Completed |
+| PMAT-086 | — | cuBLASLt descriptor caching + non-blocking drain (TTFT 15→14ms) | ✅ Completed |
+| PMAT-087 | — | Clock correction 1500→1900 MHz (yoga baselines) | ✅ Completed |
+| PMAT-088 | — | Iteration scheduler + batch recycling (c=4 aggregate) | ✅ Completed |
 
 For full ticket YAML definitions and pre-commit protocol, see [pmat-work-tickets.md](./components/pmat-work-tickets.md).
 
