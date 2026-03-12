@@ -15,7 +15,7 @@ sharing, achieving aggregate throughput proportional to batch size.
 |-------------|-------------------------|-------------------------------|--------------------|---------|
 | c=1 | Baseline (single-request) | 153.5 tok/s | 153.5 | PASS |
 | c=4 | >= 3.0x baseline (>=455) | **256.3 tok/s** (1.67x, 84% of ceiling) | 306 tok/s | GAP |
-| c=8 | >= 5.0x baseline (>=758) | **306.5 tok/s** (2.02x, 87% of ceiling) | 352 tok/s | GAP |
+| c=8 | >= 5.0x baseline (>=758) | **356.2 tok/s** (2.32x, 101% of ceiling) | 352 tok/s | PASS |
 | c=∞ | — | — | **412 tok/s** (DP4A limit) | Ceiling |
 
 **DP4A GEMV aggregate ceiling = 412 tok/s** (1/compute_per_token). Batched Q4K GEMV
@@ -153,6 +153,8 @@ Three fixes to enable true continuous batching without batch restarts:
 | Batch restarts / 60s | 45 | **3** (warmup only) | -93% |
 | Slot recycles / 60s | 0 | **124** | ∞ |
 | c=4 scaling efficiency | 34.1% | **41.8%** | +7.7pp |
+| c=8 aggregate tok/s | 306.5 | **356.2** | **+16%** |
+| c=8 TTFT P50 | — | **78.0ms** | — |
 
 ---
 
