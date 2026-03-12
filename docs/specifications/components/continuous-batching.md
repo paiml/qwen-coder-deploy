@@ -11,10 +11,10 @@
 Serve M=2..32 concurrent `/v1/chat/completions` requests with true weight
 sharing, achieving aggregate throughput proportional to batch size.
 
-| Concurrency | Target (aggregate tok/s) | Current (Mar 11, PMAT-088b) | Theoretical Ceiling | Status |
+| Concurrency | Target (aggregate tok/s) | Current (Mar 12, PMAT-088c) | Theoretical Ceiling | Status |
 |-------------|-------------------------|-------------------------------|--------------------|---------|
 | c=1 | Baseline (single-request) | 151.6 tok/s | 151.6 | PASS |
-| c=4 | >= 3.0x baseline (>=455) | 234.0 tok/s (1.54x, 76% of ceiling) | 306 tok/s | GAP |
+| c=4 | >= 3.0x baseline (>=455) | 221.7 tok/s (1.46x, 72% of ceiling) | 306 tok/s | GAP |
 | c=8 | >= 5.0x baseline (>=758) | **306.5 tok/s** (2.02x, 87% of ceiling) | 352 tok/s | GAP |
 | c=∞ | — | — | **412 tok/s** (DP4A limit) | Ceiling |
 
@@ -116,6 +116,11 @@ classes of buffer length mismatch when M changes between iterations.
    M=4 capacity. Fix: exact-size reallocation (`!=`), logical size for hidden_buf2.
 3. **KV ptr/seq_lens** (M vs max_M): High-water-mark buffers. Fix: `copy_from_host_at(0)`
    for sync copies, `from_raw_parts` exact-M views for async copies.
+4. **Argmax results buffer** (M vs prev-M): `batched_argmax_results` grow-only allocation
+   kept M=4 capacity; `copy_to_host` in `batched_gpu_argmax` (par-062.rs) compared host=M
+   vs device=prev_M. Fix: `from_raw_parts(ptr, m)` exact-M view before D2H copy.
+   **Root cause of persistent c=4 failure** — reduces.rs was an orphan file; actual code
+   was in par-062.rs (included from forward_workspace_captured.rs).
 
 **Root cause of remaining gap (CORRECTED, PMAT-088b):** ~~Attention KV scaling~~ is NOT
 the bottleneck. Attention reads 14 MB = 2.8% of weight BW (491 MB). The actual bottleneck
