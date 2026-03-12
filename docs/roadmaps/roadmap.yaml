@@ -1197,6 +1197,37 @@ roadmap:
     dominates. Key implication: realizr is positioned for high-concurrency workloads
     (production API servers typically run c=8-32). The c=4 gap is structural (DP4A
     ceiling at M=4, 85% reached) but becomes irrelevant at production concurrency.
+- id: PMAT-100
+  github_issue: null
+  item_type: analysis
+  title: 'PMAT-100: Prompt-profile characterization — TTFT scales linearly, long prompts -23% aggregate'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T23:59:00Z
+  updated: 2026-03-12T23:59:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Characterize TTFT and throughput across 3+ prompt profiles — DONE'
+  - 'AC2: Identify if staggered prefill helps at longer prompts — DONE: +13.6% TTFT at long'
+  phases:
+  - name: 'Phase 1: Benchmark short/medium/long at c=1 and c=4'
+    status: completed
+  - name: 'Phase 2: Re-test staggered prefill across profiles'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - benchmark
+  - prefill
+  - characterization
+  notes: |
+    First systematic prompt-length characterization. Key findings:
+    c=1 decode barely affected by prompt length (148.9→146.6, -1.5%).
+    c=4 aggregate drops 23.5% from short→long (270.8→207.2).
+    Two causes: TTFT eats generation time (4.6x increase), ITL increases 23%
+    from larger KV caches. Staggered prefill crossover at ~medium length.
+    Chunked prefill (H-CB5) is the right solution for long-prompt TTFT.
 - id: PMAT-099
   github_issue: null
   item_type: optimization
