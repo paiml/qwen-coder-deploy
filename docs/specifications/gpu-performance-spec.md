@@ -144,24 +144,26 @@ TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 pre
 
 **c=4 gap: 0.74x aggregate (realizr vs llama.cpp), 0.44x vs vLLM.** DP4A GEMV ceiling at M=4 = 306 tok/s — realizr at 259.7 = 85% of ceiling. Need W4A16 tensor core GEMM to break ceiling. vLLM dominates via Marlin W4A16 + PagedAttention.
 
-**Concurrency scaling crossover — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-098):**
+**Concurrency scaling crossover — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-101):**
 
-| c | realizr tok/s | llama.cpp tok/s | Ratio | Mechanism |
-|---|--------------|----------------|-------|-----------|
-| 1 | 148.5 | 161.7 | 0.92x | DP4A GEMV (both) |
-| 4 | 259.7 | 348.7 | 0.74x | DP4A ceiling (M=4) |
-| 5 | 306.1 | 384.4 | 0.80x | **FP8 threshold** (PMAT-093) |
-| 6 | 346.9 | 404.3 | 0.86x | FP8 tensor core scaling |
-| 7 | 394.2 | 404.7 | **0.97x** | llama.cpp ceiling |
-| 8 | **447.8** | 414.3 | **1.08x** | **realizr WINS** |
+| c | realizr tok/s | llama.cpp tok/s | Ratio | realizr ITL | llama.cpp ITL | Mechanism |
+|---|--------------|----------------|-------|------------|--------------|-----------|
+| 1 | 148.9* | 162.0* | 0.92x | 6.7ms | 6.2ms | DP4A GEMV (both) |
+| 4 | 270.8 | 349.2 | 0.78x | 14.5ms | 11.2ms | DP4A ceiling (M=4) |
+| 5 | 313.9 | 375.4 | 0.84x | 15.4ms | 12.9ms | **FP8 threshold** (PMAT-093) |
+| 6 | 367.8 | 405.0 | 0.91x | 16.0ms | 14.6ms | FP8 tensor core scaling |
+| 7 | 410.2 | 404.5 | **1.01x** | **16.7ms** | **16.7ms** | **ITL parity — crossover** |
+| 8 | **463.5** | 416.6 | **1.11x** | 16.8ms | 18.9ms | **realizr WINS** |
 
-**Key insight:** llama.cpp aggregate flattens at c=6-7 (~404 tok/s ceiling) — Q4K GEMV scales linearly with M. realizr keeps climbing via FP8 tensor cores (+14%/step from c=5→8). **Crossover at c≈7.5.** At c>=8, realizr's FP8 cuBLASLt GEMM (1 B/elem, tensor cores) beats llama.cpp's Q4K GEMV (0.56 B/elem, scalar DP4A) despite reading 1.78x more weight data — tensor core throughput dominates.
+*c=1 uses decode tok/s (aggregate = decode at c=1)
 
-**Cross-platform decode summary (c=1, isolated, streaming):**
+**Key insight:** llama.cpp aggregate flattens at c=6-7 (~405 tok/s ceiling) — Q4K DP4A GEMV compute-bound scaling. realizr keeps climbing via FP8 tensor cores (+13% from c=7→8). **Exact crossover at c=7** (ITL parity: 16.7ms = 16.7ms). At c>=7, realizr's FP8 cuBLASLt GEMM (1 B/elem, tensor cores) beats llama.cpp's Q4K GEMV (0.56 B/elem, scalar DP4A) despite reading 1.78x more weight data — tensor core throughput dominates. c=4 gap decomposition: 3.3ms ITL overhead (29%) from no CUDA graphs in batched path + kernel launch overhead.
+
+**Cross-platform decode summary (c=1, isolated, streaming, short prompt):**
 
 | Platform | vLLM | realizr | llama.cpp | ollama |
 |----------|------|---------|-----------|--------|
-| **RTX 4060 Laptop** (24 SMs, 1900MHz) | 153.6 | 148.5 | **161.7** | — |
+| **RTX 4060 Laptop** (24 SMs, 1900MHz) | 153.6 | 148.9 | **162.0** | — |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | **40.8** | 36.1 | — |
 
