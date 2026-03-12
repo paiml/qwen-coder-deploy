@@ -132,7 +132,7 @@ Phase 2 redesigned: HGEMM crossover at M>1 + CUDA graph for M>1.
 
 | Phase | PMAT | Status | Expected Impact |
 |-------|------|--------|----------------|
-| **P2: M>1 CUDA graph** | PMAT-088b | HGEMM **FALSIFIED** (H-CB9) | Graph save ~1ms (~1.08x) |
+| **P2: M>1 CUDA graph** | PMAT-088b | **CLOSED** — HGEMM falsified (H-CB9), graph falsified (H-CB11) | Graph 3ms SLOWER than eager |
 | P3: Chunked prefill | PMAT-088c | Planned | TTFT at c=4 = c=1 |
 | P4: Paged KV cache | PMAT-088d | Planned | <4% memory waste, enable c>4 |
 
@@ -147,6 +147,7 @@ Phase 2 redesigned: HGEMM crossover at M>1 + CUDA graph for M>1.
 | H-CB8 | **CONFIRMED** | +10.4% aggregate from waiting queue integration (initial +21.9% inflated by retries). |
 | H-CB9 | **FALSIFIED** | Three variants tested at 1900 MHz: full HGEMM 256.0, hybrid 260.5, DP4A 261.5 aggregate. FP16 3.5x BW penalty not compensated by tensor cores at M=4. |
 | H-CB10 | **CONFIRMED** | Attention is 2.8% of BW — GEMV compute (DP4A) is the actual bottleneck. |
+| H-CB11 | **FALSIFIED** | Batched CUDA graph 3ms SLOWER than eager (18.1ms vs 15.1ms ITL). 654 launches/step = 2.6ms overhead, but attention grid dims frozen at capture (dummy seq_lens=1). |
 
 ---
 

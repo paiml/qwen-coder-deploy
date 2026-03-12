@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.35.0
+**Version:** 2.36.0
 **Status:** ACTIVE
-**Date:** 2026-03-11
+**Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -475,7 +475,7 @@ The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our D
 4. Why no CUDA graphs? → `BATCHED_GRAPH=1` tested 25% slower (PMAT-056). Disabled by default. The capture overhead occurs per-batch, not amortized across decode steps.
 5. Why 25% slower with graphs? → Graph capture forces cuBLAS workspace-free algorithms (same root cause as PMAT-059 prefill). But batched decode uses DP4A GEMV (custom PTX, not cuBLAS) — the 25% overhead needs re-investigation. Hypothesis: workspace buffer address instability between graph captures, not algorithm selection.
 
-**Root cause:** Kernel launch overhead dominates at M=4. The batched decode path fires ~280 kernel launches per step without graph amortization, adding ~5ms (28% of 19.2ms ITL). L2 cache spreading (+12%) and batched attention scaling compound the regression.
+**Root cause:** Kernel launch overhead is significant at M=4. The batched decode path fires **654 kernel launches per step** (23 per layer × 28 layers + 10 final) without graph amortization, adding ~2.6ms (17% of 15.1ms ITL). L2 cache spreading (+12%) and batched attention scaling compound the regression. CUDA graph for M>1 was attempted (PMAT-088b) but FALSIFIED (H-CB11): graph replay is 3ms slower than eager due to frozen attention grid dimensions.
 
 **Fix (PMAT-075) — IMPLEMENTED, FALSIFIED:** Infrastructure for stable graph reuse across batches is complete. Three changes: (1) `batched_cleanup` preserves workspace buffers (PAR-200 skip path sets batch_size=1 without reallocation), (2) `batched_cleanup` preserves KV caches and auxiliary pointer buffers (addresses stable for graph reuse), (3) `init_batched_kv_cache_gpu` skips auxiliary buffer reallocation when KV caches are preserved. Latent bug fixed: `init_prefill_workspace` now clears batched decode graphs on reallocation (previously only cleared M=1 decode graph). VRAM: FP16(2944)+KV(896)+Q4K(850)+WS(40) = 4730 MB fits 7.5 GB RTX 4060L.
 
@@ -483,7 +483,7 @@ The remaining ~550 vs 604.7 gap would be vLLM's AWQ INT4 Marlin kernels vs our D
 
 **Falsification outcome:** BATCHED_GRAPH=1 gives ITL 22.0ms > 19.2ms → kernel launch overhead is NOT the dominant source of the M=4 decode regression. The 2.67× per-slot degradation is primarily from batched attention scaling (4× more KV entries per head) and L2 cache working set pressure, not kernel launch overhead. The ~280 launches per step contribute ~0.8ms (4% of ITL) vs the hypothesized ~5ms (28%). Graph overhead (5 synchronous H2D copies + graph dispatch) adds ~2.8ms that outweighs the launch savings. Root cause of graph overhead requires nsys profiling.
 
-**Revised five-whys:** Why is batched decode 2.67× slower per slot? → Batched attention reads 4× more KV entries (confirmed: scales with M). Why does batched graph make it worse? → Graph replay has inherent dispatch overhead + 5 synchronous `cuMemcpyHtoD` calls per step. Why are the copies synchronous? → `GpuBuffer::copy_from_host` uses `cuMemcpyHtoD` (stream 0, blocks host). Next: investigate async copies or combined pinned-memory upload to eliminate per-call overhead.
+**Revised five-whys (Mar 12):** Why is batched decode 2.67× slower per slot? → Batched GEMV compute scales linearly with M (DP4A chains, H-CB10 CONFIRMED). Why does batched graph make it worse? → Attention kernel grid dimensions (proportional to seq_len) are frozen at capture time. Graph captured with dummy seq_lens=1 replays with wrong grid size for seq_lens=128+. Additionally, 654 CUDA graph nodes create management overhead exceeding the launch savings. Both HGEMM crossover (H-CB9) and batched CUDA graph (H-CB11) are FALSIFIED. Next: chunked prefill (Phase 3) and trueno GEMV kernel optimization (Phase 2b).
 
 ##### Finding 2: Dead slot compute waste
 
@@ -811,7 +811,7 @@ Greedy sampling (temperature=0) uses GPU-side argmax (`gpu_argmax` in reduces.rs
 
 **Layer 3: CUDA Graph Capture & Replay (reduces.rs, graphed_capture.rs)**
 
-The first decode token triggers CUDA graph capture: `stream.begin_capture(Global)` → execute full transformer forward → `stream.end_capture()` → `graph.instantiate()`. This records ~280 kernel launches as a single replayable graph.
+The first decode token triggers CUDA graph capture: `stream.begin_capture(Global)` → execute full transformer forward → `stream.end_capture()` → `graph.instantiate()`. For M=1 this records ~280 kernel launches; for batched M>1 this records **654 kernel launches** (23 per layer × 28 layers + 10 final: rmsnorm, 4× fused QKV DP4A, 3× bias, 2× RoPE, 2× KV scatter, attention, output proj, residual, rmsnorm, 3× fused gate+up DP4A, SwiGLU, down proj, residual per layer + output norm + LM head + argmax).
 
 Subsequent tokens replay the captured graph:
 ```
@@ -823,7 +823,7 @@ Subsequent tokens replay the captured graph:
 6. cache.advance()                                          (CPU, negligible)
 ```
 
-**Why CUDA graphs matter:** Without graphs, 280 kernel launches × ~20µs each = 5.6ms overhead per token (16% of decode time). With graphs, one launch × ~10µs = 0.01ms — a 560× reduction in launch overhead.
+**Why CUDA graphs matter (M=1):** Without graphs, 280 kernel launches × ~20µs each = 5.6ms overhead per token (16% of decode time). With graphs, one launch × ~10µs = 0.01ms — a 560× reduction in launch overhead. **For batched M>1:** 654 launches × ~4µs = 2.6ms overhead (17% of 15.1ms ITL). However, batched CUDA graph is FALSIFIED (H-CB11) — attention grid dimensions frozen at capture time make the graph produce wrong results for varying seq_lens.
 
 **Trade-off:** Graph parameters are fixed at capture time. Changing sequence length requires re-capture (handled automatically). The KV cache position is updated via H2D copy (step 1), not baked into the graph.
 
@@ -1059,7 +1059,8 @@ compensated by tensor cores at M=4..8.
 | ∞ | ∞ | ceiling | — | — | 412 tok/s | 2.72x |
 
 Theoretical ceiling per M: `M / (2.56 + M × 2.425 + 0.8)` ms/step, where 2.56ms = weight BW
-(amortized), 2.425ms = DP4A compute per token, 0.8ms = kernel launch overhead. Efficiency
+(amortized), 2.425ms = DP4A compute per token, 2.6ms = kernel launch overhead (654 launches
+× ~4µs, revised from 0.8ms — see H-CB11). Efficiency
 improves with larger M because BW and launch costs amortize.
 
 **Comparative analysis (Mar 11) — llama.cpp uses DP4A too, but faster:**
@@ -1085,8 +1086,11 @@ is per-kernel efficiency and scheduling overhead:
    328ms/round stall). llama.cpp interleaves prefill+decode (18.6ms TTFT × 4 = 74ms/round).
    Sarathi-Serve chunked prefill would reduce our 14% overhead to ~5%.
 
-**Revised Phase 2-3 priorities:**
-- Phase 2a: CUDA graph for M>1 → save 0.8ms/step (15.1→14.3ms)
+**Revised Phase 2-3 priorities (updated Mar 12, PMAT-088b graph investigation):**
+- ~~Phase 2a: CUDA graph for M>1~~ → **FALSIFIED** (H-CB11). 654 kernel launches/step = 2.6ms
+  overhead (not 0.8ms as estimated), but graph replay is 3ms SLOWER than eager despite async
+  H2D fixes. Root cause: attention grid dimensions frozen at capture time (seq_lens=1 during
+  capture → wrong grid size during replay with seq_lens=128+). Fundamental redesign needed.
 - Phase 2b: Kernel optimization (trueno GEMV) → reduce compute/token from 2.43ms toward 1.94ms
 - Phase 3: Chunked prefill → reduce scheduling overhead from 14% to ~5%
 
@@ -1292,7 +1296,7 @@ from **GEMV compute scaling**, NOT attention KV reads. Profiling confirmed:
 - Attention KV reads at M=4: 14 MB total (2.8% of weight BW) — negligible
 - GEMV DP4A compute: 4× activation loads + 4× DP4A chains per weight row = 7.3ms extra
 - M=1 decode step: ~5.0ms (memory-bound, Q4K GEMV + CUDA graph)
-- M=4 decode step: ~13.3ms = 2.56ms BW + 9.7ms compute + 1ms launch overhead
+- M=4 decode step: ~13.3ms = 2.56ms BW + 8.1ms compute + 2.6ms launch overhead (654 launches)
 - Ratio: 2.66x per step (DP4A becomes compute-bound at M>1)
 
 **Corrected path forward (PMAT-088b, updated Mar 11):** The batched Q4K GEMV reads weights
@@ -1304,8 +1308,8 @@ BW penalty not compensated by tensor cores at M=4..8 on RTX 4060L.
 
 **llama.cpp comparative analysis:** llama.cpp also uses DP4A Q4K GEMV (MMVQ at M≤8), but
 achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
-(a) **CUDA graphs** (USE_GRAPHS=1): llama.cpp replays a single graph; we launch 196 kernels
-    eagerly (~0.8ms overhead). Fixing async H2D copies enables graphed M>1.
+(a) **CUDA graphs** (USE_GRAPHS=1): llama.cpp replays a single graph; we launch 654 kernels
+    eagerly (~2.6ms overhead). Batched graph FALSIFIED (H-CB11) — 3ms slower than eager.
 (b) **Kernel efficiency**: llama.cpp MMVQ compute/token ~1.94ms vs our 2.43ms (~25% faster).
     Their GEMV is more heavily optimized (years of community work). Closing this requires
     trueno GEMV kernel optimization.
@@ -1318,17 +1322,22 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | Phase | PMAT | Deliverable | Effort | Measured/Expected Impact |
 |-------|------|-------------|--------|------------------------|
 | **P1: Iteration scheduler** | PMAT-088a | Waiting queue + decode-maximal scheduling. Replace `BatchScheduler` with `IterationScheduler`. Keep contiguous KV cache. Variable-M bugfixes (3 classes). | 1 week | **DONE: +10.4% aggregate (210.8→232.7), 38.3% efficiency** |
-| **P2: M>1 CUDA graph + launch reduction** | PMAT-088b | HGEMM crossover **FALSIFIED** (H-CB9): FP16 3.5× BW penalty not compensated by tensor cores at M=4. Remaining: CUDA graph capture for batched M>1 path (save ~1ms launch overhead per step). Fix 5 async H2D copies that block graph capture. | 1 week | Expected: ~1.08x per-step speedup (13.3→~12.3ms) → ~250 aggregate |
+| **P2: M>1 CUDA graph + launch reduction** | PMAT-088b | HGEMM crossover **FALSIFIED** (H-CB9). Batched CUDA graph **FALSIFIED** (H-CB11): 654 kernel launches/step = 2.6ms overhead, but graph replay 3ms slower than eager. Root cause: attention kernel grid dimensions frozen at capture time (dummy seq_lens=1), positions/seq_lens cannot be runtime parameters in graph. Both interventions exhausted — Phase 2 closed. | 1 week | **FALSIFIED: graph adds 3ms overhead vs saving 2.6ms** |
 | **P3: Chunked prefill** | PMAT-088c | Prefill chunking with tile alignment. Mixed prefill+decode forward pass. | 1 week | Expected: TTFT at c=4 ≈ c=1, no generation stalls |
 | **P4: Paged KV cache** | PMAT-088d | BlockPool + KVCacheManager + block table indirection. Enable preemption. | 2 weeks | Expected: <4% memory waste, enable c>4 scaling |
 
-**Phase 2 status: HGEMM crossover falsified (H-CB9).** Phase 1 delivered +10.4% via scheduling.
-The dominant bottleneck is GEMV compute scaling (DP4A chains 4× at M=4). Three HGEMM variants
-tested — none beat DP4A baseline (best: 260.5 vs 261.5 tok/s). FP16's 3.5× BW penalty
-(2944 MB vs 850 MB weight reads) is not compensated by tensor core compute on RTX 4060L.
-**Remaining Phase 2 intervention:** CUDA graph for M>1 (eliminate ~1ms kernel launch overhead).
-Requires fixing 5 synchronous H2D copies (`cuMemcpyHtoD` during graph capture → `CUDA_ERROR_ILLEGAL_ADDRESS`).
-**Phase 3 (chunked prefill) is now the higher-impact next step** — reduces c=4 TTFT stalls.
+**Phase 2 status: CLOSED — both interventions falsified.**
+- H-CB9: HGEMM crossover falsified. Three variants tested — none beat DP4A (best: 260.5 vs 261.5).
+- H-CB11: Batched CUDA graph falsified. 654 launches/step = 2.6ms overhead (revised from 0.8ms).
+  Graph replay is 3ms SLOWER than eager despite 5 async H2D fixes. Root causes:
+  (1) Attention grid dimensions frozen at capture (dummy seq_lens=1 → wrong grid at replay).
+  (2) RoPE captured with dummy positions [0,1,...,M-1] → wrong rotation angles at replay.
+  (3) HGEMM guard (`!is_capturing`) forces DP4A during capture even when HGEMM active.
+  (4) 654-node graph management overhead exceeds launch savings.
+  Fundamental fix: refactor attention/RoPE kernels to read seq_lens/positions from device
+  buffers (not launch parameters) so graph grid dimensions are position-independent.
+  This is a multi-week refactor with uncertain payoff (~2.6ms best case, 17% of ITL).
+**Phase 3 (chunked prefill) is now the highest-impact next step** — reduces c=4 scheduling overhead from 14% to ~5%.
 **FlashAttention-2 de-prioritized**: attention reads are 14 MB vs 491 MB weights (<3% impact).
 
 ### Falsification Conditions
@@ -1341,7 +1350,8 @@ Requires fixing 5 synchronous H2D copies (`cuMemcpyHtoD` during graph capture �
 | H-CB7 | Per-slot M=1 matches c=1 throughput | Aggregate ≥ 0.8 × (M × c=1_tok/s) | **FALSIFIED.** 232.7 / 607.2 = 38.3% < 60% threshold. Weight BW amortization in batched GEMV is essential — M=1 per slot reads 4× more weight data. |
 | H-CB8 | Waiting queue integration improves scheduling | c=4 aggregate > baseline + 10% | **CONFIRMED.** 232.7 / 210.8 = +10.4%. Waiting queue drain reduces slot vacancy. Initial 256.9 (+21.9%) was inflated by error-retry cycles before variable-M bugfixes. |
 | H-CB9 | HGEMM crossover at M>1 beats Q4K DP4A | M=4 per-step time < 11ms (vs 13.3ms Q4K) | **FALSIFIED.** Three variants tested at 1900 MHz, c=4: (1) Full HGEMM: 256.0 aggregate, 13.6ms ITL (−2.1%). (2) Hybrid (fused QKV/gate+up DP4A, HGEMM output/down): 260.5 aggregate, 13.7ms ITL (−0.4%). (3) Baseline DP4A: 261.5 aggregate, 13.4ms ITL. FP16 weights read 3.5× more BW (2 B/elem vs Q4K 0.5625 B/elem) — tensor core compute savings do NOT compensate on RTX 4060L at M=4. PMAT-062 confound resolved: re-enabling fused gate+up does not change the conclusion. |
-| H-CB10 | M=4 penalty is from GEMV compute, not attention | Attention ≤ 5% of M=4 forward time | **CONFIRMED.** Attention KV reads = 14 MB / 491 MB weight BW = 2.8%. M=4 step 13.3ms decomposed: 2.56ms BW + 9.7ms compute + 1ms launches. |
+| H-CB10 | M=4 penalty is from GEMV compute, not attention | Attention ≤ 5% of M=4 forward time | **CONFIRMED.** Attention KV reads = 14 MB / 491 MB weight BW = 2.8%. M=4 step 13.3ms decomposed: 2.56ms BW + 8.1ms compute + 2.6ms launches. |
+| H-CB11 | Batched CUDA graph saves 2.6ms launch overhead | M>1 graph replay ITL ≤ eager ITL − 1ms | **FALSIFIED.** Graph replay is 3ms SLOWER than eager (18.1ms vs 15.1ms ITL). 654 kernel launches/step = 2.6ms theoretical savings. Root causes: (1) Attention grid dims frozen at capture with dummy seq_lens=1 (real replay has seq_lens=128+). (2) RoPE positions frozen at [0,1,...,M-1]. (3) 654-node graph management overhead. Fix requires position-independent kernel grid designs — multi-week refactor with uncertain payoff. |
 
 ### Academic References (added)
 
@@ -1760,6 +1770,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.36.0 | 2026-03-12 | **PMAT-088b H-CB11 FALSIFIED: Batched CUDA graph 3ms SLOWER than eager.** 654 kernel launches/step (23/layer × 28 + 10 final) = 2.6ms overhead (revised from 0.8ms). Graph replay 18.1ms vs eager 15.1ms ITL despite async H2D fixes. Root causes: (1) attention grid dims frozen at capture (dummy seq_lens=1 → wrong grid for seq_lens=128+), (2) RoPE positions frozen at [0,...,M-1], (3) 654-node graph management overhead, (4) HGEMM guard blocks cuBLAS during capture. Phase 2 CLOSED — both HGEMM (H-CB9) and CUDA graph (H-CB11) falsified. Revised priorities: Phase 2b (trueno GEMV kernel optimization) and Phase 3 (chunked prefill) are the remaining impactful interventions. Theoretical model corrected: launch overhead 2.6ms not 0.8ms. |
 | 2.35.0 | 2026-03-11 | **PMAT-088b comparative analysis: llama.cpp also uses DP4A but 34% faster per-step.** First proper comparative benchmark with llama.cpp --parallel 8. llama.cpp c=4: 353.0 aggregate (11.3ms ITL), c=8: 414.1 (19.3ms ITL). Two sources of gap: (1) Per-step compute 1.34× slower (compute/token 2.43ms vs 1.94ms, kernel efficiency + no CUDA graphs). (2) Scheduling overhead 14% vs 5% (sequential prefill 82ms/slot vs llama.cpp 18.6ms). HGEMM crossover FALSIFIED (H-CB9) — both runtimes use DP4A at M≤8, gap is kernel efficiency not architecture. Revised Phase 2: (a) CUDA graph for M>1 (~0.8ms/step), (b) trueno GEMV optimization, (c) chunked prefill (reduce 14%→5% scheduling overhead). |
 | 2.34.0 | 2026-03-11 | **PMAT-088b scaling analysis: DP4A aggregate ceiling = 412 tok/s.** First c=8 benchmarks with iteration scheduler (max_slots=8): 306.5 aggregate (2.02x c=1), 87% of theoretical ceiling, 21.9ms ITL. Theoretical model: `M / (2.56 + M×2.425 + 0.8)` tok/s — compute per token (2.425ms DP4A) is the binding constraint. The 3.0x c=4 target (455 tok/s) exceeds the DP4A ceiling (306 at M=4, 412 at M→∞). Reaching 3x requires W4A16 tensor core GEMM (like vLLM AWQ: Q4 storage + FP16 compute). c=16 with max_slots=16 hits CUDA_ERROR_ILLEGAL_ADDRESS during prefill (KV cache reuse bug — separate ticket). Updated forjar-yoga-realizr.yaml with ITERATION_SCHEDULER=1, CUDA_MAX_BATCH=8. |
 | 2.33.0 | 2026-03-11 | **PMAT-088b H-CB9 FALSIFIED: HGEMM crossover does NOT beat DP4A at M=4.** Three variants tested at 1900 MHz on RTX 4060L: (1) Full HGEMM: 256.0 aggregate, 13.6ms ITL (−2.1%). (2) Hybrid (fused QKV/gate+up DP4A + HGEMM output/down): 260.5 aggregate, 13.7ms ITL (−0.4%). (3) Baseline DP4A: 261.5 aggregate, 13.4ms ITL. FP16 weights (2 B/elem, 2944 MB) cost 3.5× more BW than Q4K (0.5625 B/elem, 850 MB) — tensor core compute savings do not compensate. PMAT-062 confound resolved: re-enabling fused gate+up does not change conclusion. Phase 2 redesigned: HGEMM dropped, remaining intervention is CUDA graph for M>1 (~1ms launch savings). Phase 3 (chunked prefill) elevated to higher priority. Infrastructure preserved: FP16 cache warmup code env-gated (`HGEMM_BATCHED_DECODE=1`) for future experimentation. |
