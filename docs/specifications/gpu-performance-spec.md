@@ -532,9 +532,12 @@ Chunked prefill (PMAT-088e) would help for long prompts but short 125-token prom
 already fit in one chunk. Kernel optimization (reduce compute/token 2.43→1.94ms) is the
 remaining lever for aggregate throughput.
 
-### Jetson Orin Root Cause Analysis (Updated Mar 5, 2026)
+### Jetson Orin Root Cause Analysis (Updated Mar 12, 2026)
 
-**CRITICAL CORRECTION:** SSE streaming reveals the real bottleneck is **prefill**, not decode. Previous non-streaming measurement (7.8 vs 31.9 tok/s = "4.1x gap") blended both phases. After PMAT-023 (batched prefill default), prefill gap is 18.6x (was 148x with serial prefill).
+**Decode parity ACHIEVED (Mar 8, PMAT-040).** realizr 36.3 tok/s vs llama.cpp 33.1 tok/s
+— **10% faster** after flash decode chunk_size fix. The remaining gap is entirely prefill:
+449 vs 2492 tok/s (5.5x), TTFT 227ms vs 41ms. Jetson sm_87 cannot use FP8 prefill (requires
+sm_89+), so prefill uses cuBLAS HGEMM from dequantized FP16 weights.
 
 **Five-Whys: realizr 1816ms prefill vs llama.cpp 41ms on Orin (44x gap, post-PMAT-024)**
 
@@ -554,15 +557,15 @@ remaining lever for aggregate throughput.
 4. Why mismatch? → generate_2.rs already defaulted to `true`; generate_1.rs was not updated
 5. Why now? → Jetson SSE streaming benchmarks exposed the prefill bottleneck that 4090 masked
 
-**Five-Whys: realizr 36.0ms/token decode vs llama.cpp 30.2ms/token (1.19x gap) — UPDATED Mar 6 post GH-176 HW DP4A + real BrickProfiler**
+**Five-Whys: realizr 36.0ms/token decode vs llama.cpp 30.2ms/token (1.19x gap) — UPDATED Mar 8 post PMAT-040 flash decode fix**
 
-1. Why 1.19x slower decode? → BrickProfiler (Immediate sync) shows **LmHead 25.7%**, **FFN Down 25.4%**, **FFN Gate 23.1%** of decode time. These three bricks account for 74.2%.
-2. Why is LmHead #1? → Single Q6K GEMV with n=151,936, k=1536. 10,948µs per call — massive output dimension, called once per token (not per layer).
-3. Why are FFN gate/down expensive? → 28 layers × ~370µs each. Q4K GEMV with k=8960 (gate) and n=1536, k=8960 (down). Two separate GEMVs per layer.
-4. Why can't fused gate/up help? → PAR-077 attempt was 3x SLOWER. Gate and up share input but fused kernel doubles register pressure.
-5. Why not just use cuBLAS for M=1? → cuBLAS GEMV for quantized formats requires dequant + SGEMV, which is slower than fused quantized GEMV for small M.
+1. Why was decode 1.19x slower? → BrickProfiler showed **LmHead 25.7%** of decode time (Q6K GEMV n=151,936).
+2. Why is LmHead #1? → Single Q6K GEMV with n=151,936, k=1536. 10,948µs per call.
+3. Why are FFN gate/down expensive? → 28 layers × ~370µs each. Q4K GEMV with k=8960.
 
-**Resolution**: GH-176 half-warp DP4A Q4K: 16.7→27.8 tok/s (+66.5%). Gap 1.93x→1.19x. Remaining 1.19x gap dominated by LmHead Q6K GEMV (25.7% of decode). Next: optimize LmHead path (Q6K n=151936).
+**Resolution (PMAT-040, Mar 8)**: Flash Decode chunk_size 128→32 fix (sequences <128 got 1 chunk = zero split-K parallelism). **realizr now 10% FASTER than llama.cpp on Jetson**: 36.3 vs 33.1 tok/s, 27.6ms vs 30.2ms ITL. Decode gap CLOSED.
+
+**Remaining gap: Prefill 5.5x** (449 vs 2492 tok/s, TTFT 227ms vs 41ms). Jetson sm_87 has no FP8 E4M3 (requires sm_89+), so prefill uses cuBLAS HGEMM from dequantized FP16 weights — 3.5x more BW than llama.cpp's fused Q4K GEMM.
 
 **Five-Whys: RTX 4090 decode gap — 2.70x → 1.71x (80/20 fix: HW DP4A Q4K)**
 
