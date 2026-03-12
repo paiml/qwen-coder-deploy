@@ -1197,6 +1197,39 @@ roadmap:
     dominates. Key implication: realizr is positioned for high-concurrency workloads
     (production API servers typically run c=8-32). The c=4 gap is structural (DP4A
     ceiling at M=4, 85% reached) but becomes irrelevant at production concurrency.
+- id: PMAT-099
+  github_issue: null
+  item_type: optimization
+  title: 'PMAT-099: Staggered prefill — FALSIFIED for short prompts (+10% TTFT, −1.5% aggregate)'
+  status: falsified
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T23:59:00Z
+  updated: 2026-03-12T23:59:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Staggered TTFT <= non-staggered at c=4 — FAILED: 84.3ms vs 76.6ms (+10%)'
+  - 'AC2: Staggered aggregate >= non-staggered at c=4 — FAILED: 239.5 vs 243.2 (−1.5%)'
+  phases:
+  - name: 'Phase 1: Implement staggered prefill in cuda_batch_scheduler'
+    status: completed
+  - name: 'Phase 2: Benchmark short prompts (yoga, c=4) — FALSIFIED'
+    status: completed
+  - name: 'Phase 3: Long prompt benchmark (>500 tokens) — PENDING'
+    status: not_started
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - prefill
+  - scheduling
+  - falsified
+  notes: |
+    Per-slot add_slot_to_batch overhead (~14ms: workspace reinit + prefill + graph clear)
+    exceeds batched multi-prompt prefill cost (~20ms total for M=4 short prompts).
+    Staggered path: 20ms + 3×14ms = 62ms vs non-staggered 20ms all-at-once.
+    May win for long prompts (>500 tokens) where batched prefill scales with M×prompt_len.
+    Default ON with STAGGERED_PREFILL=0 override. Also discovered: --batch CLI flag is
+    broken (routes to CPU inference). NaN bug not reproduced (0/92 at c=8).
 - id: PMAT-054B
   github_issue: null
   item_type: optimization
