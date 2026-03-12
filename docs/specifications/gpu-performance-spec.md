@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.39.0
+**Version:** 2.40.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -41,9 +41,11 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 4, 2026 — 4090):** Under standardized load testing (c=4, 60s), realizar achieves **151.4 tok/s** (GGUF) vs llama.cpp **931.5 tok/s** and ollama **561.6 tok/s** — a **3.7x gap** to Ollama. Decode bottleneck at ~40 tok/s (c=4), ~270 tok/s raw per-token (DECODE_TIMING). Root cause: Q6K GEMV kernel uses 1-warp (32 threads) vs Q4K's MWV 4-warp — Q6K is 4x slower per call, consuming 31.9% of GPU time (GH #118).
-
-**Next step:** Benchmarks moving to dedicated Jetson Orin; 4090 freed for full-time QLoRA training.
+**Competition Reality (Mar 12, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (c=1, 60s, streaming):
+- **Decode parity:** realizr 154.8 tok/s vs llama.cpp 160.7 (**0.96x**), vLLM 168.3, ollama 163.5
+- **TTFT parity:** realizr 13.4ms vs llama.cpp 10.1ms (**1.33x**, PASS < 2x target)
+- **c=4 aggregate:** realizr 210.8 vs llama.cpp 338.6 (0.62x) vs vLLM 598.0 (0.35x) — DP4A GEMV compute ceiling
+- **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -79,13 +81,17 @@ Token → Embedding → [RMSNorm → Attention → Residual → RMSNorm → FFN 
 ### Deployment Topology
 
 ```
-4090 Host (noah-Lambda-Vector)           Jetson Orin (jetson)
-├── QLoRA training (full-time)           ├── apr-gguf     :8081  (CUDA)
-├── Deep profiling (occasional):         ├── ollama       :8082  (CUDA)
-│   nsys-gpu, ncu-gpu, profile-gpu       ├── llama.cpp    :8083  (CUDA)
-│   apr profile, apr bench               ├── apr-apr      :8084  (CUDA)
-└── Builds: apr, llama.cpp, trueno       ├── apr-safetens :8085  (CUDA)
-                                         └── probador load tests (continuous)
+Yoga (PRIMARY benchmark target)          4090 Host (QLoRA training + deep profiling)
+├── realizr    :8081  (GGUF, CUDA)       ├── QLoRA fine-tuning (full-time)
+├── ollama     :8082  (GGUF, CUDA)       ├── Deep profiling (occasional):
+├── llama.cpp  :8083  (GGUF, CUDA)       │   nsys-gpu, ncu-gpu, profile-gpu
+├── vLLM       :8084  (AWQ INT4)         └── Builds: apr, llama.cpp, trueno
+└── RTX 4060 Laptop, sm_89, 8GB
+
+Jetson Orin (secondary load testing)
+├── realizr    :8081  (GGUF, CUDA)
+├── llama.cpp  :8083  (GGUF, CUDA)
+└── 8 SMs, sm_87, 8GB unified, MAXN_SUPER 1020MHz
 ```
 
 For architecture details (Qwen2 parameters, GQA ratios), see [baselines.md](./components/baselines.md#2-model-reference-qwen2qwen25-architecture).
@@ -146,7 +152,7 @@ TTFT: realizr 13.4ms vs llama.cpp 10.1ms = **1.33x** (PASS < 2x target). FP8 pre
 | ollama | **561.6** | **139.9** | 915 |
 | realizar (GGUF) | 151.4 | 40.8 | 2,530 |
 
-**Gap to parity (Jetson Orin, isolated, non-streaming v1):** realizr (7.8 tok/s) is **4.1x slower** than llama.cpp (31.9 tok/s) and **3.0x slower** than ollama (23.4 tok/s) at c=1. Zero throughput scaling at c=4 (RwLock contention). Batch mode OOM on 7.4 GB unified memory.
+**Jetson Orin (MAXN_SUPER 1020MHz, isolated, streaming):** realizr **40.8 tok/s** vs llama.cpp 36.1 = **13% FASTER** on decode. TTFT: 47.8ms vs 34.0ms = **1.4x** (PASS < 2x target). c=4 zero scaling benefit (8 SMs fully saturated at M=1).
 
 **CORRECTION (Mar 5 2026 — SSE streaming metrics):** Previous non-streaming measurement blended prefill + decode into a single tokens/sec figure. With SSE streaming (probador `--stream true`), we can now separate TTFT (prefill) from ITL/decode. **The decode gap is 1.9x, not 4.1x.** The dominant bottleneck is prefill (148x slower), not decode.
 
@@ -549,7 +555,7 @@ TTFT: 47.8ms vs 34.0ms (1.4x, PASS < 2x target). Jetson sm_87 cannot use FP8 pre
 
 **Resolution (PMAT-040, Mar 8)**: Flash Decode chunk_size 128→32 fix (sequences <128 got 1 chunk = zero split-K parallelism). **realizr now 13% FASTER than llama.cpp on Jetson**: 40.8 vs 36.1 tok/s, 24.5ms vs 27.7ms ITL (MAXN_SUPER 1020MHz, Mar 12). Decode gap CLOSED.
 
-**Remaining gap: Prefill 5.5x** (449 vs 2492 tok/s, TTFT 227ms vs 41ms). Jetson sm_87 has no FP8 E4M3 (requires sm_89+), so prefill uses cuBLAS HGEMM from dequantized FP16 weights — 3.5x more BW than llama.cpp's fused Q4K GEMM.
+**Remaining gap: Prefill 1.4x** (TTFT 47.8ms vs 34.0ms, MAXN_SUPER 1020MHz). Jetson sm_87 has no FP8 E4M3 (requires sm_89+), so prefill uses cuBLAS HGEMM from on-demand FP16 weight cache — 3.5x more BW than llama.cpp's fused Q4K GEMM. TTFT within 2x target (PASS).
 
 **Five-Whys: RTX 4090 decode gap — 2.70x → 1.71x (80/20 fix: HW DP4A Q4K)**
 
@@ -1353,40 +1359,39 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 6 2026 — post GH-176 HW DP4A + real BrickProfiler)
+### Tier Summary (Updated Mar 12 2026 — decode parity achieved, c=4 at DP4A ceiling)
 
-| Tier | Speedup Range | Items | Status |
-|------|---------------|-------|--------|
-| T0: Completed | Shipped | 6 fixes + PMAT-023/024/026 + GH-173/176 | ✅ Production |
-| **T0e: LmHead Q6K** | **~1.34x decode** | **LmHead GEMV optimization (25.7% of decode)** | **#1 PRIORITY** |
-| **T0f: FFN gate/down** | **~1.19x decode** | **Per-layer GEMV optimization (48.5% of decode)** | **#2 PRIORITY** |
-| **T0d: Fused Q4K GEMM** | **~25x prefill** | **Fused quantized GEMM (read Q4K directly, no dequant)** | **#3 PRIORITY** |
-| T1: Critical | 2-5x | SageAttention, EAGLE, CUDA graphs | Planned |
-| T2: High Impact | 1.5-2x | Marlin, DCA, KV quant, MInference | Mixed |
-| T3: Incremental | 1.1-1.5x | 3-way fusion | ✅ Mostly done |
+| Tier | Items | Status |
+|------|-------|--------|
+| T0: Decode parity | Fixes 1-6, GH-173/176, PMAT-040 (flash decode) | ✅ 0.96x llama.cpp |
+| T0: Prefill parity | PMAT-023/024/026, FP8 pipeline (PMAT-053b→086) | ✅ 1.33x llama.cpp (PASS < 2x) |
+| T0: Continuous batching | PMAT-072→074, 088a-d (iter scheduler, recycling) | ✅ 257.4 aggregate (84% of ceiling) |
+| **T1: W4A16 tensor core** | **Marlin-style INT4→FP16 GEMM** | **Planned — breaks DP4A ceiling** |
+| T1: Chunked prefill | Interleave prefill with decode | Planned — reduces c=4 TTFT |
+| T2: GEMV optimization | Q4K dequant instruction reduction (trueno) | Planned — closes 34% per-step gap |
+| T2: SageAttention INT8 | INT8 attention for long context | Planned |
+| T3: EAGLE speculative | Draft-then-verify 2-3x | Planned |
 
 ### Priority Matrix
 
-| ID | PMAT | Optimization | Speedup | Status |
-|----|------|--------------|---------|--------|
-| — | PMAT-023 | **Batched prefill default** | **9x TTFT** | **✅ DONE (148x → 18.6x gap)** |
-| — | PMAT-024 | **Prefill GEMM kernel (cuBLAS Q4K)** | **1.95x prefill** | **✅ DONE (86x→44x gap, Q4K only)** |
-| — | PMAT-026 | **Prefill GEMM for Q6K (cuBLAS dequant)** | **1.95x prefill** | **✅ DONE (86x→44x gap with Q4K+Q6K)** |
-| GH #118 | PMAT-019 | **Q6K MWV GEMV kernel** | **2-4x Q6K** | **Planned (31.9% GPU time)** |
-| — | PMAT-022 | **Q6K MWV as default** | **1.3x decode** | ✅ Code done (env var MWV_Q6K=1) |
-| QWEN-015 | PMAT-018 | APR native GPU fix | N/A | ✅ Fixed |
-| QWEN-014 | PMAT-017 | **Kernel launch overhead** | **2-5x** | **Planned (52.5% overhead)** |
-| QWEN-003 | PMAT-002 | SwiGLU GPU fusion | 1.5-2x | ✅ DONE |
-| QWEN-011 | PMAT-003 | GELU GPU fusion | 1.2x | ✅ DONE |
-| QWEN-013 | PMAT-004 | GPU RMSNorm+Residual | 1.3x | ✅ DONE |
-| QWEN-007 | PMAT-005 | KV cache quantization | 4x memory | ✅ DONE |
-| QWEN-010 | PMAT-007 | RTX 4090 tile tuning | 1.1x | ✅ DONE |
-| QWEN-009 | PMAT-006 | 3-way kernel fusion | 1.2x | ✅ Kernel done |
-| QWEN-001 | PMAT-008 | SageAttention INT8 | 2-3x | Planned |
-| QWEN-004 | PMAT-009 | EAGLE speculative | 2-3x | Planned |
-| QWEN-005 | PMAT-010 | Marlin-style GPTQ | 2.6x | Planned |
-| QWEN-006 | PMAT-011 | DCA long context | N/A | Planned |
-| QWEN-008 | PMAT-012 | MInference sparse | 3-6x prefill | Planned |
+| PMAT | Optimization | Impact | Status |
+|------|--------------|--------|--------|
+| PMAT-023 | Batched prefill default | 9x TTFT | ✅ DONE |
+| PMAT-024/026 | cuBLAS GEMM prefill (Q4K+Q6K) | 1.95x prefill | ✅ DONE |
+| PMAT-053b→086 | FP8 E4M3 prefill pipeline | TTFT 46→13.4ms | ✅ DONE |
+| PMAT-019/022 | Q6K MWV GEMV + default | +22% Jetson decode | ✅ DONE |
+| PMAT-028 | LmHead Q6K shared mem Q8 cache | Negligible on 4060L | ✅ DONE |
+| GH-176 | Half-warp DP4A Q4K (16 thr/SB) | +66.5% decode | ✅ DONE |
+| PMAT-040 | Flash decode chunk_size 128→32 | +55% 4090, +10% Jetson | ✅ DONE |
+| PMAT-072→074 | Continuous batching (3 phases) | +10% heterogeneous | ✅ DONE |
+| PMAT-088a-d | Iteration scheduler + batch recycling | 210→257 aggregate | ✅ DONE |
+| PMAT-087 | Clock correction 1500→1900 MHz | +11.7% decode | ✅ DONE |
+| PMAT-070 | CORRECTNESS-013 (stream 0 race) | Correctness fix | ✅ Fixed |
+| **PMAT-029** | **Q4K dequant instruction reduction** | **~20% per-step** | **Planned** |
+| **PMAT-054B** | **W4A16 Marlin-style GEMM** | **2-3x c=4 aggregate** | **Planned** |
+| PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
+| PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
+| PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
 
 For full tier descriptions with acceptance criteria and citations, see [optimization-tiers.md](./components/optimization-tiers.md).
 
@@ -1761,6 +1766,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.40.0 | 2026-03-12 | **Kaizen: Stale section cleanup.** Updated executive summary (decode parity achieved, 4-way benchmark), deployment topology (yoga PRIMARY, Jetson secondary, vLLM added), Jetson baselines (40.8/36.1 at MAXN_SUPER, TTFT 1.4x PASS), optimization roadmap tiers (decode parity + prefill parity + continuous batching all DONE, W4A16 is next), priority matrix (30 items → 16, completed items consolidated). Five-Whys and PMAT ticket table already updated in v2.39.0. |
 | 2.39.0 | 2026-03-12 | **Full doc update: yoga 1900MHz + Jetson MAXN_SUPER baselines across all specs.** Updated cross-platform decode table (4060L: 168.3/154.8/160.7/163.5 at 1900MHz). Updated performance.md (c=1 and c=4 sections with 1900MHz numbers). Updated README.md performance section. Updated gguf-decode.md (Jetson baselines 40.8/36.1, yoga 1900MHz, status: parity achieved). Updated gguf-prefill.md (status 1.33x yoga / 1.4x Jetson, PASS < 2x target). Updated baselines.md (8 thresholds refreshed, all passing). Updated perf-parity-spec.md to v3.24.0 (added Jetson as secondary test target, c=1 all PASS, Jetson c=4 zero-benefit documented). |
 | 2.38.0 | 2026-03-12 | **Jetson MAXN_SUPER correction + PTX JIT target fix.** Root cause of apparent -27% Jetson regression (36.3→26.6 tok/s): Jetson had reverted to 15W power mode (GPU 612 MHz) after reboot, NOT a code bug. Fixed: `nvpmodel -m 2` (MAXN_SUPER, GPU 1020 MHz). Also fixed trueno PTX JIT target clamping (trueno#184, commit 756c85f): Blackwell commit (a0b243a) incorrectly clamped ALL sm_major>7 to sm_70 — broke Jetson sm_87. Fixed to clamp at sm_90 (PTX 8.0 ceiling). **Updated Jetson baselines (MAXN_SUPER):** realizr 40.8 tok/s (+12.4%), llama.cpp 36.1 tok/s (+9.1%). Realizr now **13% faster** than llama.cpp on decode (was 10%). TTFT: 47.8ms vs 34.0ms (1.4x, was 5.5x). FP16 warmup OOMs on 8GB unified memory (non-fatal). c=4 batching provides zero benefit on 8 SMs. Added `jetson-maxn` resource to forjar-jetson-realizr.yaml for automatic power mode setup. |
 | 2.37.0 | 2026-03-12 | **PMAT-088d: Multi-prompt batch recycle — TTFT 63.6→60.7ms (-4.6%).** Replaced sequential `recycle_slot` (N × `run_prefill` + `force_workspace_reinit`) with single `prefill_multi_prompt` call using `slot_indices: Option<&[usize]>` for targeted KV scatter. N=1 recycle 17.3→16.3ms (-6%, no workspace reinit), N=2 batch 34.6→29.8ms (-14%, one weight read). 33% of recycles batched at N=2. c=4 aggregate 257.4 tok/s (84% of DP4A ceiling). TTFT bottleneck analysis: staggered slot finish pattern → reconnect(5ms) + decode wait(7.5ms) + recycle(16ms) + decode(15ms) = ~44ms typical, ~61ms P50. Further improvement requires chunked prefill or dual-stream prefill. H-CB14 CONFIRMED (modest). |
