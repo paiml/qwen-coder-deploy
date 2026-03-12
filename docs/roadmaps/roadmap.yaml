@@ -1036,3 +1036,31 @@ roadmap:
     c=4 M=4: 258.5 (DP4A) vs 235.0 (FP8-always) = +10%
     c=8 M=8: 447.4 (FP8) vs 329.1 (DP4A-only) = +36%
     c=8 M=8: 447.4 (threshold) vs 405.6 (FP8-always) = +10%
+- id: PMAT-094
+  github_issue: null
+  item_type: task
+  title: 'PMAT-094: Scheduler comparison — cuda_batch_scheduler wins for short prompts'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-12T20:00:00Z
+  updated: 2026-03-12T20:30:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Iteration scheduler improves aggregate throughput — FALSIFIED (-4% c=8)'
+  - 'AC2: Iteration scheduler improves TTFT — FALSIFIED (+18% worse c=4)'
+  phases:
+  - name: 'Phase 1: Benchmark iteration scheduler at c=1, c=4, c=8'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - scheduler
+  - benchmark
+  notes: |
+    cuda_batch_scheduler wins for short prompts (23 tokens):
+    c=4: 258.5 vs 254.0 aggregate (+2%), 41.3 vs 50.4ms TTFT (+18%)
+    c=8: 447.4 vs 428.2 aggregate (+4%), 54.9 vs 61.4ms TTFT (+11%)
+    Root cause: Multi-prompt batched prefill (20ms for M=4) is cheaper than
+    3 sequential mid-batch joins (~14ms each). Iteration scheduler creates
+    variable-M transitions during ramp-up, preventing consistent FP8 dispatch.
