@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.48.0
+**Version:** 2.49.0
 **Status:** ACTIVE
 **Date:** 2026-03-12
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -44,8 +44,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 **Competition Reality (Mar 12, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (c=1, 60s, streaming):
 - **Decode parity:** realizr 154.8 tok/s vs llama.cpp 160.7 (**0.96x**), vLLM 168.3, ollama 163.5
 - **TTFT parity:** realizr 13.4ms vs llama.cpp 10.1ms (**1.33x**, PASS < 2x target)
-- **c=4 aggregate:** realizr 264.6 vs llama.cpp 338.6 (0.78x) vs vLLM 598.0 (0.44x) — FP8 decode breaks DP4A ceiling
-- **c=8 aggregate:** realizr 432.3 tok/s (FP8) vs 324.8 (DP4A) — **+33%**, tensor cores beat DP4A compute ceiling
+- **c=4 aggregate:** realizr 258.5 vs llama.cpp 338.6 (0.76x) vs vLLM 598.0 (0.43x) — DP4A fused at M=4 (PMAT-093)
+- **c=8 aggregate:** realizr 447.4 tok/s (FP8 M>=5) vs 329.1 (DP4A) — **+36%**, adaptive threshold beats both
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
 **Methodology:**
@@ -1390,9 +1390,10 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-070 | CORRECTNESS-013 (stream 0 race) | Correctness fix | ✅ Fixed |
 | PMAT-029 | Q4K dequant instruction reduction | 108→93 insn/SB (no decode impact) | ✅ DONE (memory-bound, no throughput gain) |
 | PMAT-089 | Q4K block size + warp reduction | Both FALSIFIED (no impact) | ✅ DONE (4 warps: -2% regpressure; parallel reduce: 0%) |
-| PMAT-090 | FP8 cuBLASLt batched decode (M≥2) | +4.3% c=4, **+33% c=8** | ✅ DONE (breaks DP4A compute ceiling at high M) |
+| PMAT-090 | FP8 cuBLASLt batched decode (M≥2) | +4.3% c=4, **+33% c=8** | ✅ DONE (superseded by PMAT-093 threshold) |
 | PMAT-091 | W4A16 coalesced WMMA GEMM | **FALSIFIED** (3.5x slower) | Custom PTX WMMA underperforms FP8/DP4A — needs double-buffer, k-tiling |
 | PMAT-092 | Fused batched residual+RMSNorm | **FALSIFIED** (-5% c=4) | Restricts CTA parallelism (1,M) vs (6,M); residual fits L2, extra pass free |
+| PMAT-093 | FP8 decode threshold M>=5 | **+10% c=4, +10% c=8** | ✅ DONE (DP4A fused at M<=4, FP8 tensor cores at M>=5) |
 | **PMAT-054B** | **W4A16 Marlin-style GEMM** | **2-3x c=4 aggregate** | **Planned** |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
@@ -1771,6 +1772,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.49.0 | 2026-03-12 | **PMAT-093: FP8 decode threshold M>=5 — best-of-both-worlds CONFIRMED.** Hypothesis: FP8 per-projection overhead (absmax + convert + GEMM + rescale = 4 launches) cancels tensor core gains at M<=4 where DP4A fused paths have fewer launches. Threshold raised from M>=2 to M>=5. Code: `cublas_prefill.rs` guard changed `m >= 2` → `m >= 5`, `batched_ffn.rs` fused gate+up guard changed from `!self.gpu_profile.fp8_decode` to `!fp8_will_fire` (where `fp8_will_fire = fp8_decode && m >= 5`). **Benchmarks (yoga 4060L, 1900MHz, 60s, isolated):** c=1: 148.5 decode (no change, M=1 uses neither). c=4 (M=4, DP4A): 258.5 aggregate (+10% vs FP8-always 235.0). c=8 (M=8, FP8): 447.4 aggregate (+10% vs FP8-always 405.6, +36% vs DP4A-only 329.1). Key insight: at M=4, DP4A fused QKV+gate+up saves ~8 launches/layer vs FP8 individual projections (14 vs 22 launches). At M>=5, tensor core BW (256 TOPS FP8 vs ~50 TOPS DP4A equivalent) dominates the launch count difference. realizr commit 8784347. |
 | 2.48.0 | 2026-03-12 | **PMAT-092 FALSIFIED: Fused batched residual+RMSNorm 5% slower.** Hypothesis: fusing `batched_residual_add_into` + `batched_rmsnorm_ptr_into` into single `BatchedFusedResidualRmsNormKernel` saves 28 launches/step, improving c=4. Implementation: trueno kernel (Grid (1,M) 256 threads, 8-warp smem reduction). Pass 1: load residual+input, store sum, accumulate sq_sum. Pass 2: normalize from sum via rms_inv. Results (yoga 4060L, 1900MHz, 60s, isolated): c=4 235.0 aggregate (baseline 235.0 with revert = same — earlier 248 was from different binary). **Root cause**: Fused kernel restricts to (1,M) grid for RMSNorm reduction, losing 6x CTA parallelism vs separate residual_add (ceil(1536/256),M) = (6,M) grid. For hidden_dim=1536, residual buffer is 6KB/batch — fits entirely in L2 cache (48MB on RTX 4060L), so the extra memory round-trip between kernels is effectively free (~0μs). **Lesson**: Kernel fusion only helps when intermediate data exceeds L2 cache or when launch overhead dominates. For small hidden dims and modern GPUs with large L2, separate memory-bound kernels outperform fused compute-constrained kernels. Reverted to separate kernels. Kernel retained in trueno for potential use on Jetson (smaller L2). |
 | 2.47.0 | 2026-03-12 | **PMAT-091 Phase 4 FALSIFIED: W4A16 interleaved WMMA 3.5× SLOWER than FP8 baseline.** Benchmark (yoga 4060L, 1900MHz, 60s, isolated, c=4): W4A16 71.4 aggregate / 18.8 decode / 53.3ms ITL vs baseline 248.2 aggregate / 64.3 decode / 15.6ms ITL. step_ms=50.5 (W4A16) vs ~15ms (FP8/DP4A). **Root cause analysis**: Custom PTX WMMA kernel is dramatically underperforming — expected, as first implementation lacks: (1) shared memory double-buffering for A/B tiles, (2) k-dimension tiling to amortize WMMA overhead, (3) proper register management for 4-warp occupancy. The coalescing fix (interleaved layout) is correct in principle but the WMMA compute path itself is too slow. **Key insight**: cuBLAS FP8 GEMM already provides tensor core acceleration with 1 B/elem BW — the benefit of W4A16 (0.5625 B/elem) requires a highly optimized WMMA implementation to overcome the dequantization overhead. Default remains OFF. Next step: profile individual WMMA kernel to identify bottleneck (register pressure vs shared memory bank conflicts vs WMMA utilization). |
 | 2.46.0 | 2026-03-12 | **PMAT-091 Phase 3 complete: W4A16 wired into realizr batched decode.** Phase 3 (realizr 92cc697): `GpuProfile.w4a16_interleaved` detection (default OFF, `W4A16_INTERLEAVED=1`), `InterleavedWmmaQ4KGemm` kernel type + PTX generation, `interleaved_weight_cache` HashMap for repacked Q4K tiles, `warmup_interleaved_cache()` at model init (download Q4K → CPU repack → re-upload), dispatch guard in `batched_gemv_or_gemm()` for M>=2 Q4K. trueno re-export fix (2ec833a): `repack_q4k_interleaved` accessible from `trueno_gpu::kernels::`. All 3 code phases complete — Phase 4: benchmark on yoga. |

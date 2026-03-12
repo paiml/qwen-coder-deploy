@@ -1002,4 +1002,37 @@ roadmap:
     residual buffer (6KB) fits in L2 cache — extra memory round-trip is free.
     c=4: 235.0 vs 235.0 (revert baseline) = no impact from fusion itself.
     Earlier 248.0 baseline was from a different binary build.
-  notes: null
+- id: PMAT-093
+  github_issue: null
+  item_type: task
+  title: 'PMAT-093: FP8 decode threshold M>=5 — best-of-both-worlds CONFIRMED'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-12T18:00:00Z
+  updated: 2026-03-12T19:30:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=4 aggregate >= DP4A-only baseline (242) — CONFIRMED: 258.5 (+7%)'
+  - 'AC2: c=8 aggregate >= FP8-always baseline (405) — CONFIRMED: 447.4 (+10%)'
+  - 'AC3: c=1 no regression — CONFIRMED: 148.5 tok/s'
+  phases:
+  - name: 'Phase 1: A/B benchmark FP8 vs DP4A at c=4 and c=8'
+    status: completed
+  - name: 'Phase 2: Code change (cublas_prefill.rs m>=5, batched_ffn.rs fp8_will_fire)'
+    status: completed
+  - name: 'Phase 3: Benchmark PMAT-093 threshold (realizr 8784347)'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - fp8
+  - threshold
+  - decode
+  notes: |
+    FP8 per-projection overhead (4 launches: absmax+convert+GEMM+rescale) cancels
+    tensor core gains at M<=4. DP4A fused QKV+gate+up has ~14 launches/layer vs
+    FP8's ~22. At M>=5, tensor core BW dominates conversion cost.
+    c=4 M=4: 258.5 (DP4A) vs 235.0 (FP8-always) = +10%
+    c=8 M=8: 447.4 (FP8) vs 329.1 (DP4A-only) = +36%
+    c=8 M=8: 447.4 (threshold) vs 405.6 (FP8-always) = +10%
