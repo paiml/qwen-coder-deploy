@@ -1443,6 +1443,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-096 | M=1 FP32 Q4K GEMV (bypass Q8) | **FALSIFIED** (1.8x slower) | MWV 82.8 vs HwDp4a 148.5 — DP4A compute advantage dominates at M=1 |
 | PMAT-097 | Adaptive batch wait (recent_batch_gt1) | **TTFT P99.9: 1889→42.8ms** | ✅ DONE (44x tail reduction, zero c=1 overhead) |
 | **PMAT-054B** | **W4A16 WMMA pre-computed scales** | **FALSIFIED** (1.78x slower at M=4) | Pre-computed FP16 scales cut gap from 3.5x (PMAT-091) to 1.78x, but WMMA 32×32 tiles waste 87.5% compute at M=4. DP4A GEMV remains optimal for M<=8. |
+| PMAT-098 | Concurrency crossover analysis | realizr **1.08x at c=8** | ✅ DONE (crossover at c≈7.5, FP8 tensor cores vs DP4A ceiling) |
+| **PMAT-099** | **Staggered prefill** | **FALSIFIED** (+10% TTFT at c=4) | Per-slot join overhead (14ms×3) > batched prefill (20ms). May win for long prompts. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
