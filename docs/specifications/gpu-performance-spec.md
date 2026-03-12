@@ -1393,7 +1393,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | T0: Continuous batching | PMAT-072→074, 088a-d (iter scheduler, recycling) | ✅ 257.4 aggregate (84% of ceiling) |
 | **T1: W4A16 tensor core** | **Marlin-style INT4→FP16 GEMM** | **Planned — breaks DP4A ceiling** |
 | T1: Chunked prefill | Interleave prefill with decode | Planned — reduces c=4 TTFT |
-| T2: GEMV optimization | Q4K dequant instruction reduction (trueno) | Planned — closes 34% per-step gap |
+| ~~T2: GEMV optimization~~ | ~~Q4K dequant instruction reduction~~ | ~~DONE~~ (5.8 insn/value, 2.1x better than llama.cpp — PMAT-029/033/039) |
 | T2: SageAttention INT8 | INT8 attention for long context | Planned |
 | T3: EAGLE speculative | Draft-then-verify 2-3x | Planned |
 
