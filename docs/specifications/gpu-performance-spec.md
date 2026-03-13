@@ -603,6 +603,8 @@ FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=
 
 **Key insight:** realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat or _improves_ at c=4-8 medium (+2.8%, +2.9%) but **collapses at c=16 medium (−51.3%)**. 16 slots × 102 tokens = 1,632 KV entries overwhelm llama.cpp's cuBLAS GEMM cache tiling. **realizr's advantage INCREASES at high concurrency + medium prompts** (1.10x→1.49x). This is the opposite of the c=4 story.
 
+**Scoring paradox (probador llm score, medium prompts):** Despite 49% higher aggregate at c=16, realizr scores 59 C vs llama.cpp 61 C+ — because TTFT (278ms, score 13) drags the composite below llama.cpp's TTFT (29.7ms, score 93). TTFT weight is 15%, so the 80-point TTFT gap costs 12 composite points. At c=8: realizr 60 C+ vs llama.cpp 56 C (aggregate advantage dominates). **The scoring methodology appropriately penalizes TTFT regression** — users notice latency even when throughput is higher. The fused Q4K→GEMM fix would simultaneously close TTFT gap and improve aggregate, lifting all dimensions.
+
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
 **PMAT-072/073/074 complete. Continuous batching (join, recycle, step-wise decode) delivered only +10% (197→216). The theoretical maximum at M=4 is ~550 tok/s (4 × 138). Three root causes explain the 2.55× shortfall.**
