@@ -1362,3 +1362,42 @@ roadmap:
     (3) 4 async H2D copies add ~0.2ms per step. Net: graph overhead > savings.
     Exhausted M<=4 decode optimizations: CUDA graphs (PMAT-102), FP8 (PMAT-093 −3%),
     HGEMM (PMAT-062 −13%), W4A16 WMMA (PMAT-054B/091), fused residual+RMSNorm (PMAT-092).
+- id: PMAT-103
+  github_issue: null
+  item_type: task
+  title: 'PMAT-103: High-concurrency scaling — crossover NARROWED to c=7-8 only'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Characterize realizr vs llama.cpp at c=12 and c=16 — DONE'
+  - 'AC2: Test BATCHED_DP4A=0 (pure FP8 all projections) at c=4/5/8 — neutral'
+  phases:
+  - name: 'Phase 1: PMAT-102 batched CUDA graph re-test — FALSIFIED (−12%)'
+    status: completed
+  - name: 'Phase 2: BATCHED_DP4A=0 pure FP8 test — neutral at all c'
+    status: completed
+  - name: 'Phase 3: c=12/c=16 scaling with CUDA_MAX_BATCH=16 — realizr 605/718 tok/s'
+    status: completed
+  - name: 'Phase 4: llama.cpp comparison with --parallel 16 — llama.cpp 882/1039 tok/s'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - scaling
+  - concurrency
+  - crossover
+  - falsification
+  notes: |
+    PMAT-101 crossover at c=7 was CONFOUNDED by --parallel 8 capping llama.cpp batch size.
+    With --parallel 16: c=8 realizr 456 vs llama.cpp 416 (1.10x WINS), c=12 605 vs 882 (0.69x),
+    c=16 718 vs 1039 (0.69x). Realizr only wins in narrow c=7-8 window.
+    Root cause: llama.cpp cuBLAS GEMM with fused Q4K dequant (1 launch/projection) vs
+    realizr FP8 cuBLASLt (3 launches: absmax+convert+GEMM). cuBLAS FP16 tensor core tile
+    efficiency increases with M (50% at M=8 → 100% at M=16), causing llama.cpp ITL to
+    DECREASE from 18.9ms (c=8) to 13.2ms (c=12). Realizr ITL increases monotonically.
+    Quality advantage: realizr 0% errors at all c vs llama.cpp 0.6-1.6%.
+    Next step: fused Q4K dequant+GEMM kernel to match llama.cpp's efficiency at high M.

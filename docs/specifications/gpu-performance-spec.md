@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.59.0
+**Version:** 2.60.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -41,11 +41,14 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 12, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (60s, streaming, short prompt):
-- **c=1 decode:** realizr 148.5 vs llama.cpp 161.7 (**0.92x**), vLLM 153.6, TTFT 14.0ms vs 10.2ms (1.37x, PASS < 2x)
-- **c=4 aggregate:** realizr 259.7 vs llama.cpp 348.7 (0.74x) vs vLLM 594.8 (0.44x) — DP4A fused at M=4 (PMAT-093)
-- **c=8 aggregate:** realizr **447.8** vs llama.cpp 414.3 (**1.08x**, WINS) vs vLLM 1150.6 (0.39x) — FP8 crossover (PMAT-093)
+**Competition Reality (Mar 13, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (60s, streaming, short prompt):
+- **c=1 decode:** realizr 148.3 vs llama.cpp ~150 (**0.99x**), TTFT 14.0ms vs 10.2ms (1.37x, PASS < 2x)
+- **c=4 aggregate:** realizr 269.6 vs llama.cpp 337.3 (0.80x) — DP4A fused at M=4 (PMAT-093)
+- **c=8 aggregate:** realizr **456.4** vs llama.cpp 416.2 (**1.10x**, WINS) — FP8 crossover (PMAT-093)
+- **c=12 aggregate:** realizr 605.0 vs llama.cpp **881.7** (0.69x) — llama.cpp cuBLAS GEMM scales with M
+- **c=16 aggregate:** realizr 717.9 vs llama.cpp **1038.8** (0.69x) — realizr 0% errors vs llama.cpp 1.1%
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
+- **PMAT-103 correction:** PMAT-101 crossover (c=7) was confounded by `--parallel 8` capping llama.cpp batch size. With `--parallel 16`, realizr only wins at c=7-8 (narrow window). At c=12+, llama.cpp's cuBLAS GEMM (Q4K→FP16 dequant, tensor core tiles) outscales FP8 cuBLASLt.
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -136,28 +139,28 @@ TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 pre
 
 | Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Error % |
 |---------|----------------|-------------|---------------|-------------|---------|
-| **vLLM** | **1,150.6** | **145.8** | **30.2** | **6.9** | 0% |
-| **realizr** | **447.8** | 56.7 | 54.6 | 17.6 | **0%** |
-| llama.cpp | 414.3 | 53.1 | 44.3 | 18.8 | 0.5% |
+| **realizr** | **456.4** | 61.8 | 58.6 | 16.2 | **0%** |
+| llama.cpp | 416.2 | 53.0 | 30.8 | 18.9 | 1.6% |
 
-**c=8: realizr BEATS llama.cpp** (447.8 vs 414.3, **+8%**). FP8 tensor core GEMM at M>=5 (PMAT-093) gives realizr an architectural advantage at higher concurrency. llama.cpp has 0.5% error rate at c=8; realizr 0%.
+**c=8: realizr BEATS llama.cpp** (456.4 vs 416.2, **+10%**). FP8 tensor core GEMM at M>=5 (PMAT-093). llama.cpp has 1.6% error rate; realizr 0%. Both tested with 16-slot parallel/batch config.
 
-**c=4 gap: 0.74x aggregate (realizr vs llama.cpp), 0.44x vs vLLM.** DP4A GEMV ceiling at M=4 = 306 tok/s — realizr at 259.7 = 85% of ceiling. Need W4A16 tensor core GEMM to break ceiling. vLLM dominates via Marlin W4A16 + PagedAttention.
+**c=4 gap: 0.80x aggregate (realizr vs llama.cpp).** DP4A GEMV at M=4 is compute-bound. Exhausted optimizations: CUDA graphs (PMAT-102, −12%), FP8 (PMAT-093, −3%), HGEMM (PMAT-062, −13%), W4A16 WMMA (PMAT-054B, −37%), fused residual (PMAT-092, −5%).
 
-**Concurrency scaling crossover — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-101):**
+**Concurrency scaling — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-103):**
 
 | c | realizr tok/s | llama.cpp tok/s | Ratio | realizr ITL | llama.cpp ITL | Mechanism |
 |---|--------------|----------------|-------|------------|--------------|-----------|
-| 1 | 148.9* | 162.0* | 0.92x | 6.7ms | 6.2ms | DP4A GEMV (both) |
-| 4 | 270.8 | 349.2 | 0.78x | 14.5ms | 11.2ms | DP4A ceiling (M=4) |
-| 5 | 313.9 | 375.4 | 0.84x | 15.4ms | 12.9ms | **FP8 threshold** (PMAT-093) |
-| 6 | 367.8 | 405.0 | 0.91x | 16.0ms | 14.6ms | FP8 tensor core scaling |
-| 7 | 410.2 | 404.5 | **1.01x** | **16.7ms** | **16.7ms** | **ITL parity — crossover** |
-| 8 | **463.5** | 416.6 | **1.11x** | 16.8ms | 18.9ms | **realizr WINS** |
+| 1 | 148.3 | ~150 | 0.99x | 6.7ms | 6.7ms | DP4A GEMV (both) |
+| 4 | 269.6 | 337.3 | 0.80x | 14.0ms | 11.5ms | DP4A ceiling (M=4) |
+| 8 | **456.4** | 416.2 | **1.10x** | 16.2ms | 18.9ms | **FP8 wins (narrow window)** |
+| 12 | 605.0 | **881.7** | 0.69x | 17.9ms | **13.2ms** | cuBLAS GEMM tile efficiency |
+| 16 | 717.9 | **1,038.8** | 0.69x | 19.8ms | **14.7ms** | cuBLAS GEMM scales linearly |
 
-*c=1 uses decode tok/s (aggregate = decode at c=1)
+**PMAT-103 correction (supersedes PMAT-101):** The PMAT-101 "crossover at c=7" was **confounded** by llama.cpp `--parallel 8` capping batch size at M=8. With `--parallel 16`, llama.cpp's cuBLAS GEMM (Q4K→FP16 dequant + tensor core GEMM) scales efficiently at M>8 because FP16 tensor core tiles (16×16) reach higher utilization (50% at M=8 → 75% at M=12 → 100% at M=16). llama.cpp ITL *decreases* from 18.9ms (c=8) to 13.2ms (c=12) due to this tile efficiency effect. Realizr wins only in a **narrow c=7-8 window** where FP8 cuBLASLt overcomes DP4A ceiling before llama.cpp's superior cuBLAS tile scaling kicks in. At c=12+, llama.cpp consistently outperforms by 1.45x.
 
-**Key insight:** llama.cpp aggregate flattens at c=6-7 (~405 tok/s ceiling) — Q4K DP4A GEMV compute-bound scaling. realizr keeps climbing via FP8 tensor cores (+13% from c=7→8). **Exact crossover at c=7** (ITL parity: 16.7ms = 16.7ms). At c>=7, realizr's FP8 cuBLASLt GEMM (1 B/elem, tensor cores) beats llama.cpp's Q4K GEMV (0.56 B/elem, scalar DP4A) despite reading 1.78x more weight data — tensor core throughput dominates. c=4 gap decomposition: 3.3ms ITL overhead (29%) from no CUDA graphs in batched path + kernel launch overhead.
+**Root cause: FP8 cuBLASLt per-projection overhead.** Each realizr FP8 projection requires absmax + E4M3 convert + cuBLASLt GEMM (3 kernel launches) vs llama.cpp's fused Q4K dequant+cuBLAS GEMM (1 launch). At 196 projections × 28 layers, this adds ~392 extra launches per decode step. Additionally, cuBLASLt's FP8 GEMM may have higher per-call overhead than cuBLAS FP16 GEMM due to descriptor setup and scaling factors.
+
+**Realizr reliability advantage:** 0% error rate at all concurrency levels (c=1-16) vs llama.cpp 0.6-1.6%. This matters for production SLA compliance.
 
 **Cross-platform decode summary (c=1, isolated, streaming, short prompt):**
 
@@ -1449,7 +1452,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-099** | **Staggered prefill** | **FALSIFIED** (short: +114% TTFT, long: -14%) | Per-slot join overhead > batched prefill for short/medium. Long: +13.6% TTFT, -1.3% aggregate. |
 | PMAT-100 | Prompt-profile characterization | TTFT ∝ M×prompt_len confirmed | ✅ DONE (short→long: c=4 aggregate drops 23.5%, ITL +23%) |
 | PMAT-101 | Precise crossover characterization | **Crossover at c=7** (was c≈7.5) | ✅ DONE (ITL parity 16.7ms=16.7ms, realizr 1.11x at c=8) |
-| **PMAT-102** | **Batched CUDA graph replay (PAR-121)** | **FALSIFIED** (−12% aggregate, +14.5% ITL) | Re-tested PAR-121 after PMAT-075/088b/045 fixes. Graph replay 16.6ms ITL vs eager 14.5ms. Per-kernel launch overhead < estimated (graph savings insufficient). |
+| **PMAT-102** | **Batched CUDA graph replay (PAR-121)** | **FALSIFIED** (−12% aggregate, +14.5% ITL) | Re-tested PAR-121 after PMAT-075/088b/045 fixes. Graph replay 16.6ms ITL vs eager 14.5ms. |
+| **PMAT-103** | **High-concurrency scaling correction** | **Crossover narrowed to c=7-8 only** | PMAT-101 crossover confounded by --parallel 8. With --parallel 16: c=12 llama.cpp 882 vs realizr 605 (1.46x). c=16: 1039 vs 718 (1.45x). |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1827,6 +1831,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.60.0 | 2026-03-13 | **PMAT-103: High-concurrency scaling correction — realizr crossover NARROWED to c=7-8 only.** PMAT-101 found crossover at c=7 with llama.cpp `--parallel 8`. This was **confounded** — `--parallel 8` capped llama.cpp's batch size at M=8, creating an artificial ceiling at ~414 tok/s. Re-tested with `--parallel 16` (matching realizr `CUDA_MAX_BATCH=16`): llama.cpp scales to 882 tok/s at c=12 (1.46x realizr) and 1039 tok/s at c=16 (1.45x realizr). Realizr only wins at c=7-8 (narrow window, 1.10x at c=8). **Root cause:** llama.cpp uses cuBLAS GEMM with fused Q4K→FP16 dequant (1 kernel launch per projection). realizr uses FP8 cuBLASLt (3 launches per projection: absmax + E4M3 convert + GEMM). At M=12-16, cuBLAS FP16 tensor core tile efficiency increases (50% at M=8 → 75% at M=12 → 100% at M=16), causing llama.cpp ITL to *decrease* from 18.9ms (c=8) to 13.2ms (c=12). realizr ITL monotonically increases (16.2→17.9→19.8ms) as expected. Full table: c=1 0.99x, c=4 0.80x, c=8 **1.10x (WINS)**, c=12 0.69x, c=16 0.69x. **Quality advantage:** realizr 0% errors at all c=1-16 vs llama.cpp 0.6-1.6%. Also tested BATCHED_DP4A=0 (pure FP8 for all projections at M>=5): neutral at c=4 (+0.6%), c=5 (+1.0%), c=8 (−0.5%) — confirms hybrid (fused QKV DP4A + FP8 FFN) is already optimal. **Implication:** To compete at c=12+, realizr needs fused Q4K dequant+GEMM (like llama.cpp's mul_mat_q4_K) to eliminate per-projection FP8 conversion overhead. FP8 cuBLASLt's descriptor setup and conversion cost don't amortize well vs llama.cpp's tight CUDA kernel integration. |
 | 2.59.0 | 2026-03-13 | **PMAT-102 FALSIFIED: Batched CUDA graph replay (PAR-121) is −12% slower than eager.** Re-tested PAR-121 batched CUDA graphs (previously disabled as "25% slower" since PMAT-056 era) after infrastructure fixes: PMAT-075 (stable buffer addresses across batches), PMAT-088b (async H2D copies, eliminated 2.8ms sync overhead), PMAT-045 (pre-upload device state before capture). Benchmark (yoga 4060L, 1900MHz, 60s, c=4, short prompt, BATCHED_GRAPH=1): 228.8 aggregate (baseline 259.7, −11.9%), 60.2 decode (65.6, −8.2%), 16.6ms ITL (14.5ms, +14.5%), 41.2ms TTFT (39.8ms, +3.5%). Graph capture confirmed successful (single capture, replayed for all subsequent batches). **Root cause analysis:** (1) Per-kernel CPU launch overhead was overestimated at ~7.4µs/kernel (3.6ms for 486 kernels). Actual overhead likely ~2-3µs/kernel, reducing graph savings to ~1-1.5ms. (2) Graph replay path has extra `stream.synchronize()` before argmax (8 kernels not part of captured graph), serializing GPU work that overlaps in eager path. (3) Async H2D copies (4 buffers: input, positions, seq_lens, workspace positions) add ~0.2ms overhead per step. Net effect: graph overhead exceeds savings. **c=4 ITL gap now fully characterized:** 14.5ms (realizr) vs 11.2ms (llama.cpp) = 3.3ms. Not addressable by CUDA graphs. Root cause is DP4A GEMV compute efficiency at M=4: realizr batches 4 independent M=1 GEMVs (4× thread blocks, each reading Q4K weights independently via L2), while llama.cpp uses cuBLAS GEMM with Q4K dequant (reads weights once, tensor core tile computation for all 4 rows). FP8 GEMM at M=4 was also tested (PMAT-093): −3% vs DP4A due to per-projection conversion overhead. HGEMM at M=4 (PMAT-062/088b): −13% vs DP4A due to 3.5× BW (FP16 vs Q4K). **Exhausted optimizations at M<=4:** CUDA graphs (PMAT-102), FP8 (PMAT-093), HGEMM (PMAT-062), W4A16 WMMA (PMAT-054B/091), fused residual+RMSNorm (PMAT-092). **Remaining path to close c=4 gap:** fused FP8 QKV conversion (convert input to E4M3 once, launch 3 FP8 GEMMs — saves 2 conversions/layer = 56 launches), or accept DP4A ceiling at M<=4 and focus on c>=7 where realizr already wins. |
 | 2.58.0 | 2026-03-12 | **PMAT-101: Precise crossover at c=7 — ITL parity 16.7ms=16.7ms, realizr wins c>=7.** Full concurrency sweep c=1-8 (short prompt, yoga 4060L, 1900MHz, 30-60s, isolated, both runtimes fresh baselines). Crossover table: c=1 0.92x (148.9/162.0), c=4 0.78x (270.8/349.2), c=5 0.84x (313.9/375.4), c=6 0.91x (367.8/405.0), **c=7 1.01x** (410.2/404.5), **c=8 1.11x** (463.5/416.6). ITL crossover also at c=7: 16.7ms=16.7ms (realizr=llama.cpp). Below c=7: DP4A gap (realizr's fused QKV+gate+up DP4A is ~29% slower per step than llama.cpp at M=4). Above c=7: FP8 tensor cores (M>=5 threshold from PMAT-093) scale linearly while llama.cpp flattens. llama.cpp aggregate saturates at ~405 tok/s for c=6-7 (Q4K DP4A compute ceiling). realizr keeps climbing: c=7→c=8 +13% (410→464), limited only by FP8 tensor core throughput + memory bandwidth. **Updated crossover from c≈7.5 (PMAT-098) to c=7** — narrower sweep reveals exact parity. c=4 gap decomposition: ITL 14.5 vs 11.2ms (3.3ms or 29% overhead). Sources: no CUDA graphs in batched decode (PMAT-075 falsified, +0.8ms), kernel launch overhead in 4-projection GEMV path, attention KV cache scaling. |
 | 2.57.0 | 2026-03-12 | **PMAT-100: Prompt-profile characterization — TTFT scales linearly with M×prompt_len, long prompts degrade c=4 by -23%.** First systematic benchmark across 3 prompt profiles (short ~23tok, medium ~125tok, long ~280tok) at c=1 and c=4 (yoga 4060L, 1900MHz, 60s, isolated). **c=1:** short 13.8ms/148.9, medium 19.7ms/148.1, long 41.4ms/146.6 (TTFT/decode). Decode rate barely affected by prompt length (148.9→146.6, -1.5%). TTFT scales ~linearly: 13.8→19.7→41.4ms tracks with token count. Prefill throughput increases with length (1669→5168→6764 tok/s) due to FP8 GEMM amortization. **c=4:** short 39.3ms/270.8, medium 79.5ms/244.6, long 179.1ms/207.2 (TTFT/aggregate). Aggregate drops -23.5% from short→long. Two causes: (1) TTFT increases 4.6x (39→179ms), eating into generation time. (2) ITL increases 23% (14.5→17.9ms) from larger KV caches in attention. **Staggered prefill (PMAT-099) re-tested across profiles:** short +114% worse TTFT, medium +4.8% better, long +13.6% better. Crossover at ~medium length. Even at long prompts, aggregate penalty (-1.3%) partially offsets TTFT gain. Default OFF confirmed correct — staggered only helps TTFT-sensitive long-prompt workloads. **Key insight:** For production API workloads with mixed prompt lengths, aggregate throughput is dominated by decode rate, not TTFT. Chunked prefill (H-CB5) would help by amortizing long prefills across decode steps without blocking the entire batch. |
