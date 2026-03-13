@@ -1708,3 +1708,33 @@ roadmap:
     realizr c=4 decode drops 10.3% with medium prompts (larger KV attention BW).
     llama.cpp c=4 decode slightly increases (+4.1%, better GEMM tile utilization).
     Fix: fused Q4K→GEMM kernel (same fix as Gap 4 TTFT + c=12+ aggregate).
+- id: PMAT-114
+  github_issue: null
+  item_type: task
+  title: 'PMAT-114: c=16 medium collapse FALSIFIED + full c=1-16 medium matrix'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=16 medium collapse verified/falsified — DONE (artifact, verified 1045.3)'
+  - 'AC2: c=12 medium benchmarked — DONE (realizr 627.3 vs llama.cpp 938.1, 0.67x)'
+  - 'AC3: Complete c=1-16 medium matrix — DONE (5 data points both runtimes)'
+  - 'AC4: llama.cpp prompt-invariance confirmed — DONE (all c: −2.1% to +2.8%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 2h
+  labels:
+  - falsification
+  - prompt-profile
+  - competitive-analysis
+  notes: |
+    FALSIFICATION: Initial llama.cpp c=16 medium (504.5 tok/s) was measurement artifact.
+    GPU contention from freshly-killed vLLM process caused ~50% throughput loss.
+    Verification run: 1045.3 tok/s (+0.8% from short 1037.1).
+    llama.cpp fused Q4K GEMM is prompt-length invariant at ALL concurrency levels.
+    realizr aggregate drops monotonically: −5.8% (c=1) to −34.2% (c=16) at medium.
+    realizr only wins c=8 medium (1.08x, narrow). c=12: 0.67x, c=16: 0.72x.
+    Root cause: FP8 cuBLASLt 2-step pipeline (convert+GEMM) vs fused 1-step Q4K.

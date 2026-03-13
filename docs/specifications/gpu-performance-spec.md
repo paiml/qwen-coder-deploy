@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.76.0
+**Version:** 2.77.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -46,8 +46,9 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **c=4 aggregate:** realizr 357.2 vs llama.cpp 365.8 (**0.98x**, PARITY, short prompt) — ITL 10.4 vs 10.7ms (realizr better), TTFT 36 vs 19ms (llama.cpp better). **PMAT-113: Medium prompt (~102 tok) shifts to 293.6 vs 362.7 (0.81×)** — FP8 prefill BW overhead exposed
 - **c=8 aggregate:** realizr **637.8** vs llama.cpp 430.0 (**1.48x**, DOMINATES) — FP8 tensor cores at M>=5. Medium prompt: 474.9 vs 441.5 (1.08x, still wins)
 - **c=12 aggregate:** realizr 899.3 vs llama.cpp 906.0 (**0.99x**, PARITY) — ITL 11.4 vs 12.5ms
-- **c=16 aggregate:** realizr **1139.5** vs llama.cpp 1000.4 (**1.14x**, WINS) — 0% errors vs 2.2%. Medium prompt: **749.7 vs 504.5 (1.49x)** — llama.cpp collapses, realizr advantage grows
+- **c=16 aggregate:** realizr **1139.5** vs llama.cpp 1000.4 (**1.14x**, WINS) — 0% errors vs 2.2%. Medium prompt: 749.7 vs 1045.3 (0.72x — TTFT penalty dominates)
 - **vLLM reference (medium prompt, PMAT-113):** c=4 551.0, c=8 1023.2, c=16 **1778.5** — W4A16 Marlin + PagedAttention dominates all prompt profiles
+- **PMAT-114 FALSIFICATION:** Initial c=16 medium run (504.5 tok/s llama.cpp) was measurement artifact — GPU contention from freshly-killed vLLM. Verification: 1045.3 (+0.8% from short). **llama.cpp is prompt-length invariant at all concurrency levels.**
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 - **PMAT-105 breakthrough:** LmHead (Q6K, 151,936×1536) was using batched GEMV (reads weights M times) instead of FP8 cuBLASLt (reads weights once). Routing through `batched_gemv_or_gemm` enables FP8 dispatch at M>=5. Single biggest optimization since FP8 prefill. ITL now nearly flat c=4→c=16 (10.4→11.7ms).
 
@@ -591,7 +592,9 @@ Pre-computed FP16 scales reduced gap from 3.5x (PMAT-091) to 1.78x but WMMA 32×
 
 FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=8 short: realizr 631.9 vs llama.cpp 428.9 (1.47x). Medium narrows the gap (1.47x→1.08x) but does not close it. **The concurrency crossover holds across prompt profiles** — realizr's competitive advantage at c≥8 is structural (FP8 decode) not prompt-dependent.
 
-**c=16 medium (PMAT-113b):** realizr **749.7** vs llama.cpp **504.5** (**1.49x**, DOMINATES). Gap _widened_ vs short (1.10x→1.49x). llama.cpp c=16 medium decode drops to 71.5 tok/s (vs ~90 at short) — 16 slots × 102 tokens = 1,632 KV entries, overwhelming cuBLAS cache tiling. realizr's FP8 decode (77.0 tok/s) barely degrades. 0% errors vs 1.6%.
+**c=12 medium (PMAT-114):** realizr 627.3 vs llama.cpp **938.1** (**0.67x**). llama.cpp aggregate unchanged from short (927.3→938.1, +1.2%). realizr drops 30.2% (898.4→627.3).
+
+**c=16 medium (PMAT-114 corrected):** realizr 749.7 vs llama.cpp **1045.3** (**0.72x**). ~~Initial run showed llama.cpp 504.5 (−51.3% "collapse") — FALSIFIED: measurement artifact from GPU resource contention after killing vLLM.~~ Verification: 1045.3 (+0.8% from short). **llama.cpp is prompt-length invariant at all concurrency levels** thanks to fused Q4K GEMM.
 
 **Full prompt-profile sensitivity matrix (yoga RTX 4060L, 1900MHz, 60s, warmup 5s, medium ~102 tok):**
 
@@ -599,8 +602,11 @@ FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=
 |---|--------------|---------------|---|----------------|-----------------|---|--------------|---------------|
 | 1 | 149.5 | 140.9 | −5.8% | 160.2 | 156.8 | −2.1% | 0.93x | 0.90x |
 | 4 | 355.5 | 293.6 | **−17.4%** | 352.7 | 362.7 | +2.8% | **1.01x** | **0.81x** |
-| 8 | 631.9 | 474.9 | −24.9% | 428.9 | 441.5 | +2.9% | **1.47x** | **1.08x** |
-| 16 | 1,139.8 | 749.7 | −34.2% | 1,037.1 | 504.5 | −51.3% | **1.10x** | **1.49x** |
+| **8** | **631.9** | **474.9** | −24.9% | 428.9 | 441.5 | +2.9% | **1.47x** | **1.08x** |
+| 12 | 898.4 | 627.3 | −30.2% | 927.3 | 938.1 | +1.2% | 0.97x | **0.67x** |
+| 16 | 1,139.8 | 749.7 | −34.2% | 1,037.1 | 1,045.3 | +0.8% | **1.10x** | **0.72x** |
+
+**Key insight (PMAT-114 CORRECTED):** llama.cpp aggregate is prompt-length invariant at ALL concurrency levels (−2.1% to +2.8%). realizr aggregate drops monotonically (−5.8% to −34.2%). The fused Q4K GEMM makes llama.cpp immune to prompt length. realizr's FP8 cuBLASLt 2-step pipeline (convert + GEMM) imposes a per-token BW tax that compounds with M×prompt_len. **realizr only wins at c=8 medium** (1.08x, narrow) — the c=8 short dominance (1.47x) shrinks because TTFT eats into aggregate time. At c≥12 medium, llama.cpp dominates (0.67x, 0.72x) where short prompt showed parity/advantage.
 
 **vLLM reference (medium prompt, W4A16 Marlin + PagedAttention):**
 
@@ -608,13 +614,14 @@ FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=
 |---|------------|---------------|-----------------|-------------|---------------|
 | 4 | **551.0** | 293.6 | 362.7 | 0.53x | 0.66x |
 | 8 | **1,023.2** | 474.9 | 441.5 | 0.46x | 0.43x |
-| 16 | **1,778.5** | 749.7 | 504.5 | 0.42x | 0.28x |
+| 12 | — | 627.3 | 938.1 | — | — |
+| 16 | **1,778.5** | 749.7 | 1,045.3 | 0.42x | 0.59x |
 
-vLLM's advantage grows with concurrency: 1.88x→2.37x vs realizr (c=4→c=16). All 0% errors. PagedAttention + continuous batching + W4A16 Marlin = superior scaling at all prompt lengths. The architectural gap is quantization format (W4A16 vs Q4K) + scheduler (PagedAttention vs batch-and-step) + GEMM library (Marlin custom vs cuBLASLt FP8).
+vLLM dominates at all concurrencies. llama.cpp at c=16 medium (1045.3) is 0.59x of vLLM (1778.5) — competitive thanks to prompt-length invariance. realizr at 0.42x. The architectural gap: W4A16 Marlin (1-step dequant+GEMM) + PagedAttention (no per-batch prefill blocking) + continuous batching (interleaved prefill+decode).
 
 **Key insight:** realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat or _improves_ at c=4-8 medium (+2.8%, +2.9%) but **collapses at c=16 medium (−51.3%)**. 16 slots × 102 tokens = 1,632 KV entries overwhelm llama.cpp's cuBLAS GEMM cache tiling. **realizr's advantage INCREASES at high concurrency + medium prompts** (1.10x→1.49x). This is the opposite of the c=4 story.
 
-**Scoring paradox (probador llm score, medium prompts):** Despite 49% higher aggregate at c=16, realizr scores 59 C vs llama.cpp 61 C+ — because TTFT (278ms, score 13) drags the composite below llama.cpp's TTFT (29.7ms, score 93). TTFT weight is 15%, so the 80-point TTFT gap costs 12 composite points. At c=8: realizr 60 C+ vs llama.cpp 56 C (aggregate advantage dominates). **The scoring methodology appropriately penalizes TTFT regression** — users notice latency even when throughput is higher. The fused Q4K→GEMM fix would simultaneously close TTFT gap and improve aggregate, lifting all dimensions.
+**Scoring (probador llm score, medium prompts):** At c=8 medium, realizr 60 C+ vs llama.cpp 56 C (aggregate advantage compensates for TTFT). At c=16 medium, llama.cpp scores higher (1045.3 aggregate + 30.8ms TTFT vs realizr 749.7 + 278ms TTFT). **TTFT is the scoring bottleneck** for realizr at medium prompts — the 278ms c=16 TTFT (score ~13) drags the composite below llama.cpp despite lower aggregate. **The scoring methodology appropriately penalizes latency regression** — users notice TTFT even when throughput is higher. The fused Q4K→GEMM fix would simultaneously close TTFT gap and improve aggregate, lifting all dimensions.
 
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
@@ -1580,7 +1587,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-110** | **FP8 for all projections at M=4 (BATCHED_DP4A=0)** | **FALSIFIED** (−5.3% c=4) | Disabling batched DP4A to force Q4K through FP8 cuBLASLt at M=4: aggregate 338.4 vs 357.2 (−5.3%), ITL 11.0 vs 10.4ms (+5.8%). DP4A fused gate+up confirmed optimal at M≤4. FP8 reads 1.78× more BW (1 B/elem vs Q4K 0.5625) — tensor core advantage doesn't compensate at M=4. Confirms PMAT-093 with post-PMAT-105 code. |
 | **PMAT-111** | **TTFT scaling analysis (c=4 36ms breakdown)** | **TTFT 36→20ms (score 84→96)** | ✅ MEASURED. Structural: 21ms prefill + 11ms decode + 4ms overhead. Fix requires pipeline parallelism or continuous batching. +1.8 composite points (insufficient for grade change). |
 | **PMAT-112** | **TTFT P99.9 tail: cold-start, not structural** | **c=4 P99.9: 328→46ms with warmup** | ✅ MEASURED. KV cache allocation (1792MB, PAR-119) causes one-time spike. With 5s warmup: c=4 tail 1.3x, c=8 1.0x, c=16 1.0x. Production-representative. |
-| **PMAT-113** | **Prompt-profile sensitivity (medium ~102 tok)** | **c=4: 0.98x→0.81x with medium prompts** | ✅ MEASURED. FP8 prefill 1.78× BW overhead exposed at medium prompts. realizr TTFT doubles (36→76ms), llama.cpp unchanged (19→19ms). c=4 aggregate: 293.6 vs 362.7 (1.24× llama.cpp lead). Short-prompt parity not representative of production workloads. Fix: fused Q4K→GEMM kernel (same as Gap 4/5 fix path). |
+| **PMAT-113** | **Prompt-profile sensitivity (medium ~102 tok)** | **c=4: 0.98x→0.81x with medium prompts** | ✅ MEASURED. FP8 prefill 1.78× BW overhead exposed at medium prompts. realizr TTFT doubles (36→76ms), llama.cpp unchanged (19→19ms). Short-prompt parity not representative of production workloads. Fix: fused Q4K→GEMM kernel. |
+| **PMAT-114** | **Prompt-profile full matrix + falsification** | **llama.cpp prompt-invariant at ALL c** | ✅ CORRECTED. c=16 504.5 was artifact (GPU contention after vLLM kill). Verified: 1045.3 (+0.8% from short). Complete c=1-16 matrix: realizr only wins c=8 medium (1.08x). c=12: 0.67x, c=16: 0.72x. llama.cpp fused Q4K GEMM is prompt-length invariant (−2.1% to +2.8%). |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1958,6 +1966,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.77.0 | 2026-03-13 | **PMAT-114: c=16 medium "collapse" FALSIFIED + complete c=1-16 matrix.** Initial llama.cpp c=16 medium (504.5 tok/s, "−51.3% collapse") was measurement artifact from GPU contention after killing vLLM. Verification: 1045.3 (+0.8% from short). **llama.cpp is prompt-length invariant at ALL concurrency levels** (fused Q4K GEMM). Added c=12 medium: realizr 627.3 vs llama.cpp 938.1 (0.67x). Complete matrix: realizr only wins c=8 medium (1.08x, narrow). All other concurrencies: llama.cpp advantage grows with medium prompts. Fixed sensitivity matrix, scoring analysis, and executive summary. |
 | 2.76.0 | 2026-03-13 | **PMAT-113 complete: Three-way comparison with vLLM medium prompts.** vLLM reference: c=4 551.0, c=8 1023.2, c=16 1778.5 aggregate (medium prompt). vLLM advantage grows with c: 1.88→2.37× vs realizr. All 0% errors. Gap is quantization (W4A16 vs Q4K) + scheduler (PagedAttention vs batch-and-step) + GEMM (Marlin vs FP8 cuBLASLt). c=16 scoring paradox documented: realizr 49% higher aggregate than llama.cpp but scores lower (TTFT penalty). Full 3-way sensitivity matrix added. |
 | 2.75.0 | 2026-03-13 | **PMAT-113b complete: Full prompt-profile sensitivity matrix.** Added c=16 medium: realizr 749.7 vs llama.cpp 504.5 (1.49×, up from 1.10× at short). llama.cpp c=16 medium collapses −51.3% (1,632 KV entries overwhelm cuBLAS tiling). realizr advantage INCREASES at high c + medium prompts (1.10×→1.49×). Complete matrix: c=1 0.90×, c=4 0.81×, c=8 1.08×, c=16 1.49×. realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat at c=4-8 but collapses at c=16. |
 | 2.74.0 | 2026-03-13 | **PMAT-113b: c=8 medium prompt verification — crossover holds.** realizr still wins at c=8 with medium prompts: 474.9 vs 441.5 (1.08×, was 1.47× at short). FP8 decode advantage at M≥5 overcomes prefill BW penalty. Gap narrows (1.47×→1.08×) but does not close. Concurrency crossover is structural (FP8 decode), not prompt-dependent. llama.cpp c=8 medium: 55.9 decode tok/s (vs realizr 79.3), 17.9ms ITL (vs 12.6ms), 2.0% errors (vs 0%). |
