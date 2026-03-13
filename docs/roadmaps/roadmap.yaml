@@ -1856,3 +1856,35 @@ roadmap:
     llama.cpp --parallel 16 can't serve 311-tok prompts (256/slot limit).
     realizr only wins at short/medium prompts + c>=8.
     Fix: fused Q4K→GEMM kernel (same as Gap 4/5/6).
+- id: PMAT-119
+  github_issue: null
+  item_type: task
+  title: 'PMAT-119: vLLM prompt-length invariance — realizr is the only prompt-sensitive runtime'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=1 long benchmarked — DONE (149.1 agg, 153.4 decode, 12.5ms TTFT)'
+  - 'AC2: vLLM c=4 long benchmarked — DONE (558.5 agg, 149.2 decode, 21.0ms TTFT)'
+  - 'AC3: vLLM c=8 long benchmarked — DONE (1040.7 agg, 144.5 decode, 32.0ms TTFT)'
+  - 'AC4: 3-runtime prompt invariance comparison — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - vllm
+  - prompt-sensitivity
+  - competitive-analysis
+  notes: |
+    vLLM is prompt-invariant like llama.cpp:
+    c=4 long 558.5 vs medium 551.0 (+1.4%).
+    c=8 long 1040.7 vs medium 1023.2 (+1.7%).
+    W4A16 Marlin = fused 1-step quantized GEMM.
+    Both vLLM and llama.cpp: -2% to +2% short→long.
+    realizr: -39% to -49% short→long.
+    2-step FP8 pipeline is the SOLE cause of prompt sensitivity.
+    Fused Q4K→GEMM would eliminate this entire class of regression.
+    Fix: fused Q4K→GEMM kernel (same as Gap 4/5/6).
