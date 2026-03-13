@@ -1738,3 +1738,32 @@ roadmap:
     realizr aggregate drops monotonically: −5.8% (c=1) to −34.2% (c=16) at medium.
     realizr only wins c=8 medium (1.08x, narrow). c=12: 0.67x, c=16: 0.72x.
     Root cause: FP8 cuBLASLt 2-step pipeline (convert+GEMM) vs fused 1-step Q4K.
+- id: PMAT-115
+  github_issue: null
+  item_type: task
+  title: 'PMAT-115: Theoretical fused Q4K→GEMM impact quantification'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Theoretical aggregate with llama.cpp-equivalent TTFT calculated — DONE'
+  - 'AC2: Medium prompt scorecards for all runtimes — DONE'
+  - 'AC3: TTFT identified as scoring bottleneck dimension — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - theoretical-analysis
+  - fused-gemm
+  - scoring
+  notes: |
+    If realizr had fused Q4K→GEMM (= llama.cpp TTFT):
+    c=8 medium: 474.9→616.4 (+29.8%, 1.40x vs llama.cpp)
+    c=12 medium: 627.3→917.8 (+46.3%, 0.98x PARITY)
+    c=16 medium: 749.7→1181.4 (+57.6%, 1.13x WINS)
+    c=1/4 capped at 0.93x (decode-limited, not TTFT-limited).
+    TTFT scoring: 13-49/100 at c>=4 medium (vs llama.cpp 97-100).
+    Fused kernel is single highest-value optimization: closes Gap 4 + Gap 5.
