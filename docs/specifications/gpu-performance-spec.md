@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.78.0
+**Version:** 2.79.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -618,6 +618,17 @@ FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=
 | 16 | **1,778.5** | 749.7 | 1,045.3 | 0.42x | 0.59x |
 
 vLLM dominates at all concurrencies. llama.cpp at c=16 medium (1045.3) is 0.59x of vLLM (1778.5) — competitive thanks to prompt-length invariance. realizr at 0.42x. The architectural gap: W4A16 Marlin (1-step dequant+GEMM) + PagedAttention (no per-batch prefill blocking) + continuous batching (interleaved prefill+decode).
+
+**PMAT-116: Output length sensitivity (c=4 medium, 32 vs 128 output tokens):**
+
+| Metric | realizr 32-tok | realizr 128-tok | llama.cpp 32-tok | llama.cpp 128-tok |
+|--------|---------------|----------------|-----------------|------------------|
+| Aggregate | 293.6 | 317.7 (+8.2%) | 362.7 | 372.7 (+2.8%) |
+| Decode | 86.2 | 82.8 (−3.9%) | 92.7 | 93.8 (+1.2%) |
+| TTFT | 75.8ms | 76.4ms | 18.8ms | 17.0ms |
+| Ratio | **0.81x** | **0.85x** | — | — |
+
+Longer output dilutes TTFT impact: TTFT is ~5% of latency at 128 tokens vs ~17% at 32. Ratio improves 0.81x→0.85x. realizr decode drops 3.9% at 128 tokens (larger KV cache → more attention BW). At 512+ output tokens, ratio would converge toward decode parity (~0.90x). **For production workloads with long responses, TTFT matters less — but decode rate still favors llama.cpp by ~10% at M=4.**
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -1988,6 +1999,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.79.0 | 2026-03-13 | **PMAT-116: Output length sensitivity.** c=4 medium with 128 vs 32 output tokens: ratio improves 0.81x→0.85x (TTFT share drops 17%→5% of latency). realizr decode drops 3.9% at 128 tokens (KV cache BW). llama.cpp decode stable (+1.2%). At 512+ tokens, ratio converges toward ~0.90x (decode parity). For long-response production workloads, TTFT matters less but decode gap persists (~10% at M=4). |
 | 2.78.0 | 2026-03-13 | **PMAT-115: Theoretical fused Q4K→GEMM impact quantified.** If realizr had llama.cpp-equivalent TTFT (fused 1-step dequant): c=8 medium +29.8% (1.40x vs llama.cpp), c=12 +46.3% (0.98x PARITY), c=16 +57.6% (1.13x WINS). c=1/4 remain at 0.93x (decode-limited, not TTFT-limited). Fix simultaneously closes Gap 4 (TTFT scaling) and Gap 5 (prompt sensitivity). Removed stale "c=16 collapse" paragraph left from pre-falsification edit. |
 | 2.77.0 | 2026-03-13 | **PMAT-114: c=16 medium "collapse" FALSIFIED + complete c=1-16 matrix.** Initial llama.cpp c=16 medium (504.5 tok/s, "−51.3% collapse") was measurement artifact from GPU contention after killing vLLM. Verification: 1045.3 (+0.8% from short). **llama.cpp is prompt-length invariant at ALL concurrency levels** (fused Q4K GEMM). Added c=12 medium: realizr 627.3 vs llama.cpp 938.1 (0.67x). Complete matrix: realizr only wins c=8 medium (1.08x, narrow). All other concurrencies: llama.cpp advantage grows with medium prompts. Fixed sensitivity matrix, scoring analysis, and executive summary. |
 | 2.76.0 | 2026-03-13 | **PMAT-113 complete: Three-way comparison with vLLM medium prompts.** vLLM reference: c=4 551.0, c=8 1023.2, c=16 1778.5 aggregate (medium prompt). vLLM advantage grows with c: 1.88→2.37× vs realizr. All 0% errors. Gap is quantization (W4A16 vs Q4K) + scheduler (PagedAttention vs batch-and-step) + GEMM (Marlin vs FP8 cuBLASLt). c=16 scoring paradox documented: realizr 49% higher aggregate than llama.cpp but scores lower (TTFT penalty). Full 3-way sensitivity matrix added. |
