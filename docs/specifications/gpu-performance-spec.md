@@ -576,6 +576,8 @@ Pre-computed FP16 scales reduced gap from 3.5x (PMAT-091) to 1.78x but WMMA 32×
 
 **Production relevance:** Most API workloads use medium-to-long prompts (100-500 tokens). The short-prompt parity (1.01×) is not representative of production performance. **realizr's competitive position is prompt-length dependent** — dominates at c≥8 regardless of prompt length (FP8 decode wins), but loses c=4 aggregate lead as prompts grow.
 
+**Scoring impact (probador llm score, c=4 medium):** llama.cpp **82 B+** vs realizr **67 C+**. Compare to short prompt: realizr 78 B > llama.cpp 70 B. The grade inversion is driven by TTFT (realizr 49/100 vs llama.cpp 100/100) and aggregate (73 vs 85). This means **realizr's c=4 grade advantage disappears at production-representative prompt lengths.**
+
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
 **PMAT-072/073/074 complete. Continuous batching (join, recycle, step-wise decode) delivered only +10% (197→216). The theoretical maximum at M=4 is ~550 tok/s (4 × 138). Three root causes explain the 2.55× shortfall.**
