@@ -822,6 +822,20 @@ vLLM is prompt-invariant like llama.cpp: c=4 long 558.5 vs medium 551.0 (+1.4%),
 | llama.cpp | 421.7 | 53.6 | **30.2ms** | 18.6ms | 2.6% |
 | realizr | 324.2 | **67.5** | 329.8ms | **14.8ms** | **0%** |
 
+**Scorecard across prompt profiles (probador llm score, composite):**
+
+| c | Prompt | vLLM | realizr | llama.cpp | realizr TTFT |
+|---|--------|------|---------|-----------|-------------|
+| 1 | short | 100 A+ | 98 A+ | 97 A+ | 100 |
+| 1 | medium | — | 95 A+ | 99 A+ | 96 |
+| 4 | short | 98 A+ | 78 B | 70 B | 84 |
+| 4 | medium | 99 A+ | 67 C+ | 78 B | 49 |
+| **4** | **long** | **85 A-** | **49 D** | **67 C+** | **26** |
+| 8 | medium | 97 A+ | 70 B | 69 C+ | 25 |
+| **8** | **long** | **83 B+** | **52 C** | **57 C** | **16** |
+
+**realizr drops from 78 B (c=4 short) to 49 D (c=4 long) — nearly 30 points lost from prompt length alone.** llama.cpp drops only 3 points (70→67). vLLM drops 13 points (98→85). realizr's TTFT score degrades from 84 to 16 as prompts grow. **At c=8 long, realizr (52 C) no longer beats llama.cpp (57 C)** — the short-prompt crossover advantage (c≥8) vanishes at long prompts.
+
 **Architectural lesson:** Fused quantized GEMM (1-step) provides prompt-length invariance regardless of the specific quantization format (Q4K, W4A16). The 2-step pipeline (convert + GEMM) is the sole source of realizr's prompt sensitivity. **The fused Q4K→GEMM fix doesn't just improve performance — it eliminates an entire class of workload-dependent regression.**
 
 **Fix path:** Same as Gap 5 — fused Q4K→GEMM kernel. Would eliminate the 1.78× BW overhead, making realizr prompt-length invariant like llama.cpp and vLLM. **Without this fix, realizr is limited to short/medium-prompt workloads at c≥8.**
