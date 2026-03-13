@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.69.0
+**Version:** 2.70.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -293,34 +293,34 @@ TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 pre
 
 For complete baseline tables, threshold registry, and measurement protocol, see [baselines.md](./components/baselines.md).
 
-### Scorecard (Mar 13 2026, v3.2.0 — PMAT-105 LmHead FP8 routing)
+### Scorecard (Mar 13 2026, v3.3.0 — PMAT-109/110 corrected)
 
 **Tool:** `probador llm score` with 9 scoring dimensions (contract: `scoring.yaml` v3.0.0).
 
-**RTX 4060 Laptop — yoga (c=1, isolated, streaming, locked clocks 1900MHz, PMAT-105):**
+**RTX 4060 Laptop — yoga (c=1, isolated, streaming, locked clocks 1900MHz, PMAT-109):**
 
 | Dimension | realizr | llama.cpp | vLLM | ollama | Target |
 |-----------|---------|-----------|------|--------|--------|
-| **Composite (c=1)** | **97 A+** | 99 A+ | 100 A+ | 78 B | >= 90 A |
-| Decode | 98 (148.5) | 100 (161.7) | 100 (153.6) | 100 | >= 90 A |
-| TTFT | 100 (14.1ms) | 100 (10.2ms) | 100 (12.6ms) | 53 C (70.5ms) | >= 90 A |
+| **Composite (c=1)** | **98 A+** | 97 A+ | 100 A+ | 78 B | >= 90 A |
+| Decode | 98 (149.5) | 100 (158.9) | 100 (153.6) | 100 | >= 90 A |
+| TTFT | 100 (13.2ms) | 100 (10.2ms) | 100 (12.6ms) | 53 C (70.5ms) | >= 90 A |
 | ITL | 98 (6.7ms) | 99 (6.2ms) | 98 (6.5ms) | 98 | >= 90 A |
-| Tail | 86 | 100 | 100 | 47 | >= 90 A |
-| Error | 100 (0%) | 92 | 100 | 100 | >= 90 A |
+| Tail | **100** (P99 14.2ms) | 100 | 100 | 47 | >= 90 A |
+| Error | 100 (0%) | 92 (2.6%) | 100 | 100 | >= 90 A |
 
-**RTX 4060 Laptop — yoga (c=4, isolated, streaming, locked clocks 1900MHz, PMAT-105):**
+**RTX 4060 Laptop — yoga (c=4, isolated, streaming, locked clocks 1900MHz, PMAT-110 corrected --parallel 16):**
 
 | Dimension | realizr | llama.cpp | vLLM | Target |
 |-----------|---------|-----------|------|--------|
-| **Composite (c=4)** | **83 B+** | 70 B | 98 A+ | >= 90 A |
-| Aggregate | 85 (355.7) | 78 (337.3) | 100 (594.8) | >= 90 A |
-| Decode | 65 (95.8) | 54 (89.2) | 100 (150.4) | >= 90 A |
-| TTFT | 89 (36.1ms) | 97 (26.0ms) | 93 (25.3ms) | >= 90 A |
-| ITL | 76 (10.5ms) | 64 (11.5ms) | 98 (6.7ms) | >= 90 A |
-| **Scaling** | **85 (59.9%)** | 71 (52.7%) | 97 (88.9%) | >= 90 A |
-| Error | 100 (0%) | 25 (0.6-1.6%) | 100 | >= 90 A |
+| **Composite (c=4)** | **78 B** | 75 B | 98 A+ | >= 90 A |
+| Aggregate | 80 (357.2) | 82 (365.8) | 100 (594.8) | >= 90 A |
+| Decode | 60 (96.1) | 58 | 100 (150.4) | >= 90 A |
+| TTFT | 84 (36.2ms) | 96 (19ms) | 93 (25.3ms) | >= 90 A |
+| ITL | 72 (10.4ms) | 70 (10.7ms) | 98 (6.7ms) | >= 90 A |
+| **Scaling** | **80 (59.8%)** | 57 (57.5%) | 97 (88.9%) | >= 90 A |
+| Error | 100 (0%) | 58 (1.3%) | 100 | >= 90 A |
 
-**PMAT-105 impact on concurrency scaling: 51 C → 85 A-.** LmHead FP8 routing (reading weights once via cuBLASLt instead of M times via Q6K GEMV) reduced ITL scaling from +42.4% (c=4→c=16) to +12.5%. Scaling efficiency improved from 34.1% to 59.9% at c=4.
+**PMAT-110 correction:** Previous c=4 scorecards used llama.cpp `--parallel 8` (unfair). With `--parallel 16` matching realizr's CUDA_MAX_BATCH=16: realizr 78 B > llama.cpp 75 B. realizr wins on Error (100 vs 58), ITL (72 vs 70). llama.cpp wins on TTFT (96 vs 84). PMAT-105 LmHead FP8 routing remains the key enabler — scaling 51 C → 80 B+.
 
 **Remaining gaps to A (score >= 90):**
 
@@ -477,8 +477,9 @@ Pre-CB:         197.5 aggregate tok/s (0.33x vLLM)
 + PMAT-088c/d:  257.4 (batch recycling + multi-prompt — 84% of DP4A ceiling) ✓
 + PMAT-097:     259.7 (adaptive batch wait — tail latency fix, +1%) ✓
 + PMAT-054B:    162.1 ✗ FALSIFIED (W4A16 WMMA 1.78x slower than DP4A at M=4)
-+ PMAT-105:     355.7 ✓ LmHead FP8 routing (+37%, BEATS llama.cpp)
-llama.cpp:      337.3 tok/s
++ PMAT-105:     355.7 ✓ LmHead FP8 routing (+37%)
++ PMAT-110:     357.2 (corrected baseline, CUDA_MAX_BATCH=16)
+llama.cpp:      365.8 tok/s (--parallel 16, corrected)
 vLLM AWQ:       598.0 (W4A16 tensor core GEMM, fundamentally different arch)
 ```
 
@@ -1416,13 +1417,13 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 13 2026 — realizr BEATS llama.cpp at all c>=4, PMAT-105)
+### Tier Summary (Updated Mar 13 2026 — PMAT-110 corrected, 13 approaches falsified)
 
 | Tier | Items | Status |
 |------|-------|--------|
-| T0: Decode parity | Fixes 1-6, GH-173/176, PMAT-040 (flash decode) | ✅ 0.99x llama.cpp (c=1) |
-| T0: Prefill parity | PMAT-023/024/026, FP8 pipeline (PMAT-053b→086) | ✅ 1.37x llama.cpp (PASS < 2x) |
-| T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **355.7 aggregate c=4 (1.05x llama.cpp, WINS)** |
+| T0: Decode parity | Fixes 1-6, GH-173/176, PMAT-040 (flash decode) | ✅ 0.94x llama.cpp (c=1) |
+| T0: Prefill parity | PMAT-023/024/026, FP8 pipeline (PMAT-053b→086) | ✅ 1.29x llama.cpp (PASS < 2x) |
+| T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **357.2 aggregate c=4 (0.98x PARITY, 78 B > llama.cpp 75 B)** |
 | ~~T1: W4A16 tensor core~~ | ~~Marlin-style INT4→FP16 GEMM~~ | **FALSIFIED** (PMAT-091, 054B) — WMMA 87.5% waste at M=4 |
 | T1: Chunked prefill | Interleave prefill with decode | Planned — reduces c=4 TTFT |
 | ~~T2: GEMV optimization~~ | ~~Q4K dequant instruction reduction~~ | ~~DONE~~ (5.8 insn/value, 2.1x better than llama.cpp) |
@@ -1844,6 +1845,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.70.0 | 2026-03-13 | **Scorecard correction with --parallel 16 data.** c=1: 98 A+ (PMAT-109 tail 86→100). c=4: realizr 78 B > llama.cpp 75 B (corrected from 83 B+ vs 70 B with --parallel 8). Tier summary updated: c=4 0.98x PARITY (was 1.05x WINS). Trajectory table updated with corrected llama.cpp baseline (365.8 tok/s). |
 | 2.69.0 | 2026-03-13 | **Corrected competitive comparison: llama.cpp --parallel 16.** Previous scaling table used llama.cpp --parallel 8 while realizr had CUDA_MAX_BATCH=16. With matched parallelism: c=4 is parity (357.2 vs 365.8, 0.98x), c=8 realizr dominates (637.8 vs 430.0, 1.48x), c=12 parity (899.3 vs 906.0, 0.99x), c=16 realizr wins (1139.5 vs 1000.4, 1.14x). Scoring: realizr 78 B vs llama.cpp 75 B at c=4 — realizr's 0% error rate (vs 1.3%) more than compensates for 2x TTFT gap. Quantitative scoring analysis: gap to 90 A requires +11.6 points, blocked by DP4A compute ceiling (Aggregate +6.0, Decode +6.0 if perfect). EAGLE speculative or W4A16 tensor core GEMM required for breakthrough. M=4 batch timing: 354.1-354.8ms per 32 tokens (±0.1% variance), 92% of theoretical DP4A ceiling. |
 | 2.68.0 | 2026-03-13 | **PMAT-110 FALSIFIED: FP8 for all projections at M=4.** Hypothesis: disable batched DP4A (BATCHED_DP4A=0) to force Q4K projections through FP8 cuBLASLt at M=4, potentially reducing ITL. FP8 reads 1 B/elem vs Q4K 0.5625 B/elem (1.78× more BW) but uses tensor cores. **Result:** c=4 aggregate 338.4 vs 357.2 baseline (−5.3%), ITL 11.0 vs 10.4ms (+5.8%), decode 90.9 vs 96.1 (−5.4%). DP4A fused gate+up at M≤4 confirmed optimal — tensor core advantage doesn't compensate for 1.78× BW overhead. c=8 unaffected (637.5 vs 637.8, FP8 already fires at M≥5). Confirms PMAT-093 with post-PMAT-105 code. Also verified CUDA_MAX_BATCH=8 was bottlenecking c>8 throughput (c=12: 636.8 with batch=8 vs 899.3 with batch=16). Updated forjar-yoga-realizr.yaml to CUDA_MAX_BATCH=16. Full scaling curve verified: c=1 149.5, c=4 357.2, c=8 637.8, c=12 899.3, c=16 1139.5 tok/s (all short prompt, 0% errors). |
 | 2.67.0 | 2026-03-13 | **PMAT-109: Graph persistence — c=1 tail 86→100, TTFT bimodal distribution ELIMINATED.** Removed `force_workspace_reinit()` from `run_prefill()` and `clear_decode_graph()` from `generate_gpu_resident_streaming()`. CORRECTNESS-015 was forcing workspace reallocation on every request, which invalidated CUDA decode graphs. PAR-200 in `init_prefill_workspace` already handles graph invalidation when actual reallocation occurs. When workspace capacity is sufficient (same/shorter prompt), buffer addresses are stable → graph persists across requests → no cuGraphExecDestroy. **Before (bimodal):** TTFT P50=14.0ms, P95≈20ms, P99≈35ms, P99.9=43.6ms. **After (uniform):** TTFT P50=13.2ms, P90=13.4ms, P95=13.7ms, P99=14.2ms, P99.9=41.4ms (first request). Decode 149.5 tok/s (unchanged). c=4 aggregate 315.4 (no regression). Tail score 86 A- → 100 A+. c=1 composite: 94 A → 98 A+. |
