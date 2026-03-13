@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.68.0
+**Version:** 2.69.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -332,6 +332,8 @@ For complete baseline tables, threshold registry, and measurement protocol, see 
 **PMAT-109: c=1 tail FIXED.** 9/9 interactive dimensions now A- or above. Tail jumped 86→100 (TTFT P99 14.2ms, P99/P50 = 1.08x). c=1 scorecard: **98 A+** (was 94 A).
 
 **Only remaining sub-A dimension: Scaling (85 A-).** Requires 74% efficiency. Q4K DP4A at M=4 is compute-bound — **13 kernel approaches falsified** (including PMAT-110: FP8 for all Q4K at M=4, −5.3%). Only EAGLE speculative (PMAT-009, multi-week) could break this ceiling.
+
+**PMAT-110 c=4 scoring analysis (Mar 13):** realizr 78 B vs llama.cpp 75 B at c=4 (corrected --parallel 16). realizr wins on Error (100 vs 58 from 0% vs 1.3% errors), Decode (60 vs 58), ITL (72 vs 70). llama.cpp wins on TTFT (96 vs 84). Even perfect TTFT (12ms → score 100) adds only +2.4 composite. Gap to 90 A requires +11.6 points — largest contributors are Aggregate (+6.0 if perfect) and Decode (+6.0 if perfect), both blocked by DP4A compute ceiling. M=4 batched decode is remarkably stable (354.1-354.8ms per 32-token batch, ±0.1% variance, 92% of theoretical DP4A ceiling).
 
 **PMAT-109 details (Mar 13):** Removed `force_workspace_reinit()` from `run_prefill()` and `clear_decode_graph()` from `generate_gpu_resident_streaming()`. PAR-200 workspace reuse in `init_prefill_workspace` already clears graphs when actual reallocation occurs (longer prompt exceeds buffer_capacity). When capacity is sufficient (same/shorter prompt), workspace buffer addresses are stable → CUDA graph persists across requests → no cuGraphExecDestroy per request.
 
@@ -1842,6 +1844,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.69.0 | 2026-03-13 | **Corrected competitive comparison: llama.cpp --parallel 16.** Previous scaling table used llama.cpp --parallel 8 while realizr had CUDA_MAX_BATCH=16. With matched parallelism: c=4 is parity (357.2 vs 365.8, 0.98x), c=8 realizr dominates (637.8 vs 430.0, 1.48x), c=12 parity (899.3 vs 906.0, 0.99x), c=16 realizr wins (1139.5 vs 1000.4, 1.14x). Scoring: realizr 78 B vs llama.cpp 75 B at c=4 — realizr's 0% error rate (vs 1.3%) more than compensates for 2x TTFT gap. Quantitative scoring analysis: gap to 90 A requires +11.6 points, blocked by DP4A compute ceiling (Aggregate +6.0, Decode +6.0 if perfect). EAGLE speculative or W4A16 tensor core GEMM required for breakthrough. M=4 batch timing: 354.1-354.8ms per 32 tokens (±0.1% variance), 92% of theoretical DP4A ceiling. |
 | 2.68.0 | 2026-03-13 | **PMAT-110 FALSIFIED: FP8 for all projections at M=4.** Hypothesis: disable batched DP4A (BATCHED_DP4A=0) to force Q4K projections through FP8 cuBLASLt at M=4, potentially reducing ITL. FP8 reads 1 B/elem vs Q4K 0.5625 B/elem (1.78× more BW) but uses tensor cores. **Result:** c=4 aggregate 338.4 vs 357.2 baseline (−5.3%), ITL 11.0 vs 10.4ms (+5.8%), decode 90.9 vs 96.1 (−5.4%). DP4A fused gate+up at M≤4 confirmed optimal — tensor core advantage doesn't compensate for 1.78× BW overhead. c=8 unaffected (637.5 vs 637.8, FP8 already fires at M≥5). Confirms PMAT-093 with post-PMAT-105 code. Also verified CUDA_MAX_BATCH=8 was bottlenecking c>8 throughput (c=12: 636.8 with batch=8 vs 899.3 with batch=16). Updated forjar-yoga-realizr.yaml to CUDA_MAX_BATCH=16. Full scaling curve verified: c=1 149.5, c=4 357.2, c=8 637.8, c=12 899.3, c=16 1139.5 tok/s (all short prompt, 0% errors). |
 | 2.67.0 | 2026-03-13 | **PMAT-109: Graph persistence — c=1 tail 86→100, TTFT bimodal distribution ELIMINATED.** Removed `force_workspace_reinit()` from `run_prefill()` and `clear_decode_graph()` from `generate_gpu_resident_streaming()`. CORRECTNESS-015 was forcing workspace reallocation on every request, which invalidated CUDA decode graphs. PAR-200 in `init_prefill_workspace` already handles graph invalidation when actual reallocation occurs. When workspace capacity is sufficient (same/shorter prompt), buffer addresses are stable → graph persists across requests → no cuGraphExecDestroy. **Before (bimodal):** TTFT P50=14.0ms, P95≈20ms, P99≈35ms, P99.9=43.6ms. **After (uniform):** TTFT P50=13.2ms, P90=13.4ms, P95=13.7ms, P99=14.2ms, P99.9=41.4ms (first request). Decode 149.5 tok/s (unchanged). c=4 aggregate 315.4 (no regression). Tail score 86 A- → 100 A+. c=1 composite: 94 A → 98 A+. |
 | 2.66.0 | 2026-03-13 | **Optimization exhaustion analysis.** Both remaining sub-A dimensions investigated to driver-level root causes. Scaling (85 → 90): 12 kernel approaches falsified, only EAGLE speculative remains. Tail c=1 (86 → 90): cuGraphExecDestroy variance is bimodal (95% at 20ms, 5% at 42ms), PMAT-107 falsified. Graph persistence blocked by CORRECTNESS-015. Updated scorecard gap analysis. |
