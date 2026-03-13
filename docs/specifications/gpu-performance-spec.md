@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.67.0
+**Version:** 2.68.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -329,7 +329,7 @@ For complete baseline tables, threshold registry, and measurement protocol, see 
 
 **PMAT-109: c=1 tail FIXED.** 9/9 interactive dimensions now A- or above. Tail jumped 86→100 (TTFT P99 14.2ms, P99/P50 = 1.08x). c=1 scorecard: **98 A+** (was 94 A).
 
-**Only remaining sub-A dimension: Scaling (85 A-).** Requires 74% efficiency. Q4K DP4A at M=4 is compute-bound — 12 kernel approaches falsified. Only EAGLE speculative (PMAT-009, multi-week) could break this ceiling.
+**Only remaining sub-A dimension: Scaling (85 A-).** Requires 74% efficiency. Q4K DP4A at M=4 is compute-bound — **13 kernel approaches falsified** (including PMAT-110: FP8 for all Q4K at M=4, −5.3%). Only EAGLE speculative (PMAT-009, multi-week) could break this ceiling.
 
 **PMAT-109 details (Mar 13):** Removed `force_workspace_reinit()` from `run_prefill()` and `clear_decode_graph()` from `generate_gpu_resident_streaming()`. PAR-200 workspace reuse in `init_prefill_workspace` already clears graphs when actual reallocation occurs (longer prompt exceeds buffer_capacity). When capacity is sufficient (same/shorter prompt), workspace buffer addresses are stable → CUDA graph persists across requests → no cuGraphExecDestroy per request.
 
@@ -338,6 +338,8 @@ TTFT distribution after (uniform): P50=13.2ms, P90=13.4ms, P95=13.7ms, P99=14.2m
 Decode: 149.5 tok/s (unchanged). c=4 aggregate: 315.4 tok/s (no regression).
 
 **Historical context:** Concurrency scaling was the single dimension below A since Mar 11. PMAT-105 closed the gap from 51 C to 85 A-. PMAT-109 fixed the tail gap (86→100). Only scaling (85 A-) remains below A.
+
+**PMAT-110 batch limit discovery (Mar 13):** CUDA_MAX_BATCH=8 in forjar config was silently capping throughput at c>8 (c=12 gave 636.8 with batch=8 vs 899.3 with batch=16). Updated forjar-yoga-realizr.yaml to CUDA_MAX_BATCH=16. Full scaling curve verified with batch=16: c=1 149.5, c=4 357.2, c=8 637.8, c=12 899.3, c=16 1139.5 tok/s (all short prompt, 0% errors, ITL 6.7→11.7ms).
 
 ---
 
@@ -1457,6 +1459,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-106** | **c=1 decode timing analysis** | **0.5ms gap = GPU kernel BW** | ✅ MEASURED. CPU overhead 9µs (0.13%). Gap is Q6K/attention kernel BW utilization (57% vs 62%). |
 | **PMAT-107** | **Defer cuGraphExecDestroy after TTFT** | **FALSIFIED** (+43% P99, 14x P99.9) | Moving graph clear after first token emission worsened tail: P99 42.5→60.9ms, P99.9 43.6→611.6ms. Driver contention between destroy+capture back-to-back. |
 | **PMAT-109** | **Graph persistence (remove force_workspace_reinit)** | **TTFT P99: 35→14ms, tail 86→100** | ✅ DONE. CORRECTNESS-015 `force_workspace_reinit` was defeating PAR-200 workspace reuse, forcing graph destruction per request. Removal eliminates cuGraphExecDestroy from steady-state TTFT. P50: 14→13.2ms, P99: ~35→14.2ms. Bimodal TTFT eliminated. |
+| **PMAT-110** | **FP8 for all projections at M=4 (BATCHED_DP4A=0)** | **FALSIFIED** (−5.3% c=4) | Disabling batched DP4A to force Q4K through FP8 cuBLASLt at M=4: aggregate 338.4 vs 357.2 (−5.3%), ITL 11.0 vs 10.4ms (+5.8%). DP4A fused gate+up confirmed optimal at M≤4. FP8 reads 1.78× more BW (1 B/elem vs Q4K 0.5625) — tensor core advantage doesn't compensate at M=4. Confirms PMAT-093 with post-PMAT-105 code. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1834,6 +1837,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.68.0 | 2026-03-13 | **PMAT-110 FALSIFIED: FP8 for all projections at M=4.** Hypothesis: disable batched DP4A (BATCHED_DP4A=0) to force Q4K projections through FP8 cuBLASLt at M=4, potentially reducing ITL. FP8 reads 1 B/elem vs Q4K 0.5625 B/elem (1.78× more BW) but uses tensor cores. **Result:** c=4 aggregate 338.4 vs 357.2 baseline (−5.3%), ITL 11.0 vs 10.4ms (+5.8%), decode 90.9 vs 96.1 (−5.4%). DP4A fused gate+up at M≤4 confirmed optimal — tensor core advantage doesn't compensate for 1.78× BW overhead. c=8 unaffected (637.5 vs 637.8, FP8 already fires at M≥5). Confirms PMAT-093 with post-PMAT-105 code. Also verified CUDA_MAX_BATCH=8 was bottlenecking c>8 throughput (c=12: 636.8 with batch=8 vs 899.3 with batch=16). Updated forjar-yoga-realizr.yaml to CUDA_MAX_BATCH=16. Full scaling curve verified: c=1 149.5, c=4 357.2, c=8 637.8, c=12 899.3, c=16 1139.5 tok/s (all short prompt, 0% errors). |
 | 2.67.0 | 2026-03-13 | **PMAT-109: Graph persistence — c=1 tail 86→100, TTFT bimodal distribution ELIMINATED.** Removed `force_workspace_reinit()` from `run_prefill()` and `clear_decode_graph()` from `generate_gpu_resident_streaming()`. CORRECTNESS-015 was forcing workspace reallocation on every request, which invalidated CUDA decode graphs. PAR-200 in `init_prefill_workspace` already handles graph invalidation when actual reallocation occurs. When workspace capacity is sufficient (same/shorter prompt), buffer addresses are stable → graph persists across requests → no cuGraphExecDestroy. **Before (bimodal):** TTFT P50=14.0ms, P95≈20ms, P99≈35ms, P99.9=43.6ms. **After (uniform):** TTFT P50=13.2ms, P90=13.4ms, P95=13.7ms, P99=14.2ms, P99.9=41.4ms (first request). Decode 149.5 tok/s (unchanged). c=4 aggregate 315.4 (no regression). Tail score 86 A- → 100 A+. c=1 composite: 94 A → 98 A+. |
 | 2.66.0 | 2026-03-13 | **Optimization exhaustion analysis.** Both remaining sub-A dimensions investigated to driver-level root causes. Scaling (85 → 90): 12 kernel approaches falsified, only EAGLE speculative remains. Tail c=1 (86 → 90): cuGraphExecDestroy variance is bimodal (95% at 20ms, 5% at 42ms), PMAT-107 falsified. Graph persistence blocked by CORRECTNESS-015. Updated scorecard gap analysis. |
 | 2.65.0 | 2026-03-13 | **PMAT-107 FALSIFIED: Deferring cuGraphExecDestroy after first token emission worsens tail latency.** Hypothesis: moving `clear_decode_graph()` from before to after first token emission removes cuGraphExecDestroy from TTFT critical path. Benchmark (120s c=1, probador, streaming): TTFT P50 unchanged (20.0ms), but P99 42.5→60.9ms (+43%), P99.9 43.6→611.6ms (14x worse). Root cause: cuGraphExecDestroy immediately followed by graph capture in the decode loop creates worse CUDA driver contention (destroy+capture back-to-back on same stream) than the original position (destroy happens, then 20ms of prefill/emission buffer before capture). The existing PMAT-085 placement (after prefill, before emission) is optimal. Also established baseline tail characterization: c=1 TTFT distribution is bimodal — 95% at 20-21ms, 5% at 42-44ms. The 2x jump is from cuGraphExecDestroy cost variance. Reverted to original code with falsification notes. |

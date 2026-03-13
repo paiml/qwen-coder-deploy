@@ -1587,3 +1587,33 @@ roadmap:
     persists across requests. init_workspace PAR-200 resets batch_size=1 for decode.
     Unlike PMAT-107, this approach eliminates cuGraphExecDestroy entirely rather
     than just moving it. No destroy+capture contention because no destroy happens.
+- id: PMAT-110
+  github_issue: null
+  item_type: task
+  title: 'PMAT-110: FP8 for all projections at M=4 — FALSIFIED (−5.3% c=4)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=4 aggregate >= 370 tok/s (baseline: 357.2) — FAILED: 338.4 (−5.3%)'
+  - 'AC2: c=4 ITL <= 10.0ms (baseline: 10.4ms) — FAILED: 11.0ms (+5.8%)'
+  - 'AC3: c=1 decode unchanged — PASS: 149.5 tok/s'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - fp8
+  - batched-decode
+  - falsified
+  notes: |
+    Hypothesis: BATCHED_DP4A=0 forces Q4K projections through FP8 cuBLASLt at M=4
+    instead of batched DP4A. FP8 tensor cores might compensate for 1.78x BW overhead.
+    Result: 5.3% SLOWER. DP4A fused gate+up reads Q4K weights at 0.5625 B/elem;
+    FP8 reads at 1 B/elem. At M=4, DP4A compute chains are efficient enough that
+    tensor cores don't compensate. c=8 unaffected (637.5 vs 637.8) because FP8
+    already fires at M>=5 via PMAT-093 threshold.
+    Also discovered: CUDA_MAX_BATCH=8 was bottlenecking c>8 throughput. Updated
+    forjar-yoga-realizr.yaml to CUDA_MAX_BATCH=16. Full scaling curve verified.
