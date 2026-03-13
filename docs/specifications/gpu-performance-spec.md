@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.75.0
+**Version:** 2.76.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -44,9 +44,10 @@ This specification consolidates all GPU decoder throughput optimization work for
 **Competition Reality (Mar 13, 2026 — yoga RTX 4060L @ 1900MHz, PMAT-109):** Under standardized load testing (60s, streaming, short prompt):
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms (1.29x, PASS < 2x). **PMAT-109: TTFT P99 14.2ms (bimodal tail ELIMINATED)**
 - **c=4 aggregate:** realizr 357.2 vs llama.cpp 365.8 (**0.98x**, PARITY, short prompt) — ITL 10.4 vs 10.7ms (realizr better), TTFT 36 vs 19ms (llama.cpp better). **PMAT-113: Medium prompt (~102 tok) shifts to 293.6 vs 362.7 (0.81×)** — FP8 prefill BW overhead exposed
-- **c=8 aggregate:** realizr **637.8** vs llama.cpp 430.0 (**1.48x**, DOMINATES) — FP8 tensor cores at M>=5
+- **c=8 aggregate:** realizr **637.8** vs llama.cpp 430.0 (**1.48x**, DOMINATES) — FP8 tensor cores at M>=5. Medium prompt: 474.9 vs 441.5 (1.08x, still wins)
 - **c=12 aggregate:** realizr 899.3 vs llama.cpp 906.0 (**0.99x**, PARITY) — ITL 11.4 vs 12.5ms
-- **c=16 aggregate:** realizr **1139.5** vs llama.cpp 1000.4 (**1.14x**, WINS) — 0% errors vs 2.2%
+- **c=16 aggregate:** realizr **1139.5** vs llama.cpp 1000.4 (**1.14x**, WINS) — 0% errors vs 2.2%. Medium prompt: **749.7 vs 504.5 (1.49x)** — llama.cpp collapses, realizr advantage grows
+- **vLLM reference (medium prompt, PMAT-113):** c=4 551.0, c=8 1023.2, c=16 **1778.5** — W4A16 Marlin + PagedAttention dominates all prompt profiles
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 - **PMAT-105 breakthrough:** LmHead (Q6K, 151,936×1536) was using batched GEMV (reads weights M times) instead of FP8 cuBLASLt (reads weights once). Routing through `batched_gemv_or_gemm` enables FP8 dispatch at M>=5. Single biggest optimization since FP8 prefill. ITL now nearly flat c=4→c=16 (10.4→11.7ms).
 
@@ -600,6 +601,16 @@ FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=
 | 4 | 355.5 | 293.6 | **−17.4%** | 352.7 | 362.7 | +2.8% | **1.01x** | **0.81x** |
 | 8 | 631.9 | 474.9 | −24.9% | 428.9 | 441.5 | +2.9% | **1.47x** | **1.08x** |
 | 16 | 1,139.8 | 749.7 | −34.2% | 1,037.1 | 504.5 | −51.3% | **1.10x** | **1.49x** |
+
+**vLLM reference (medium prompt, W4A16 Marlin + PagedAttention):**
+
+| c | vLLM medium | realizr medium | llama.cpp medium | realizr/vLLM | llama.cpp/vLLM |
+|---|------------|---------------|-----------------|-------------|---------------|
+| 4 | **551.0** | 293.6 | 362.7 | 0.53x | 0.66x |
+| 8 | **1,023.2** | 474.9 | 441.5 | 0.46x | 0.43x |
+| 16 | **1,778.5** | 749.7 | 504.5 | 0.42x | 0.28x |
+
+vLLM's advantage grows with concurrency: 1.88x→2.37x vs realizr (c=4→c=16). All 0% errors. PagedAttention + continuous batching + W4A16 Marlin = superior scaling at all prompt lengths. The architectural gap is quantization format (W4A16 vs Q4K) + scheduler (PagedAttention vs batch-and-step) + GEMM library (Marlin custom vs cuBLASLt FP8).
 
 **Key insight:** realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat or _improves_ at c=4-8 medium (+2.8%, +2.9%) but **collapses at c=16 medium (−51.3%)**. 16 slots × 102 tokens = 1,632 KV entries overwhelm llama.cpp's cuBLAS GEMM cache tiling. **realizr's advantage INCREASES at high concurrency + medium prompts** (1.10x→1.49x). This is the opposite of the c=4 story.
 
@@ -1947,6 +1958,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.76.0 | 2026-03-13 | **PMAT-113 complete: Three-way comparison with vLLM medium prompts.** vLLM reference: c=4 551.0, c=8 1023.2, c=16 1778.5 aggregate (medium prompt). vLLM advantage grows with c: 1.88→2.37× vs realizr. All 0% errors. Gap is quantization (W4A16 vs Q4K) + scheduler (PagedAttention vs batch-and-step) + GEMM (Marlin vs FP8 cuBLASLt). c=16 scoring paradox documented: realizr 49% higher aggregate than llama.cpp but scores lower (TTFT penalty). Full 3-way sensitivity matrix added. |
 | 2.75.0 | 2026-03-13 | **PMAT-113b complete: Full prompt-profile sensitivity matrix.** Added c=16 medium: realizr 749.7 vs llama.cpp 504.5 (1.49×, up from 1.10× at short). llama.cpp c=16 medium collapses −51.3% (1,632 KV entries overwhelm cuBLAS tiling). realizr advantage INCREASES at high c + medium prompts (1.10×→1.49×). Complete matrix: c=1 0.90×, c=4 0.81×, c=8 1.08×, c=16 1.49×. realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat at c=4-8 but collapses at c=16. |
 | 2.74.0 | 2026-03-13 | **PMAT-113b: c=8 medium prompt verification — crossover holds.** realizr still wins at c=8 with medium prompts: 474.9 vs 441.5 (1.08×, was 1.47× at short). FP8 decode advantage at M≥5 overcomes prefill BW penalty. Gap narrows (1.47×→1.08×) but does not close. Concurrency crossover is structural (FP8 decode), not prompt-dependent. llama.cpp c=8 medium: 55.9 decode tok/s (vs realizr 79.3), 17.9ms ITL (vs 12.6ms), 2.0% errors (vs 0%). |
 | 2.73.0 | 2026-03-13 | **PMAT-113: Prompt-profile sensitivity — FP8 prefill BW overhead exposed at medium prompts.** Benchmark: realizr vs llama.cpp at medium (~102 tokens) vs short (~29 tokens), c=1 and c=4, yoga 4060L 1900MHz, 60s, warmup 5s. Key finding: llama.cpp TTFT is prompt-length invariant (c=4: 19.6→18.8ms, −4%) while realizr TTFT doubles (36.1→75.8ms, +110%). FP8 cuBLASLt reads 1.78× more weight BW than llama.cpp's fused Q4K GEMM. At c=4 medium, llama.cpp retakes aggregate lead (362.7 vs 293.6, 1.24×). Short-prompt parity (1.01×) not representative of production workloads. realizr c=4 decode drops 10.3% with medium prompts (larger KV attention BW). Fix path: fused Q4K dequant→GEMM (same fix needed for Gap 4 TTFT scaling + c=12+ aggregate). Added Gap 5 analysis section. |
