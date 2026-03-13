@@ -1823,3 +1823,36 @@ roadmap:
     Production-incompatible at c>1. Single-user interactive only.
     Production Workload Guide: decision matrix by concurrency x prompt length x output length.
     No single runtime optimal across all regimes.
+- id: PMAT-118
+  github_issue: null
+  item_type: task
+  title: 'PMAT-118: Long prompt sensitivity — realizr loses c=8 lead'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr c=4 long benchmarked — DONE (217.3 agg, 74.9 decode, 174.7ms TTFT)'
+  - 'AC2: realizr c=8 long benchmarked — DONE (324.2 agg, 67.5 decode, 329.8ms TTFT)'
+  - 'AC3: llama.cpp c=4 long benchmarked — DONE (360.9 agg, 92.1 decode, 17.2ms TTFT)'
+  - 'AC4: llama.cpp c=8 long benchmarked — DONE (421.7 agg, --parallel 8 required)'
+  - 'AC5: Full 3-prompt-profile matrix — DONE (short/medium/long at c=4 and c=8)'
+  - 'AC6: llama.cpp parallel slot context limit documented — DONE (--parallel 16: 256 tok/slot)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - long-prompt
+  - competitive-analysis
+  - prompt-sensitivity
+  notes: |
+    realizr loses c=8 lead at long prompts (~311 tok):
+    c=4: 217.3 vs llama.cpp 360.9 (0.60x, was 1.01x short).
+    c=8: 324.2 vs llama.cpp 421.7 (0.77x, was 1.47x short).
+    Aggregate degrades 38.9% (c=4) to 48.7% (c=8) from short to long.
+    FP8 prefill BW overhead: TTFT 329.8ms = 45% of total latency at c=8 long.
+    llama.cpp --parallel 16 can't serve 311-tok prompts (256/slot limit).
+    realizr only wins at short/medium prompts + c>=8.
+    Fix: fused Q4K→GEMM kernel (same as Gap 4/5/6).
