@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.65.0
+**Version:** 2.66.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -325,11 +325,15 @@ For complete baseline tables, threshold registry, and measurement protocol, see 
 | Dimension | Score | Need | Root Cause |
 |-----------|-------|------|------------|
 | Scaling | 85 A- (59.9%) | 90 A (≥74%) | DP4A GEMV compute scales linearly with M; Q4K at M=4 uses 4× DP4A chains |
-| Tail (c=1) | 86 A- | 90 A | TTFT P99.9 (42.9ms) from occasional CUDA graph invalidation |
+| Tail (c=1) | 86 A- | 90 A | TTFT P99.9 (42.9ms) from cuGraphExecDestroy cost variance (PMAT-107 FALSIFIED) |
 
 **9/9 dimensions at B+ or above.** All previously-A dimensions maintained. Composite c=4 improved from ~60 C+ to 83 B+.
 
-**Historical context:** Concurrency scaling was the single dimension below A since Mar 11. PMAT-105 closed the gap from 51 C to 85 A- — the largest single-improvement in the scoring history. The remaining 5 points to A require breaking the DP4A compute ceiling at M=4, which was falsified via W4A16 WMMA (PMAT-054B).
+**Optimization exhaustion analysis (Mar 13, PMAT-107):** Both remaining sub-A dimensions have been investigated to driver-level root causes:
+- **Scaling (85 → 90)**: Requires 74% efficiency. Q4K DP4A at M=4 is compute-bound — 12 kernel approaches falsified (WMMA, FP8 at M=4, HGEMM, fused RMSNorm, batched graph, etc.). Only EAGLE speculative (PMAT-009, multi-week) could break this ceiling.
+- **Tail c=1 (86 → 90)**: cuGraphExecDestroy cost variance creates bimodal TTFT (95% at 20ms, 5% at 42ms). PMAT-107 attempted to defer graph destruction after TTFT — FALSIFIED (driver contention worsened tail 14x). Graph persistence across requests blocked by CORRECTNESS-015 (workspace reinit required after prefill). Fixing CORRECTNESS-015 requires proving that PAR-200 workspace reuse is safe for graph capture after batched prefill — non-trivial.
+
+**Historical context:** Concurrency scaling was the single dimension below A since Mar 11. PMAT-105 closed the gap from 51 C to 85 A- — the largest single-improvement in the scoring history. The remaining 5 points to A require either EAGLE speculative decoding (PMAT-009) or fixing CORRECTNESS-015 graph persistence.
 
 ---
 
@@ -1825,6 +1829,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.66.0 | 2026-03-13 | **Optimization exhaustion analysis.** Both remaining sub-A dimensions investigated to driver-level root causes. Scaling (85 → 90): 12 kernel approaches falsified, only EAGLE speculative remains. Tail c=1 (86 → 90): cuGraphExecDestroy variance is bimodal (95% at 20ms, 5% at 42ms), PMAT-107 falsified. Graph persistence blocked by CORRECTNESS-015. Updated scorecard gap analysis. |
 | 2.65.0 | 2026-03-13 | **PMAT-107 FALSIFIED: Deferring cuGraphExecDestroy after first token emission worsens tail latency.** Hypothesis: moving `clear_decode_graph()` from before to after first token emission removes cuGraphExecDestroy from TTFT critical path. Benchmark (120s c=1, probador, streaming): TTFT P50 unchanged (20.0ms), but P99 42.5→60.9ms (+43%), P99.9 43.6→611.6ms (14x worse). Root cause: cuGraphExecDestroy immediately followed by graph capture in the decode loop creates worse CUDA driver contention (destroy+capture back-to-back on same stream) than the original position (destroy happens, then 20ms of prefill/emission buffer before capture). The existing PMAT-085 placement (after prefill, before emission) is optimal. Also established baseline tail characterization: c=1 TTFT distribution is bimodal — 95% at 20-21ms, 5% at 42-44ms. The 2x jump is from cuGraphExecDestroy cost variance. Reverted to original code with falsification notes. |
 | 2.64.0 | 2026-03-13 | **PMAT-106: c=1 decode timing analysis — CPU overhead negligible (9µs, 0.13%).** Per-step DECODE_TIMING breakdown: h2d=6µs, graph launch=3µs, GPU execution+argmax+sync=6690µs, total=6700µs (149 tok/s). The 0.5ms gap to llama.cpp (6.7 vs 6.2ms, 0.92x) is entirely GPU kernel BW utilization (57.4% vs 62.1% of 256 GB/s). Root cause: Q6K GEMV kernel (LmHead, 175 MB, ~25% of decode) has ~37% lower BW efficiency than Q4K HwDp4a. No fix planned — 0.92x is diminishing returns. realizr WINS at all c>=4 (PMAT-105), making c=1 gap low priority. Updated Gap 1b analysis with measured data. |
 | 2.63.0 | 2026-03-13 | **Scorecard v3.2.0 update (PMAT-105 impact).** Concurrency scaling dimension: 51 C (34.1%) → 85 A- (59.9%). c=4 composite: ~60 C+ → 83 B+. Gap 2 (c=4 vs llama.cpp) RESOLVED: 0.62x → 1.05x (WINS). Gap 3 (vs vLLM) narrowed: 0.35x → 0.60x. Updated five-whys analysis for both gaps. 9/9 dimensions at B+ or above. Remaining to A: scaling (85 → need 90, DP4A compute ceiling at M=4), tail c=1 (86 → need 90, occasional CUDA graph invalidation). |
