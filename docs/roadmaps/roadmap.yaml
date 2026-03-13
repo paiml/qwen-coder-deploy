@@ -1511,3 +1511,38 @@ roadmap:
     Gap is Q6K GEMV kernel efficiency (~37% lower BW than Q4K HwDp4a)
     and possibly attention kernel differences. At 0.92x parity, this is
     diminishing returns territory. No fix planned — realizr WINS at all c>=4.
+- id: PMAT-107
+  github_issue: null
+  item_type: task
+  title: 'PMAT-107: Defer cuGraphExecDestroy after TTFT — FALSIFIED (+43% P99, 14x P99.9)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: TTFT P99 <= baseline 42.5ms — FAILED: 60.9ms (+43%)'
+  - 'AC2: TTFT P99.9 <= baseline 43.6ms — FAILED: 611.6ms (14x worse)'
+  phases:
+  - name: 'Phase 1: Move clear_decode_graph() after first token emission'
+    status: completed
+  - name: 'Phase 2: Build, deploy, benchmark — FALSIFIED'
+    status: completed
+  - name: 'Phase 3: Revert code, document falsification'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - cuda-graph
+  - ttft
+  - tail-latency
+  - falsified
+  notes: |
+    Hypothesis: cuGraphExecDestroy in TTFT path adds variable latency (0-20ms).
+    Moving it after first token emission should remove it from TTFT measurement.
+    FALSIFIED: cuGraphExecDestroy immediately followed by graph capture in
+    decode loop creates worse CUDA driver contention (destroy+capture back-to-back)
+    than original position (destroy happens, then prefill buffer before capture).
+    Baseline tail analysis: c=1 TTFT bimodal — 95% at 20-21ms, 5% at 42-44ms.
+    The 2x jump is cuGraphExecDestroy cost variance. Code reverted.
