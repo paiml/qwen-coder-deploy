@@ -633,7 +633,17 @@ If realizr had llama.cpp-equivalent TTFT (fused Q4K GEMM, 1-step dequant), decod
 
 The fused kernel would restore c=8 medium dominance (1.08x→1.40x) and c=12/16 competitiveness (0.67x→0.98x, 0.72x→1.13x). But c=1/4 remain at 0.93x — decode rate (not TTFT) is the bottleneck. **This quantifies the value of fused Q4K→GEMM: up to +57.6% aggregate at c=16 medium.** The fix simultaneously closes Gap 4 (TTFT scaling) and Gap 5 (prompt-profile sensitivity).
 
-**Scoring (probador llm score, medium prompts):** At c=8 medium, realizr 60 C+ vs llama.cpp 56 C (aggregate advantage compensates for TTFT). At c=16 medium, llama.cpp scores higher (1045.3 aggregate + 30.8ms TTFT vs realizr 749.7 + 278ms TTFT). **TTFT is the scoring bottleneck** for realizr at medium prompts — the 278ms c=16 TTFT (score ~13) drags the composite below llama.cpp despite lower aggregate. **The scoring methodology appropriately penalizes latency regression** — users notice TTFT even when throughput is higher. The fused Q4K→GEMM fix would simultaneously close TTFT gap and improve aggregate, lifting all dimensions.
+**Medium prompt scorecards (probador llm score):**
+
+| c | vLLM | realizr | llama.cpp | realizr TTFT score |
+|---|------|---------|-----------|-------------------|
+| 1 | — | 95 A+ | **99 A+** | 96 |
+| 4 | **99 A+** | 67 C+ | 78 B | **49** ← bottleneck |
+| 8 | **97 A+** | **70 B** | 69 C+ | **25** ← bottleneck |
+| 12 | — | 74 B | **84 B+** | **17** ← bottleneck |
+| 16 | **93 A** | 73 B | **78 B** | **13** ← bottleneck |
+
+**TTFT is the scoring bottleneck** at every c≥4 for medium prompts. realizr's decode and aggregate dimension scores are competitive (e.g., c=8: aggregate 90/100, decode 50/100), but TTFT (25-49/100 at c=4-8, 13-17 at c=12-16) drags the composite. llama.cpp wins at c=4/12/16 despite lower aggregate at c=8 because its TTFT (97-100/100) is nearly perfect. **The fused Q4K→GEMM fix would lift TTFT scores from 13-49 to ~90+, directly adding 5-12 composite points.**
 
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
