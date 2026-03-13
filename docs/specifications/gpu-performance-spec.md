@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.77.0
+**Version:** 2.78.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -619,7 +619,19 @@ FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=
 
 vLLM dominates at all concurrencies. llama.cpp at c=16 medium (1045.3) is 0.59x of vLLM (1778.5) — competitive thanks to prompt-length invariance. realizr at 0.42x. The architectural gap: W4A16 Marlin (1-step dequant+GEMM) + PagedAttention (no per-batch prefill blocking) + continuous batching (interleaved prefill+decode).
 
-**Key insight:** realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat or _improves_ at c=4-8 medium (+2.8%, +2.9%) but **collapses at c=16 medium (−51.3%)**. 16 slots × 102 tokens = 1,632 KV entries overwhelm llama.cpp's cuBLAS GEMM cache tiling. **realizr's advantage INCREASES at high concurrency + medium prompts** (1.10x→1.49x). This is the opposite of the c=4 story.
+**PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
+
+If realizr had llama.cpp-equivalent TTFT (fused Q4K GEMM, 1-step dequant), decode rate unchanged:
+
+| c | Current medium | Theoretical | Gain | vs llama.cpp medium |
+|---|---------------|------------|------|-------------------|
+| 1 | 140.9 | 146.3 | +3.8% | 0.93x (decode-limited) |
+| 4 | 293.6 | 338.2 | **+15.2%** | 0.93x (decode-limited) |
+| 8 | 474.9 | 616.4 | **+29.8%** | **1.40x (WINS)** |
+| 12 | 627.3 | 917.8 | **+46.3%** | 0.98x (PARITY) |
+| 16 | 749.7 | 1,181.4 | **+57.6%** | **1.13x (WINS)** |
+
+The fused kernel would restore c=8 medium dominance (1.08x→1.40x) and c=12/16 competitiveness (0.67x→0.98x, 0.72x→1.13x). But c=1/4 remain at 0.93x — decode rate (not TTFT) is the bottleneck. **This quantifies the value of fused Q4K→GEMM: up to +57.6% aggregate at c=16 medium.** The fix simultaneously closes Gap 4 (TTFT scaling) and Gap 5 (prompt-profile sensitivity).
 
 **Scoring (probador llm score, medium prompts):** At c=8 medium, realizr 60 C+ vs llama.cpp 56 C (aggregate advantage compensates for TTFT). At c=16 medium, llama.cpp scores higher (1045.3 aggregate + 30.8ms TTFT vs realizr 749.7 + 278ms TTFT). **TTFT is the scoring bottleneck** for realizr at medium prompts — the 278ms c=16 TTFT (score ~13) drags the composite below llama.cpp despite lower aggregate. **The scoring methodology appropriately penalizes latency regression** — users notice TTFT even when throughput is higher. The fused Q4K→GEMM fix would simultaneously close TTFT gap and improve aggregate, lifting all dimensions.
 
@@ -1966,6 +1978,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.78.0 | 2026-03-13 | **PMAT-115: Theoretical fused Q4K→GEMM impact quantified.** If realizr had llama.cpp-equivalent TTFT (fused 1-step dequant): c=8 medium +29.8% (1.40x vs llama.cpp), c=12 +46.3% (0.98x PARITY), c=16 +57.6% (1.13x WINS). c=1/4 remain at 0.93x (decode-limited, not TTFT-limited). Fix simultaneously closes Gap 4 (TTFT scaling) and Gap 5 (prompt sensitivity). Removed stale "c=16 collapse" paragraph left from pre-falsification edit. |
 | 2.77.0 | 2026-03-13 | **PMAT-114: c=16 medium "collapse" FALSIFIED + complete c=1-16 matrix.** Initial llama.cpp c=16 medium (504.5 tok/s, "−51.3% collapse") was measurement artifact from GPU contention after killing vLLM. Verification: 1045.3 (+0.8% from short). **llama.cpp is prompt-length invariant at ALL concurrency levels** (fused Q4K GEMM). Added c=12 medium: realizr 627.3 vs llama.cpp 938.1 (0.67x). Complete matrix: realizr only wins c=8 medium (1.08x, narrow). All other concurrencies: llama.cpp advantage grows with medium prompts. Fixed sensitivity matrix, scoring analysis, and executive summary. |
 | 2.76.0 | 2026-03-13 | **PMAT-113 complete: Three-way comparison with vLLM medium prompts.** vLLM reference: c=4 551.0, c=8 1023.2, c=16 1778.5 aggregate (medium prompt). vLLM advantage grows with c: 1.88→2.37× vs realizr. All 0% errors. Gap is quantization (W4A16 vs Q4K) + scheduler (PagedAttention vs batch-and-step) + GEMM (Marlin vs FP8 cuBLASLt). c=16 scoring paradox documented: realizr 49% higher aggregate than llama.cpp but scores lower (TTFT penalty). Full 3-way sensitivity matrix added. |
 | 2.75.0 | 2026-03-13 | **PMAT-113b complete: Full prompt-profile sensitivity matrix.** Added c=16 medium: realizr 749.7 vs llama.cpp 504.5 (1.49×, up from 1.10× at short). llama.cpp c=16 medium collapses −51.3% (1,632 KV entries overwhelm cuBLAS tiling). realizr advantage INCREASES at high c + medium prompts (1.10×→1.49×). Complete matrix: c=1 0.90×, c=4 0.81×, c=8 1.08×, c=16 1.49×. realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat at c=4-8 but collapses at c=16. |
