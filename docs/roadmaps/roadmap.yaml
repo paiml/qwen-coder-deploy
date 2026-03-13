@@ -1793,3 +1793,33 @@ roadmap:
     c=8: ratio jumps 1.08x→1.25x (realizr agg +17.6%, llama.cpp +1.2%).
     FP8 decode advantage at M>=5 dominates when TTFT amortized.
     Code gen workloads (100-500 output tokens) favor realizr at c>=8.
+- id: PMAT-117
+  github_issue: null
+  item_type: task
+  title: 'PMAT-117: Ollama characterization + Production Workload Guide'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Ollama c=1 medium benchmarked — DONE (123.4 agg, 164.5 decode, 70.1ms TTFT)'
+  - 'AC2: Ollama c=4 medium benchmarked — DONE (161.6 agg, 164.5 decode, 602.6ms TTFT)'
+  - 'AC3: 4-runtime medium comparison table — DONE (vLLM > llama.cpp > realizr > ollama at c=4)'
+  - 'AC4: Production workload guide with decision matrix — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - ollama
+  - production-guide
+  - competitive-analysis
+  notes: |
+    Ollama: best M=1 decode (164.5, +3% vs llama.cpp 159.9) from exclusive GPU access.
+    Best ITL (6.1ms) — pure M=1 DP4A GEMV without batching overhead.
+    Worst TTFT: 70.1ms (c=1, 7x llama.cpp), 602.6ms (c=4, 32x llama.cpp).
+    Serial processing — no batching, no request interleaving.
+    Production-incompatible at c>1. Single-user interactive only.
+    Production Workload Guide: decision matrix by concurrency x prompt length x output length.
+    No single runtime optimal across all regimes.
