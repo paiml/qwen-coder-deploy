@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.83.0
+**Version:** 2.84.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -163,6 +163,18 @@ TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 pre
 | **16** | **1,139.8** | 1,037.1 | **1.10x** | **11.7ms** | 14.8ms | 87.0ms | 32.3ms | **0%** | 0.9% |
 
 **PMAT-111 TTFT analysis (Mar 13):** TTFT_TRACE reveals realizr's c=4 TTFT (36ms) = 21ms multi-prompt FP8 prefill (4×29=116 tokens, weights read once) + 11ms first decode step (M=4 DP4A) + 4ms HTTP/queue overhead. llama.cpp's c=4 TTFT (19.6ms) is lower because it interleaves prefill with ongoing decode (no "wait for previous batch" delay). TTFT scales ~linearly with concurrency for realizr (13→87ms, 6.6×) while llama.cpp is sublinear (9.8→32.3ms, 3.3×). This is a structural consequence of realizr's batch-and-step scheduler architecture vs llama.cpp's continuous batching.
+
+**Full concurrency scaling — all 4 runtimes (yoga 4060L, 1900MHz, short prompt, 60s, warmup, isolated, PMAT-120):**
+
+| c | vLLM | realizr | llama.cpp | ollama | realizr/vLLM | Scaling eff (vLLM) |
+|---|------|---------|-----------|--------|-------------|-------------------|
+| 1 | 153.6 | 149.5 | 160.2 | 164.6 | 0.97x | — |
+| 4 | 594.8 | 355.5 | 352.7 | 159.1 | 0.60x | 97% |
+| 8 | **1,058.5** | 631.9 | 428.9 | — | 0.60x | 86% |
+| 12 | **1,461.3** | 898.4 | 927.3 | — | 0.61x | 79% |
+| 16 | **1,832.2** | 1,139.8 | 1,037.1 | — | 0.62x | **74%** |
+
+**vLLM scaling: 11.9x (c=1→c=16, 74% efficiency).** W4A16 Marlin + PagedAttention + continuous batching. realizr: 7.6x (47.5%). llama.cpp: 6.5x (40.4%). ollama: ~1.0x (serial). vLLM ITL c=1→c=16: 6.5→7.4ms (+14%). realizr: 6.7→11.7ms (+75%). llama.cpp: 6.2→14.8ms (+139%). **vLLM has the most stable per-request latency under concurrency.**
 
 **Realizr competitive advantages:**
 - **0% error rate** at all concurrency levels (llama.cpp: 0.9-3.0%)
@@ -732,7 +744,7 @@ Ollama at c=4 exposes serial processing: aggregate barely improves from c=1 (161
 
 3. **llama.cpp is prompt-length invariant (PMAT-114).** Fused Q4K GEMM gives constant TTFT regardless of prompt length or concurrency. This architectural advantage is unmatched — realizr's FP8 2-step pipeline imposes a per-token BW tax that compounds with M×prompt_len.
 
-4. **vLLM dominates everything but has deployment complexity.** W4A16 Marlin + PagedAttention + continuous batching gives 1.88-2.37× vs realizr across all prompt profiles (PMAT-113). The gap is architectural (quantized tensor core GEMM + paged KV cache + interleaved scheduling).
+4. **vLLM dominates everything (PMAT-120).** c=1→c=16 scaling: 11.9× (74% efficiency) vs realizr 7.6× (47.5%) vs llama.cpp 6.5× (40.4%). ITL: 6.5→7.4ms (+14%) vs realizr 6.7→11.7ms (+75%). The gap is architectural: W4A16 Marlin (fused 1-step quantized GEMM) + PagedAttention (dynamic KV cache) + continuous batching (interleaved prefill+decode). At c=16 short: **1832 tok/s** (1.61× realizr, 1.77× llama.cpp).
 
 5. **Ollama is production-incompatible at c>1 (PMAT-117).** Serial processing wastes GPU parallelism. TTFT at c=4 is 602ms (32× llama.cpp). Only suitable for single-user interactive use where its M=1 decode (164.5 tok/s, best of all 4) and zero-config deployment provide value.
 
@@ -1808,6 +1820,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-117** | **Ollama characterization + Production Workload Guide** | **Best M=1 decode 164.5, serial: c=4 TTFT 602ms** | ✅ MEASURED. Ollama: best M=1 decode (164.5, +3% vs llama.cpp), best ITL (6.1ms), worst TTFT (602ms at c=4, serial queue). 4-runtime comparison at medium prompts. Production workload guide: no single runtime optimal — decision matrix by concurrency, prompt length, output length. |
 | **PMAT-118** | **Long prompt sensitivity (~311 tok)** | **realizr LOSES c=8 lead: 0.77x** | ✅ MEASURED. Long prompts: c=4 0.60x (was 1.01x short), c=8 **0.77x** (was 1.47x short). FP8 prefill BW overwhelms decode advantage. llama.cpp prompt-invariant (c=4: 360.9 vs 362.7 medium). llama.cpp --parallel 16 can't serve 311-tok prompts (256/slot limit). realizr only wins at short/medium c≥8. |
 | **PMAT-119** | **vLLM long prompt — prompt invariance confirmed** | **c=4 558.5, c=8 1040.7 (long ≈ medium)** | ✅ MEASURED. vLLM is prompt-invariant like llama.cpp: c=4 long 558.5 vs medium 551.0 (+1.4%), c=8 long 1040.7 vs medium 1023.2 (+1.7%). Marlin W4A16 is also fused 1-step quantized GEMM. **realizr is the ONLY runtime with prompt-length sensitivity** — 2-step FP8 pipeline is the sole cause. |
+| **PMAT-120** | **vLLM full scaling curve (c=1-16 short)** | **1832 tok/s at c=16, 74% efficiency** | ✅ MEASURED. vLLM c=1→c=16: 153.6→1832.2 (11.9×, 74% efficiency). realizr: 7.6× (47.5%). llama.cpp: 6.5× (40.4%). vLLM ITL +14% c=1→c=16 (vs realizr +75%, llama.cpp +139%). PagedAttention + continuous batching gives dramatically better per-request latency stability under load. |
 | **PMAT-114** | **Prompt-profile full matrix + falsification** | **llama.cpp prompt-invariant at ALL c** | ✅ CORRECTED. c=16 504.5 was artifact (GPU contention after vLLM kill). Verified: 1045.3 (+0.8% from short). Complete c=1-16 matrix: realizr only wins c=8 medium (1.08x). c=12: 0.67x, c=16: 0.72x. llama.cpp fused Q4K GEMM is prompt-length invariant (−2.1% to +2.8%). |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
@@ -2186,6 +2199,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.84.0 | 2026-03-13 | **PMAT-120: vLLM full short-prompt scaling curve c=1-16.** c=8: 1058.5, c=12: 1461.3, c=16: 1832.2. Scaling: 11.9× (74% efficiency) vs realizr 7.6× (47.5%) vs llama.cpp 6.5× (40.4%). ITL stability: vLLM +14% (c=1→c=16), realizr +75%, llama.cpp +139%. Added 4-runtime scaling table to competition baselines section. Updated production workload guide with vLLM scaling data. Also added ollama c=1/c=4 short to baselines tables. |
 | 2.83.0 | 2026-03-13 | **PMAT-119: vLLM prompt-length invariance confirmed — realizr is the ONLY prompt-sensitive runtime.** vLLM long prompt: c=4 558.5 (vs medium 551.0, +1.4%), c=8 1040.7 (vs medium 1023.2, +1.7%). Marlin W4A16 is also fused 1-step quantized GEMM. Both vLLM and llama.cpp are prompt-invariant (−2 to +2%). realizr drops 39-49% from short→long. The 2-step FP8 cuBLASLt pipeline is the sole cause. Fused Q4K→GEMM would eliminate an entire class of workload-dependent regression. Full 3-runtime c=4 and c=8 long tables added. |
 | 2.82.0 | 2026-03-13 | **PMAT-118: Long prompt sensitivity — realizr loses c=8 lead.** Long prompt (~311 tok): realizr c=4 217.3 vs llama.cpp 360.9 (0.60x), c=8 324.2 vs 421.7 (0.77x). Aggregate degrades 38.9-48.7% vs short. c=8 crossover only holds for short/medium prompts — long prompts overwhelm FP8 decode advantage with prefill BW. llama.cpp `--parallel 16` can't serve 311-tok prompts (256/slot limit, must use --parallel 8). Added Gap 6, full 3-prompt-profile matrix, updated production workload guide. Also: ollama short-prompt baselines (164.6 decode c=1) added to competition tables. |
 | 2.81.0 | 2026-03-13 | **PMAT-117: Ollama characterization + Production Workload Guide.** 4-runtime medium prompt comparison: ollama best M=1 decode (164.5 tok/s, +3% vs llama.cpp), best ITL (6.1ms), but worst TTFT (70ms c=1, 602ms c=4 — serial processing). Production-incompatible at c>1. Added production workload guide synthesizing PMAT-113→117: decision matrix by concurrency × prompt length × output length. No single runtime optimal — llama.cpp for c=1-7 medium, realizr for c≥8, vLLM for all concurrencies, ollama for single-user only. Runtime architecture comparison table (batching, quant, TTFT scaling, best regime). |

@@ -1888,3 +1888,31 @@ roadmap:
     2-step FP8 pipeline is the SOLE cause of prompt sensitivity.
     Fused Q4K→GEMM would eliminate this entire class of regression.
     Fix: fused Q4K→GEMM kernel (same as Gap 4/5/6).
+- id: PMAT-120
+  github_issue: null
+  item_type: task
+  title: 'PMAT-120: vLLM full short-prompt scaling curve (c=1-16)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=8 short benchmarked — DONE (1058.5 agg, 144.6 decode)'
+  - 'AC2: vLLM c=12 short benchmarked — DONE (1461.3 agg, 138.7 decode)'
+  - 'AC3: vLLM c=16 short benchmarked — DONE (1832.2 agg, 134.6 decode)'
+  - 'AC4: Full 4-runtime scaling comparison — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - vllm
+  - scaling
+  - competitive-analysis
+  notes: |
+    vLLM c=1→c=16 scaling: 11.9x (74% efficiency).
+    realizr: 7.6x (47.5%). llama.cpp: 6.5x (40.4%). ollama: ~1.0x.
+    ITL stability: vLLM +14%, realizr +75%, llama.cpp +139%.
+    W4A16 Marlin + PagedAttention + continuous batching.
+    At c=16: 1832 tok/s (1.61x realizr, 1.77x llama.cpp).
