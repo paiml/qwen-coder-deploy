@@ -1326,3 +1326,39 @@ roadmap:
     realizr's batch scheduler produces M=c=4, too small for WMMA tile efficiency.
     Three commits: trueno d0b358a (format+kernel), realizr 5ee2462 (wiring), ba2b481 (M<=8 guard).
     Remaining paths: chunked prefill, EAGLE speculative decoding, higher concurrency.
+- id: PMAT-102
+  github_issue: null
+  item_type: enhancement
+  title: 'PMAT-102: Batched CUDA graph replay (PAR-121) — FALSIFIED (−12% aggregate)'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: BATCHED_GRAPH=1 c=4 aggregate >= eager baseline (259.7) — FAILED: 228.8 (−11.9%)'
+  - 'AC2: BATCHED_GRAPH=1 c=4 ITL <= eager baseline (14.5ms) — FAILED: 16.6ms (+14.5%)'
+  phases:
+  - name: 'Phase 1: Re-test PAR-121 batched CUDA graphs after PMAT-075/088b/045 fixes'
+    status: completed
+  - name: 'Phase 2: Benchmark c=4 (yoga, short prompt, 60s) — FALSIFIED'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - cuda-graph
+  - batched-decode
+  - falsified
+  notes: |
+    PAR-121 batched CUDA graphs were implemented but disabled (BATCHED_GRAPH=1 to enable)
+    since PMAT-056 era ("25% slower"). Re-tested after: PMAT-075 (stable buffer addresses,
+    no graph invalidation), PMAT-088b (async H2D copies, eliminated 2.8ms sync overhead),
+    PMAT-045 (pre-upload device state before capture). Graph captured successfully (single
+    capture, replayed for all subsequent batches). Still −12% slower.
+    Root causes: (1) Per-kernel CPU launch overhead overestimated (~7.4µs assumed, actual
+    ~2-3µs) — graph savings only ~1-1.5ms for 486 kernels. (2) Extra stream.synchronize()
+    before argmax (8 kernels not in graph) serializes work that overlaps in eager path.
+    (3) 4 async H2D copies add ~0.2ms per step. Net: graph overhead > savings.
+    Exhausted M<=4 decode optimizations: CUDA graphs (PMAT-102), FP8 (PMAT-093 −3%),
+    HGEMM (PMAT-062 −13%), W4A16 WMMA (PMAT-054B/091), fused residual+RMSNorm (PMAT-092).
