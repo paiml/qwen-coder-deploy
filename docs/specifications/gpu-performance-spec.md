@@ -748,10 +748,11 @@ Ollama at c=4 exposes serial processing: aggregate barely improves from c=1 (161
 
 | c | realizr short | realizr med | realizr long | Δ short→long | llama.cpp short | llama.cpp med | llama.cpp long | Δ short→long | Ratio (short) | Ratio (med) | Ratio (long) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 4 | 355.5 | 293.6 | **217.3** | **−38.9%** | 352.7 | 362.7 | 360.9 | +2.3% | 1.01x | 0.81x | **0.60x** |
+| 1 | 149.5 | 140.9 | 128.0 | −14.4% | 160.2 | 156.8 | 156.3† | −2.4% | 0.93x | 0.90x | **0.82x** |
+| 4 | 355.5 | 293.6 | **217.3** | **−38.9%** | 352.7 | 362.7 | 360.9† | +2.3% | 1.01x | 0.81x | **0.60x** |
 | 8 | 631.9 | 474.9 | **324.2** | **−48.7%** | 428.9 | 441.5 | 421.7† | −1.7% | 1.47x | 1.08x | **0.77x** |
 
-†llama.cpp c=8 long uses `--parallel 8` (512 tok/slot). `--parallel 16` (256 tok/slot) **cannot serve long prompts** (311 tok > 256 slot limit). This introduces a slight confound (~5% lower throughput vs --parallel 16 at c=8, per PMAT-101).
+†llama.cpp long prompt data uses `--parallel 8` (512 tok/slot). `--parallel 16` (256 tok/slot) **cannot serve long prompts at any concurrency level** — even c=1 fails (311 tok > 256 slot limit). The `--parallel 8` config introduces a slight confound at c=8 (~5% lower throughput vs --parallel 16, per PMAT-101), but c=1 and c=4 data is effectively unconfounded (c < parallel).
 
 **Detailed metrics (long prompt ~311 tok):**
 
@@ -771,7 +772,7 @@ Ollama at c=4 exposes serial processing: aggregate barely improves from c=1 (161
 
 3. **llama.cpp is prompt-length invariant even at long prompts.** c=4: 360.9 vs medium 362.7 (−0.5%). c=8: 421.7 (−4.5% vs medium, partly from --parallel 8 confound). The fused Q4K GEMM handles 311 tokens with zero marginal TTFT cost.
 
-4. **llama.cpp parallel slots trade prompt capacity for concurrency.** With `--parallel 16` and 4096 context: max prompt = 256 tokens. With `--parallel 8`: max prompt = 512 tokens. **Production deployments serving code generation prompts (200-500 tokens) are forced to `--parallel 8` or lower**, limiting maximum concurrent requests. realizr has no such constraint (dynamic context allocation).
+4. **llama.cpp parallel slots trade prompt capacity for concurrency (PMAT-118).** With `--parallel 16` and 4096 context: max prompt = 224 tokens (256 - 32 output). `--parallel 8`: max prompt = 480 tokens. **This is a hard per-slot limit** — even c=1 fails if prompt exceeds slot size. Production deployments serving code generation prompts (200-500 tokens) are forced to `--parallel 8` or lower, limiting maximum concurrent requests to 8. realizr has no such constraint (dynamic context allocation).
 
 5. **realizr's reliability advantage persists.** 0% errors at all prompt lengths vs llama.cpp 1.4-2.6%. This matters more for long prompts where each failed request wastes more GPU time.
 
