@@ -1649,3 +1649,32 @@ roadmap:
     blocker (Aggregate +6.0 and Decode +6.0 if perfect).
     Fresh v2 benchmarks: realizr c=4 355.5 vs llama.cpp 352.7 (1.01x PARITY).
     realizr now scores 78 B vs llama.cpp 70 B (was 75 B with --parallel 8 data).
+- id: PMAT-112
+  github_issue: null
+  item_type: task
+  title: 'PMAT-112: TTFT P99.9 tail is cold-start, not structural'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: TTFT P99.9 characterized with and without warmup — DONE'
+  - 'AC2: Root cause identified (KV cache allocation PAR-119) — DONE'
+  - 'AC3: Production-representative warmup data documented — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - ttft
+  - tail-latency
+  - cold-start
+  notes: |
+    c=4 TTFT P99.9: 328ms without warmup → 46ms with 5s warmup (7x improvement).
+    Root cause: first batch allocates KV cache (PAR-119: 28 layers × 16 sequences
+    = 1792MB). Subsequent batches reuse via PMAT-075 (addresses stable).
+    c=8: 118→55ms, c=16: 90→88ms (already amortized at high c).
+    All tail ratios excellent with warmup: 1.0-1.3x.
+    Potential fix: pre-allocate KV cache at server init (lazy → eager init).
+    Would eliminate cold-start tail without requiring warmup requests.

@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.71.0
+**Version:** 2.72.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -339,7 +339,18 @@ For complete baseline tables, threshold registry, and measurement protocol, see 
 
 **Only remaining sub-A dimension: Scaling (85 A-).** Requires 74% efficiency. Q4K DP4A at M=4 is compute-bound — **13 kernel approaches falsified** (including PMAT-110: FP8 for all Q4K at M=4, −5.3%). Only EAGLE speculative (PMAT-009, multi-week) could break this ceiling.
 
-**PMAT-110 c=4 scoring analysis (Mar 13):** realizr 78 B vs llama.cpp 75 B at c=4 (corrected --parallel 16). realizr wins on Error (100 vs 58 from 0% vs 1.3% errors), Decode (60 vs 58), ITL (72 vs 70). llama.cpp wins on TTFT (96 vs 84). Even perfect TTFT (12ms → score 100) adds only +2.4 composite. Gap to 90 A requires +11.6 points — largest contributors are Aggregate (+6.0 if perfect) and Decode (+6.0 if perfect), both blocked by DP4A compute ceiling. M=4 batched decode is remarkably stable (354.1-354.8ms per 32-token batch, ±0.1% variance, 92% of theoretical DP4A ceiling).
+**PMAT-112: TTFT tail is cold-start, not structural (Mar 13).** With `--warmup 5` (excludes first 5s from measurement):
+
+| c | TTFT P50 | P99.9 (no warmup) | P99.9 (warmup) | Tail ratio (warmup) |
+|---|---------|-------------------|----------------|---------------------|
+| 1 | 13.2ms | 54.2ms | 34.0ms | 1.1x |
+| 4 | 36.3ms | 328.6ms | **46.4ms** | 1.3x |
+| 8 | 52.6ms | 118.8ms | 54.7ms | 1.0x |
+| 16 | 87.1ms | 90.0ms | 88.0ms | 1.0x |
+
+Root cause: first batch allocates KV cache (PAR-119: 28 layers × 16 sequences = 1792MB). Subsequent batches reuse (PMAT-075). c=4 P99.9 drops **7x** with warmup (328→46ms). Production systems with persistent servers should use warmup-representative data.
+
+**PMAT-110 c=4 scoring analysis (Mar 13):** realizr 78 B vs llama.cpp 70 B at c=4 (fresh v2, --parallel 16). realizr wins on Aggregate (1.01x), Decode (+6.6%), ITL (10.4 vs 11.1ms), Error (0% vs 2.8%). llama.cpp wins on TTFT (18.7 vs 36.3ms). Gap to 90 A: +12 points needed, blocked by DP4A compute ceiling. M=4 batched decode: 354.1-354.8ms per 32 tokens (±0.1%), 92% of theoretical DP4A ceiling.
 
 **PMAT-109 details (Mar 13):** Removed `force_workspace_reinit()` from `run_prefill()` and `clear_decode_graph()` from `generate_gpu_resident_streaming()`. PAR-200 workspace reuse in `init_prefill_workspace` already clears graphs when actual reallocation occurs (longer prompt exceeds buffer_capacity). When capacity is sufficient (same/shorter prompt), workspace buffer addresses are stable → CUDA graph persists across requests → no cuGraphExecDestroy per request.
 
@@ -1494,6 +1505,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-109** | **Graph persistence (remove force_workspace_reinit)** | **TTFT P99: 35→14ms, tail 86→100** | ✅ DONE. CORRECTNESS-015 `force_workspace_reinit` was defeating PAR-200 workspace reuse, forcing graph destruction per request. Removal eliminates cuGraphExecDestroy from steady-state TTFT. P50: 14→13.2ms, P99: ~35→14.2ms. Bimodal TTFT eliminated. |
 | **PMAT-110** | **FP8 for all projections at M=4 (BATCHED_DP4A=0)** | **FALSIFIED** (−5.3% c=4) | Disabling batched DP4A to force Q4K through FP8 cuBLASLt at M=4: aggregate 338.4 vs 357.2 (−5.3%), ITL 11.0 vs 10.4ms (+5.8%). DP4A fused gate+up confirmed optimal at M≤4. FP8 reads 1.78× more BW (1 B/elem vs Q4K 0.5625) — tensor core advantage doesn't compensate at M=4. Confirms PMAT-093 with post-PMAT-105 code. |
 | **PMAT-111** | **TTFT scaling analysis (c=4 36ms breakdown)** | **TTFT 36→20ms (score 84→96)** | ✅ MEASURED. Structural: 21ms prefill + 11ms decode + 4ms overhead. Fix requires pipeline parallelism or continuous batching. +1.8 composite points (insufficient for grade change). |
+| **PMAT-112** | **TTFT P99.9 tail: cold-start, not structural** | **c=4 P99.9: 328→46ms with warmup** | ✅ MEASURED. KV cache allocation (1792MB, PAR-119) causes one-time spike. With 5s warmup: c=4 tail 1.3x, c=8 1.0x, c=16 1.0x. Production-representative. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1871,6 +1883,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.72.0 | 2026-03-13 | **PMAT-112: TTFT P99.9 tail is cold-start, not structural.** With 5s warmup, c=4 TTFT P99.9 drops 7x (328→46ms, tail ratio 1.3x). Root cause: KV cache allocation (1792MB, PAR-119) on first batch. c=8 and c=16 tails perfect (1.0x) with warmup. Added warmup-representative TTFT tail table to scorecard section. Production servers with persistent processes should use warmup data. |
 | 2.71.0 | 2026-03-13 | **PMAT-111: TTFT scaling analysis + fresh v2 benchmarks.** TTFT_TRACE reveals c=4 TTFT (36ms) = 21ms multi-prompt FP8 prefill + 11ms first decode + 4ms overhead. Structural: batch-and-step vs continuous batching. TTFT scales 6.6× (c=1→16) vs llama.cpp 3.3×. Fix adds only +1.8 composite points — DP4A ceiling remains the blocker. Fresh v2 benchmarks with both runtimes isolated: realizr c=4 355.5 vs llama.cpp 352.7 (1.01x PARITY). Updated scorecard: realizr 78 B vs llama.cpp 70 B (llama.cpp dropped from 75 B due to 2.8% error rate in fresh run). Added TTFT columns to concurrency scaling table. |
 | 2.70.0 | 2026-03-13 | **Scorecard correction with --parallel 16 data.** c=1: 98 A+ (PMAT-109 tail 86→100). c=4: realizr 78 B > llama.cpp 75 B (corrected from 83 B+ vs 70 B with --parallel 8). Tier summary updated: c=4 0.98x PARITY (was 1.05x WINS). Trajectory table updated with corrected llama.cpp baseline (365.8 tok/s). |
 | 2.69.0 | 2026-03-13 | **Corrected competitive comparison: llama.cpp --parallel 16.** Previous scaling table used llama.cpp --parallel 8 while realizr had CUDA_MAX_BATCH=16. With matched parallelism: c=4 is parity (357.2 vs 365.8, 0.98x), c=8 realizr dominates (637.8 vs 430.0, 1.48x), c=12 parity (899.3 vs 906.0, 0.99x), c=16 realizr wins (1139.5 vs 1000.4, 1.14x). Scoring: realizr 78 B vs llama.cpp 75 B at c=4 — realizr's 0% error rate (vs 1.3%) more than compensates for 2x TTFT gap. Quantitative scoring analysis: gap to 90 A requires +11.6 points, blocked by DP4A compute ceiling (Aggregate +6.0, Decode +6.0 if perfect). EAGLE speculative or W4A16 tensor core GEMM required for breakthrough. M=4 batch timing: 354.1-354.8ms per 32 tokens (±0.1% variance), 92% of theoretical DP4A ceiling. |
