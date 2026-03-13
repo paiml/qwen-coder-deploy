@@ -1479,3 +1479,35 @@ roadmap:
     ITL now flat c=4→c=16: 10.4→11.7ms (+12.5%). Previously 13.9→19.8ms (+42.4%).
     Competitive landscape: c=4 1.05x, c=8 1.52x, c=12 1.02x, c=16 1.10x vs llama.cpp.
     0% error rate at all concurrency levels vs llama.cpp 0.6-1.6%.
+- id: PMAT-106
+  github_issue: null
+  item_type: task
+  title: 'PMAT-106: c=1 decode timing analysis — CPU overhead negligible (9µs, 0.13%)'
+  status: completed
+  priority: low
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure per-step CPU vs GPU time breakdown — DONE: CPU 9µs, GPU 6690µs'
+  - 'AC2: Identify root cause of 0.5ms gap vs llama.cpp — DONE: GPU kernel BW utilization (57.4% vs 62.1%)'
+  phases:
+  - name: 'Phase 1: Enable DECODE_TIMING on yoga, measure M=1 breakdown'
+    status: completed
+  - name: 'Phase 2: BW analysis and root cause identification'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - decode
+  - timing
+  - analysis
+  - diminishing-returns
+  notes: |
+    DECODE_TIMING M=1 breakdown: h2d=6µs, graph launch=3µs, wait=0µs,
+    argmax+sync=6690µs, total=6700µs (149 tok/s). CPU overhead 0.13%.
+    BW analysis: realizr 147 GB/s (57.4%) vs llama.cpp 159 GB/s (62.1%).
+    Gap is Q6K GEMV kernel efficiency (~37% lower BW than Q4K HwDp4a)
+    and possibly attention kernel differences. At 0.92x parity, this is
+    diminishing returns territory. No fix planned — realizr WINS at all c>=4.
