@@ -1678,3 +1678,33 @@ roadmap:
     All tail ratios excellent with warmup: 1.0-1.3x.
     Potential fix: pre-allocate KV cache at server init (lazy → eager init).
     Would eliminate cold-start tail without requiring warmup requests.
+- id: PMAT-113
+  github_issue: null
+  item_type: task
+  title: 'PMAT-113: Prompt-profile sensitivity — FP8 prefill BW overhead exposed at medium prompts'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Medium prompt (~102 tok) benchmarked for both runtimes — DONE'
+  - 'AC2: TTFT scaling with prompt length characterized — DONE (realizr +110%, llama.cpp -4%)'
+  - 'AC3: c=4 aggregate impact quantified — DONE (293.6 vs 362.7, 0.81x)'
+  - 'AC4: Root cause documented (FP8 1.78x BW overhead) — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 2h
+  labels:
+  - prompt-profile
+  - fp8-prefill
+  - competitive-analysis
+  notes: |
+    Key finding: short-prompt parity (1.01x) not representative of production workloads.
+    llama.cpp TTFT is prompt-length invariant (fused Q4K GEMM). realizr TTFT doubles
+    at medium prompts (FP8 cuBLASLt reads 1.78x more weight BW).
+    c=4 medium: realizr 293.6 vs llama.cpp 362.7 (1.24x llama.cpp lead).
+    realizr c=4 decode drops 10.3% with medium prompts (larger KV attention BW).
+    llama.cpp c=4 decode slightly increases (+4.1%, better GEMM tile utilization).
+    Fix: fused Q4K→GEMM kernel (same fix as Gap 4 TTFT + c=12+ aggregate).

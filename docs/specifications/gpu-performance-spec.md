@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.72.0
+**Version:** 2.73.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -43,7 +43,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Competition Reality (Mar 13, 2026 — yoga RTX 4060L @ 1900MHz, PMAT-109):** Under standardized load testing (60s, streaming, short prompt):
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms (1.29x, PASS < 2x). **PMAT-109: TTFT P99 14.2ms (bimodal tail ELIMINATED)**
-- **c=4 aggregate:** realizr 357.2 vs llama.cpp 365.8 (**0.98x**, PARITY) — ITL 10.4 vs 10.7ms (realizr better), TTFT 36 vs 19ms (llama.cpp better)
+- **c=4 aggregate:** realizr 357.2 vs llama.cpp 365.8 (**0.98x**, PARITY, short prompt) — ITL 10.4 vs 10.7ms (realizr better), TTFT 36 vs 19ms (llama.cpp better). **PMAT-113: Medium prompt (~102 tok) shifts to 293.6 vs 362.7 (0.81×)** — FP8 prefill BW overhead exposed
 - **c=8 aggregate:** realizr **637.8** vs llama.cpp 430.0 (**1.48x**, DOMINATES) — FP8 tensor cores at M>=5
 - **c=12 aggregate:** realizr 899.3 vs llama.cpp 906.0 (**0.99x**, PARITY) — ITL 11.4 vs 12.5ms
 - **c=16 aggregate:** realizr **1139.5** vs llama.cpp 1000.4 (**1.14x**, WINS) — 0% errors vs 2.2%
@@ -541,6 +541,40 @@ Pre-computed FP16 scales reduced gap from 3.5x (PMAT-091) to 1.78x but WMMA 32×
 - Composite impact: +1.8 points (84→96 × 0.15 weight). 78→80 B (not enough for A).
 
 **Conclusion:** TTFT improvement adds only ~2 composite points at c=4 — insufficient for grade boundary change. The dominant blockers remain Aggregate (+6.0 max) and Decode (+6.0 max), both DP4A-limited. TTFT fix is low-priority relative to EAGLE speculative (PMAT-009) which could lift multiple dimensions simultaneously.
+
+#### Gap 5: Prompt-profile sensitivity — FP8 prefill BW overhead exposed at medium prompts (PMAT-113, Mar 13)
+
+**Hypothesis:** realizr's FP8 cuBLASLt prefill reads 1.78× more BW than llama.cpp's fused Q4K GEMM. At medium prompts (~102 tokens), the TTFT difference should amplify, potentially shifting the c=4 competitive balance.
+
+**Benchmark (yoga 4060L, 1900MHz, 60s, `--prompt-profile medium`, `--warmup 5`, isolated):**
+
+| | realizr short | realizr medium | Δ | llama.cpp short | llama.cpp medium | Δ |
+|---|---|---|---|---|---|---|
+| **c=1 Decode** | 149.5 | 148.7 | −0.5% | 160.2 | 159.9 | −0.2% |
+| **c=1 TTFT** | 13.2ms | 18.6ms | +41% | 9.8ms | 10.3ms | **+5%** |
+| **c=1 ITL** | 6.7ms | 6.7ms | 0% | 6.2ms | 6.3ms | +2% |
+| **c=1 Aggregate** | 149.5 | 140.9 | −5.8% | 160.2 | 156.8 | −2.1% |
+| **c=4 Decode** | 96.1 | 86.2 | −10.3% | ~89 | 92.7 | +4.1% |
+| **c=4 TTFT** | 36.1ms | **75.8ms** | **+110%** | 19.6ms | **18.8ms** | **−4%** |
+| **c=4 ITL** | 10.4ms | 11.6ms | +11.5% | 11.1ms | 10.8ms | −2.7% |
+| **c=4 Aggregate** | 355.5 | **293.6** | **−17.4%** | 352.7 | **362.7** | **+2.8%** |
+| **c=4 Errors** | 0% | 0% | — | 2.8% | 0.7% | improved |
+
+**Key findings:**
+
+1. **llama.cpp TTFT is prompt-length invariant.** c=4 TTFT barely changes: 19.6→18.8ms (−4%). llama.cpp's fused Q4K GEMM computes prefill in a single kernel launch that reads quantized weights directly — no dequantization to FP8/FP16 intermediate format. The 102-token prefill completes in ~18ms regardless of whether it's 29 or 102 tokens.
+
+2. **realizr TTFT doubles with 3.5× more tokens.** c=4 TTFT: 36.1→75.8ms (+110%). FP8 cuBLASLt prefill reads weights in FP8 format (1 B/elem) vs Q4K (0.5625 B/elem), costing 1.78× more memory BW. At 4×102=408 input tokens, this BW overhead dominates. Prefill throughput: 1345 tok/s at medium (vs 5423 tok/s for llama.cpp, **4.0× gap**).
+
+3. **At c=4 medium, llama.cpp retakes aggregate lead (362.7 vs 293.6, 1.24×).** The short-prompt parity (1.01×) breaks because realizr's longer prefill eats into generation time. llama.cpp's continuous batching also amortizes prefill across decode steps, preventing TTFT from blocking the pipeline.
+
+4. **Decode rates tell opposite stories.** realizr c=4 decode drops 10.3% (96.1→86.2) with medium prompts — larger KV caches increase attention BW. llama.cpp c=4 decode *increases* 4.1% (89→92.7) — possibly from better cuBLAS GEMM tile utilization with longer sequences.
+
+**Root cause:** FP8 cuBLASLt is a 2-step pipeline (convert Q4K→FP8 + FP8 GEMM) that reads 1.78× more weight BW than llama.cpp's fused 1-step Q4K GEMM. At short prompts (~29 tokens), prefill is <2% of total latency — the BW overhead is invisible. At medium prompts (~102 tokens), prefill becomes 17% of c=4 latency, exposing the gap. At long prompts (>500 tokens), this would be the dominant bottleneck.
+
+**Fix path:** Fused Q4K dequant→GEMM kernel (reads Q4K weights once, dequantizes in registers, computes GEMM — matching llama.cpp's approach). This is the same fix needed for Gap 4 (TTFT scaling) and for c=12+ aggregate parity. Multi-week effort, but would close three gaps simultaneously.
+
+**Production relevance:** Most API workloads use medium-to-long prompts (100-500 tokens). The short-prompt parity (1.01×) is not representative of production performance. **realizr's competitive position is prompt-length dependent** — dominates at c≥8 regardless of prompt length (FP8 decode wins), but loses c=4 aggregate lead as prompts grow.
 
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
@@ -1506,6 +1540,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-110** | **FP8 for all projections at M=4 (BATCHED_DP4A=0)** | **FALSIFIED** (−5.3% c=4) | Disabling batched DP4A to force Q4K through FP8 cuBLASLt at M=4: aggregate 338.4 vs 357.2 (−5.3%), ITL 11.0 vs 10.4ms (+5.8%). DP4A fused gate+up confirmed optimal at M≤4. FP8 reads 1.78× more BW (1 B/elem vs Q4K 0.5625) — tensor core advantage doesn't compensate at M=4. Confirms PMAT-093 with post-PMAT-105 code. |
 | **PMAT-111** | **TTFT scaling analysis (c=4 36ms breakdown)** | **TTFT 36→20ms (score 84→96)** | ✅ MEASURED. Structural: 21ms prefill + 11ms decode + 4ms overhead. Fix requires pipeline parallelism or continuous batching. +1.8 composite points (insufficient for grade change). |
 | **PMAT-112** | **TTFT P99.9 tail: cold-start, not structural** | **c=4 P99.9: 328→46ms with warmup** | ✅ MEASURED. KV cache allocation (1792MB, PAR-119) causes one-time spike. With 5s warmup: c=4 tail 1.3x, c=8 1.0x, c=16 1.0x. Production-representative. |
+| **PMAT-113** | **Prompt-profile sensitivity (medium ~102 tok)** | **c=4: 0.98x→0.81x with medium prompts** | ✅ MEASURED. FP8 prefill 1.78× BW overhead exposed at medium prompts. realizr TTFT doubles (36→76ms), llama.cpp unchanged (19→19ms). c=4 aggregate: 293.6 vs 362.7 (1.24× llama.cpp lead). Short-prompt parity not representative of production workloads. Fix: fused Q4K→GEMM kernel (same as Gap 4/5 fix path). |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1883,6 +1918,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.73.0 | 2026-03-13 | **PMAT-113: Prompt-profile sensitivity — FP8 prefill BW overhead exposed at medium prompts.** Benchmark: realizr vs llama.cpp at medium (~102 tokens) vs short (~29 tokens), c=1 and c=4, yoga 4060L 1900MHz, 60s, warmup 5s. Key finding: llama.cpp TTFT is prompt-length invariant (c=4: 19.6→18.8ms, −4%) while realizr TTFT doubles (36.1→75.8ms, +110%). FP8 cuBLASLt reads 1.78× more weight BW than llama.cpp's fused Q4K GEMM. At c=4 medium, llama.cpp retakes aggregate lead (362.7 vs 293.6, 1.24×). Short-prompt parity (1.01×) not representative of production workloads. realizr c=4 decode drops 10.3% with medium prompts (larger KV attention BW). Fix path: fused Q4K dequant→GEMM (same fix needed for Gap 4 TTFT scaling + c=12+ aggregate). Added Gap 5 analysis section. |
 | 2.72.0 | 2026-03-13 | **PMAT-112: TTFT P99.9 tail is cold-start, not structural.** With 5s warmup, c=4 TTFT P99.9 drops 7x (328→46ms, tail ratio 1.3x). Root cause: KV cache allocation (1792MB, PAR-119) on first batch. c=8 and c=16 tails perfect (1.0x) with warmup. Added warmup-representative TTFT tail table to scorecard section. Production servers with persistent processes should use warmup data. |
 | 2.71.0 | 2026-03-13 | **PMAT-111: TTFT scaling analysis + fresh v2 benchmarks.** TTFT_TRACE reveals c=4 TTFT (36ms) = 21ms multi-prompt FP8 prefill + 11ms first decode + 4ms overhead. Structural: batch-and-step vs continuous batching. TTFT scales 6.6× (c=1→16) vs llama.cpp 3.3×. Fix adds only +1.8 composite points — DP4A ceiling remains the blocker. Fresh v2 benchmarks with both runtimes isolated: realizr c=4 355.5 vs llama.cpp 352.7 (1.01x PARITY). Updated scorecard: realizr 78 B vs llama.cpp 70 B (llama.cpp dropped from 75 B due to 2.8% error rate in fresh run). Added TTFT columns to concurrency scaling table. |
 | 2.70.0 | 2026-03-13 | **Scorecard correction with --parallel 16 data.** c=1: 98 A+ (PMAT-109 tail 86→100). c=4: realizr 78 B > llama.cpp 75 B (corrected from 83 B+ vs 70 B with --parallel 8). Tier summary updated: c=4 0.98x PARITY (was 1.05x WINS). Trajectory table updated with corrected llama.cpp baseline (365.8 tok/s). |
