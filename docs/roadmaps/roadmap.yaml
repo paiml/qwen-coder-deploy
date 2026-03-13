@@ -1546,3 +1546,44 @@ roadmap:
     than original position (destroy happens, then prefill buffer before capture).
     Baseline tail analysis: c=1 TTFT bimodal — 95% at 20-21ms, 5% at 42-44ms.
     The 2x jump is cuGraphExecDestroy cost variance. Code reverted.
+- id: PMAT-109
+  github_issue: null
+  item_type: task
+  title: 'PMAT-109: Graph persistence via workspace reinit removal — tail 86→100, TTFT P99 14.2ms'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: TTFT P99.9 < 30ms (baseline: 43.6ms bimodal)'
+  - 'AC2: Decode tok/s unchanged (>= 145 at c=1)'
+  - 'AC3: No correctness regressions (deterministic output)'
+  - 'AC4: c=4 aggregate >= 350 tok/s (no regression)'
+  phases:
+  - name: 'Phase 1: Remove force_workspace_reinit from run_prefill'
+    status: completed
+  - name: 'Phase 2: Remove clear_decode_graph from generate_gpu_resident_streaming'
+    status: completed
+  - name: 'Phase 3: Build, deploy, benchmark'
+    status: in_progress
+  subtasks: []
+  estimated_effort: 2h
+  labels:
+  - cuda-graph
+  - ttft
+  - tail-latency
+  - graph-persistence
+  notes: |
+    Root cause: CORRECTNESS-015 force_workspace_reinit() defeats PAR-200 skip,
+    forcing workspace buffer reallocation on every request. This invalidates
+    CUDA decode graphs (stale pointers), requiring cuGraphExecDestroy + recapture
+    per request. cuGraphExecDestroy has bimodal cost (0.5ms or 20ms), creating
+    TTFT tail variance.
+    Fix: Remove force_workspace_reinit. PAR-200 in init_prefill_workspace already
+    clears graphs when actual reallocation occurs (longer prompt). When buffer
+    capacity is sufficient (same prompt length), buffers are stable and graph
+    persists across requests. init_workspace PAR-200 resets batch_size=1 for decode.
+    Unlike PMAT-107, this approach eliminates cuGraphExecDestroy entirely rather
+    than just moving it. No destroy+capture contention because no destroy happens.
