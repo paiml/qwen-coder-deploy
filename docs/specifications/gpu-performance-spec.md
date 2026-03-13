@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.74.0
+**Version:** 2.75.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -589,6 +589,19 @@ Pre-computed FP16 scales reduced gap from 3.5x (PMAT-091) to 1.78x but WMMA 32×
 | Errors | **0%** | 2.0% | realizr better |
 
 FP8 tensor core decode at M≥5 overcomes the FP8 prefill BW penalty. Compare c=8 short: realizr 631.9 vs llama.cpp 428.9 (1.47x). Medium narrows the gap (1.47x→1.08x) but does not close it. **The concurrency crossover holds across prompt profiles** — realizr's competitive advantage at c≥8 is structural (FP8 decode) not prompt-dependent.
+
+**c=16 medium (PMAT-113b):** realizr **749.7** vs llama.cpp **504.5** (**1.49x**, DOMINATES). Gap _widened_ vs short (1.10x→1.49x). llama.cpp c=16 medium decode drops to 71.5 tok/s (vs ~90 at short) — 16 slots × 102 tokens = 1,632 KV entries, overwhelming cuBLAS cache tiling. realizr's FP8 decode (77.0 tok/s) barely degrades. 0% errors vs 1.6%.
+
+**Full prompt-profile sensitivity matrix (yoga RTX 4060L, 1900MHz, 60s, warmup 5s, medium ~102 tok):**
+
+| c | realizr short | realizr medium | Δ | llama.cpp short | llama.cpp medium | Δ | Ratio (short) | Ratio (medium) |
+|---|--------------|---------------|---|----------------|-----------------|---|--------------|---------------|
+| 1 | 149.5 | 140.9 | −5.8% | 160.2 | 156.8 | −2.1% | 0.93x | 0.90x |
+| 4 | 355.5 | 293.6 | **−17.4%** | 352.7 | 362.7 | +2.8% | **1.01x** | **0.81x** |
+| 8 | 631.9 | 474.9 | −24.9% | 428.9 | 441.5 | +2.9% | **1.47x** | **1.08x** |
+| 16 | 1,139.8 | 749.7 | −34.2% | 1,037.1 | 504.5 | −51.3% | **1.10x** | **1.49x** |
+
+**Key insight:** realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat or _improves_ at c=4-8 medium (+2.8%, +2.9%) but **collapses at c=16 medium (−51.3%)**. 16 slots × 102 tokens = 1,632 KV entries overwhelm llama.cpp's cuBLAS GEMM cache tiling. **realizr's advantage INCREASES at high concurrency + medium prompts** (1.10x→1.49x). This is the opposite of the c=4 story.
 
 #### Post-Continuous Batching Analysis: Why c=4 Stalls at 216 tok/s (v2.23.0)
 
@@ -1932,6 +1945,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.75.0 | 2026-03-13 | **PMAT-113b complete: Full prompt-profile sensitivity matrix.** Added c=16 medium: realizr 749.7 vs llama.cpp 504.5 (1.49×, up from 1.10× at short). llama.cpp c=16 medium collapses −51.3% (1,632 KV entries overwhelm cuBLAS tiling). realizr advantage INCREASES at high c + medium prompts (1.10×→1.49×). Complete matrix: c=1 0.90×, c=4 0.81×, c=8 1.08×, c=16 1.49×. realizr aggregate drops monotonically with prompt length (−5.8% to −34.2%). llama.cpp aggregate is flat at c=4-8 but collapses at c=16. |
 | 2.74.0 | 2026-03-13 | **PMAT-113b: c=8 medium prompt verification — crossover holds.** realizr still wins at c=8 with medium prompts: 474.9 vs 441.5 (1.08×, was 1.47× at short). FP8 decode advantage at M≥5 overcomes prefill BW penalty. Gap narrows (1.47×→1.08×) but does not close. Concurrency crossover is structural (FP8 decode), not prompt-dependent. llama.cpp c=8 medium: 55.9 decode tok/s (vs realizr 79.3), 17.9ms ITL (vs 12.6ms), 2.0% errors (vs 0%). |
 | 2.73.0 | 2026-03-13 | **PMAT-113: Prompt-profile sensitivity — FP8 prefill BW overhead exposed at medium prompts.** Benchmark: realizr vs llama.cpp at medium (~102 tokens) vs short (~29 tokens), c=1 and c=4, yoga 4060L 1900MHz, 60s, warmup 5s. Key finding: llama.cpp TTFT is prompt-length invariant (c=4: 19.6→18.8ms, −4%) while realizr TTFT doubles (36.1→75.8ms, +110%). FP8 cuBLASLt reads 1.78× more weight BW than llama.cpp's fused Q4K GEMM. At c=4 medium, llama.cpp retakes aggregate lead (362.7 vs 293.6, 1.24×). Short-prompt parity (1.01×) not representative of production workloads. realizr c=4 decode drops 10.3% with medium prompts (larger KV attention BW). Fix path: fused Q4K dequant→GEMM (same fix needed for Gap 4 TTFT scaling + c=12+ aggregate). Added Gap 5 analysis section. |
 | 2.72.0 | 2026-03-13 | **PMAT-112: TTFT P99.9 tail is cold-start, not structural.** With 5s warmup, c=4 TTFT P99.9 drops 7x (328→46ms, tail ratio 1.3x). Root cause: KV cache allocation (1792MB, PAR-119) on first batch. c=8 and c=16 tails perfect (1.0x) with warmup. Added warmup-representative TTFT tail table to scorecard section. Production servers with persistent processes should use warmup data. |
