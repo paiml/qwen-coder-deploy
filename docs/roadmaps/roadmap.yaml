@@ -1767,3 +1767,29 @@ roadmap:
     c=1/4 capped at 0.93x (decode-limited, not TTFT-limited).
     TTFT scoring: 13-49/100 at c>=4 medium (vs llama.cpp 97-100).
     Fused kernel is single highest-value optimization: closes Gap 4 + Gap 5.
+- id: PMAT-116
+  github_issue: null
+  item_type: task
+  title: 'PMAT-116: Output length sensitivity — TTFT dilution at 128 tokens'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=4 medium 128-tok benchmarked — DONE (realizr 317.7, llama.cpp 372.7, ratio 0.85x)'
+  - 'AC2: c=8 medium 128-tok benchmarked — DONE (realizr 558.5, llama.cpp 446.6, ratio 1.25x)'
+  - 'AC3: TTFT dilution impact quantified — DONE (c=4: 0.81x→0.85x, c=8: 1.08x→1.25x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - output-length
+  - competitive-analysis
+  notes: |
+    Longer output dilutes TTFT impact on aggregate. At 128 tokens:
+    c=4: ratio improves 0.81x→0.85x (TTFT drops from 17% to 5% of latency).
+    c=8: ratio jumps 1.08x→1.25x (realizr agg +17.6%, llama.cpp +1.2%).
+    FP8 decode advantage at M>=5 dominates when TTFT amortized.
+    Code gen workloads (100-500 output tokens) favor realizr at c>=8.
