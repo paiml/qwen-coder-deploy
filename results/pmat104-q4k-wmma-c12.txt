@@ -1,0 +1,24 @@
+Load testing http://192.168.50.38:8081 (concurrency=12, duration=60s, warmup=0s, runtime=unknown)
+Health check passed
+
+--- Load Test Results ---
+Runtime:      unknown
+Requests:     49 (49 ok, 0 failed)
+Throughput:   0.7 req/s
+Latency P50:  16508.1 ms
+Latency P95:  18066.3 ms
+Latency P99:  18066.3 ms
+TTFT P50:     6072.4 ms
+Tokens/sec:   92.8
+Avg tok/req:  128.0
+Prefill tok/s:16.8
+Decode tok/s: 12.2
+ITL P50:      82.2 ms
+TPOT P50:     82.2 ms
+Output tok:   [128, 128, 128, 128] (min/p50/p90/max)
+
+--- Tail Latency Analysis ---
+ITL P99.9:    82.5 ms  (tail ratio: 1.0x)
+TTFT P99.9:   7595.6 ms  (tail ratio: 1.3x)
+Lat P99.9:    18066.4 ms  (tail ratio: 1.1x)
+ITL CV:       0.13

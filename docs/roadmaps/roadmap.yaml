@@ -1401,3 +1401,42 @@ roadmap:
     DECREASE from 18.9ms (c=8) to 13.2ms (c=12). Realizr ITL increases monotonically.
     Quality advantage: realizr 0% errors at all c vs llama.cpp 0.6-1.6%.
     Next step: fused Q4K dequant+GEMM kernel to match llama.cpp's efficiency at high M.
+- id: PMAT-104
+  github_issue: null
+  item_type: task
+  title: 'PMAT-104: Q4K GEMM kernels at M=12 — ALL FALSIFIED vs FP8 cuBLASLt'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Test Q4K WMMA at c=12 — FALSIFIED (−83%)'
+  - 'AC2: Test fused Q4K scalar at c=12 — FALSIFIED (−78%)'
+  - 'AC3: Test L2-cached HGEMM at c=12 — FALSIFIED (−48%)'
+  - 'AC4: Test DP4A Q4K GEMM at c=12 — FALSIFIED (−41%)'
+  phases:
+  - name: 'Phase 1: Q4K_WMMA_PREFILL=1 at c=12 — 93 aggregate (82ms ITL)'
+    status: completed
+  - name: 'Phase 2: FUSED_Q4K_PREFILL=1 at c=12 — 123 aggregate (68ms ITL)'
+    status: completed
+  - name: 'Phase 3: L2_PREFILL=1 at c=12 — 289 aggregate (39ms ITL)'
+    status: completed
+  - name: 'Phase 4: DP4A_GEMM_PREFILL=1 at c=12 — 328 aggregate (25ms ITL)'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - gemm
+  - q4k
+  - tensor-cores
+  - falsification
+  notes: |
+    All four experimental Q4K GEMM kernels are significantly slower than FP8 cuBLASLt
+    at M=12 (c=12, yoga 4060L, 1900MHz, 60s, short prompt). FP8 baseline: 606 aggregate,
+    17.9ms ITL. Custom kernels cannot compete with cuBLASLt's optimized memory access
+    scheduling, register tiling, and tensor core utilization. L2 HGEMM fails because
+    FFN projections (27.4 MB FP16) exceed 24 MB L2 cache. Conclusion: FP8 cuBLASLt is
+    the optimal GEMM backend at M>=5. The c=12+ gap vs llama.cpp is in GEMM integration
+    quality (fused dequant, launch count), not kernel type.
