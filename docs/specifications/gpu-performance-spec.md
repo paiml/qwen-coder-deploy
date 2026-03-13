@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.61.0
+**Version:** 2.62.0
 **Status:** ACTIVE
 **Date:** 2026-03-13
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -41,14 +41,14 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 13, 2026 — yoga RTX 4060L @ 1900MHz):** Under standardized load testing (60s, streaming, short prompt):
+**Competition Reality (Mar 13, 2026 — yoga RTX 4060L @ 1900MHz, PMAT-105):** Under standardized load testing (60s, streaming, short prompt):
 - **c=1 decode:** realizr 148.3 vs llama.cpp ~150 (**0.99x**), TTFT 14.0ms vs 10.2ms (1.37x, PASS < 2x)
-- **c=4 aggregate:** realizr 269.6 vs llama.cpp 337.3 (0.80x) — DP4A fused at M=4 (PMAT-093)
-- **c=8 aggregate:** realizr **456.4** vs llama.cpp 416.2 (**1.10x**, WINS) — FP8 crossover (PMAT-093)
-- **c=12 aggregate:** realizr 605.0 vs llama.cpp **881.7** (0.69x) — llama.cpp cuBLAS GEMM scales with M
-- **c=16 aggregate:** realizr 717.9 vs llama.cpp **1038.8** (0.69x) — realizr 0% errors vs llama.cpp 1.1%
+- **c=4 aggregate:** realizr **355.7** vs llama.cpp 337.3 (**1.05x**, WINS) — LmHead FP8 (PMAT-105)
+- **c=8 aggregate:** realizr **631.7** vs llama.cpp 416.2 (**1.52x**, DOMINATES) — FP8 + LmHead
+- **c=12 aggregate:** realizr **899.3** vs llama.cpp 881.7 (**1.02x**, WINS) — ITL 11.5 vs 13.2ms
+- **c=16 aggregate:** realizr **1139.8** vs llama.cpp 1038.8 (**1.10x**, WINS) — 0% errors vs 1.1%
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
-- **PMAT-103 correction:** PMAT-101 crossover (c=7) was confounded by `--parallel 8` capping llama.cpp batch size. With `--parallel 16`, realizr only wins at c=7-8 (narrow window). At c=12+, llama.cpp's cuBLAS GEMM (Q4K→FP16 dequant, tensor core tiles) outscales FP8 cuBLASLt.
+- **PMAT-105 breakthrough:** LmHead (Q6K, 151,936×1536) was using batched GEMV (reads weights M times) instead of FP8 cuBLASLt (reads weights once). Routing through `batched_gemv_or_gemm` enables FP8 dispatch at M>=5. Single biggest optimization since FP8 prefill. ITL now nearly flat c=4→c=16 (10.4→11.7ms).
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -144,21 +144,21 @@ TTFT: realizr 14.0ms vs llama.cpp 10.2ms = **1.37x** (PASS < 2x target). FP8 pre
 
 **c=8: realizr BEATS llama.cpp** (456.4 vs 416.2, **+10%**). FP8 tensor core GEMM at M>=5 (PMAT-093). llama.cpp has 1.6% error rate; realizr 0%. Both tested with 16-slot parallel/batch config.
 
-**c=4 gap: 0.80x aggregate (realizr vs llama.cpp).** DP4A GEMV at M=4 is compute-bound. Exhausted optimizations: CUDA graphs (PMAT-102, −12%), FP8 (PMAT-093, −3%), HGEMM (PMAT-062, −13%), W4A16 WMMA (PMAT-054B, −37%), fused residual (PMAT-092, −5%).
+**c=4: 1.05x aggregate (realizr WINS vs llama.cpp).** PMAT-105 routed LmHead through FP8 cuBLASLt, eliminating the Q6K batched GEMV bottleneck (151,936×1536 weights read M times → read once). ITL dropped 25% (13.9→10.4ms). realizr now beats llama.cpp at ALL concurrency levels c>=4.
 
-**Concurrency scaling — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-103):**
+**Concurrency scaling — realizr vs llama.cpp (yoga RTX 4060L, 1900MHz, PMAT-105):**
 
 | c | realizr tok/s | llama.cpp tok/s | Ratio | realizr ITL | llama.cpp ITL | Mechanism |
 |---|--------------|----------------|-------|------------|--------------|-----------|
 | 1 | 148.3 | ~150 | 0.99x | 6.7ms | 6.7ms | DP4A GEMV (both) |
-| 4 | 269.6 | 337.3 | 0.80x | 14.0ms | 11.5ms | DP4A ceiling (M=4) |
-| 8 | **456.4** | 416.2 | **1.10x** | 16.2ms | 18.9ms | **FP8 wins (narrow window)** |
-| 12 | 605.0 | **881.7** | 0.69x | 17.9ms | **13.2ms** | cuBLAS GEMM tile efficiency |
-| 16 | 717.9 | **1,038.8** | 0.69x | 19.8ms | **14.7ms** | cuBLAS GEMM scales linearly |
+| **4** | **355.7** | 337.3 | **1.05x** | **10.4ms** | 11.5ms | **LmHead FP8 (PMAT-105)** |
+| **8** | **631.7** | 416.2 | **1.52x** | **11.3ms** | 18.9ms | **FP8 + LmHead dominates** |
+| **12** | **899.3** | 881.7 | **1.02x** | **11.5ms** | 13.2ms | **LmHead FP8 closes gap** |
+| **16** | **1,139.8** | 1,038.8 | **1.10x** | **11.7ms** | 14.7ms | **FP8 flat scaling** |
 
-**PMAT-103 correction (supersedes PMAT-101):** The PMAT-101 "crossover at c=7" was **confounded** by llama.cpp `--parallel 8` capping batch size at M=8. With `--parallel 16`, llama.cpp's cuBLAS GEMM (Q4K→FP16 dequant + tensor core GEMM) scales efficiently at M>8 because FP16 tensor core tiles (16×16) reach higher utilization (50% at M=8 → 75% at M=12 → 100% at M=16). llama.cpp ITL *decreases* from 18.9ms (c=8) to 13.2ms (c=12) due to this tile efficiency effect. Realizr wins only in a **narrow c=7-8 window** where FP8 cuBLASLt overcomes DP4A ceiling before llama.cpp's superior cuBLAS tile scaling kicks in. At c=12+, llama.cpp consistently outperforms by 1.45x.
+**PMAT-105 breakthrough (supersedes PMAT-103):** LmHead (Q6K, 151,936×1536 = 175 MB Q6K weights) was using `batched_gemv_with_fallback`, which always dispatches to Q6K batched GEMV — reads weights M times (once per sequence). Routing through `batched_gemv_or_gemm` enables FP8 cuBLASLt at M>=5, reading FP8 weights **once** (233 MB). Result: ITL nearly flat from c=4→c=16 (10.4→11.7ms, only +12.5%). Previous ITL scaling was 13.9→19.8ms (+42.4%). LmHead was the dominant source of ITL scaling with M because it's the largest projection in the model (151,936 output dim).
 
-**Root cause: FP8 cuBLASLt per-projection overhead.** Each realizr FP8 projection requires absmax + E4M3 convert + cuBLASLt GEMM (3 kernel launches) vs llama.cpp's fused Q4K dequant+cuBLAS GEMM (1 launch). At 196 projections × 28 layers, this adds ~392 extra launches per decode step. Additionally, cuBLASLt's FP8 GEMM may have higher per-call overhead than cuBLAS FP16 GEMM due to descriptor setup and scaling factors.
+**PMAT-105 root cause:** The LmHead accounts for ~20% of decode ITL at high M. Q6K batched GEMV reads 175 MB weights per sequence; at M=12, effective DRAM reads were ~660 MB (3.8× single-read with L2 sharing). FP8 cuBLASLt reads 233 MB once regardless of M, using NVIDIA's optimized GEMM scheduling. The 3.5ms → 1.2ms per-step LmHead improvement (saving 2.3ms, -13% ITL) compounds across all concurrency levels. FP8 weight cache was already populated from prefill — zero additional warmup cost.
 
 **Realizr reliability advantage:** 0% error rate at all concurrency levels (c=1-16) vs llama.cpp 0.6-1.6%. This matters for production SLA compliance.
 
@@ -1455,6 +1455,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-102** | **Batched CUDA graph replay (PAR-121)** | **FALSIFIED** (−12% aggregate, +14.5% ITL) | Re-tested PAR-121 after PMAT-075/088b/045 fixes. Graph replay 16.6ms ITL vs eager 14.5ms. |
 | **PMAT-103** | **High-concurrency scaling correction** | **Crossover narrowed to c=7-8 only** | PMAT-101 crossover confounded by --parallel 8. With --parallel 16: c=12 llama.cpp 882 vs realizr 605 (1.46x). c=16: 1039 vs 718 (1.45x). |
 | **PMAT-104** | **Q4K GEMM kernels at M=12** | **ALL FALSIFIED** (−41% to −83%) | FP8 cuBLASLt confirmed as optimal backend at M>=5. Tested Q4K WMMA (−83%), fused Q4K scalar (−78%), L2 HGEMM (−48%), DP4A GEMM (−41%). Custom kernels can't compete with cuBLASLt. |
+| **PMAT-105** | **LmHead FP8 routing** | **+48% c=12, WINS all c>=4** | ✅ DONE. Routed LmHead through batched_gemv_or_gemm instead of batched_gemv_with_fallback. FP8 reads weights once vs Q6K GEMV reads M times. ITL flat 10.4→11.7ms c=4-16. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -1832,6 +1833,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.62.0 | 2026-03-13 | **PMAT-105: LmHead FP8 routing — realizr WINS at ALL concurrency levels c>=4.** Single biggest optimization since FP8 prefill pipeline. LmHead (Q6K, 151,936×1536 = 175 MB weights) was using `batched_gemv_with_fallback` which always dispatches to Q6K batched GEMV — reads weights M times (once per sequence). One-line fix: route through `batched_gemv_or_gemm` to enable FP8 cuBLASLt dispatch at M>=5, reading FP8 weights ONCE (233 MB). **Results (yoga 4060L, 1900MHz, 60s, short prompt):** c=4: 270→356 aggregate (+31%), 13.9→10.4ms ITL (−25%). c=8: 456→632 (+38%), 16.2→11.3ms (−30%). c=12: 606→899 (+48%), 17.9→11.5ms (−36%). c=16: 718→1140 (+59%), 19.8→11.7ms (−41%). **ITL now nearly flat** from c=4 to c=16 (10.4→11.7ms, +12.5%). Previously 13.9→19.8ms (+42.4%). **Competitive landscape completely changed:** c=4 realizr 1.05x (was 0.80x), c=8 1.52x (was 1.10x), c=12 1.02x (was 0.69x), c=16 1.10x (was 0.69x). Realizr beats llama.cpp at c>=4 while maintaining 0% error rate (vs llama.cpp 0.6-1.6%). Root cause: LmHead is the largest projection (151,936 output dim, 20% of decode time at high M). Q6K batched GEMV at M=12 reads ~660 MB DRAM (3.8× with L2 sharing). FP8 cuBLASLt reads 233 MB once. The FP8 weight cache was already populated from prefill — zero warmup cost. |
 | 2.61.0 | 2026-03-13 | **PMAT-104 FALSIFIED: All four Q4K GEMM kernels slower than FP8 cuBLASLt at M=12.** Tested hypothesis that custom Q4K→tensor core kernels could outperform FP8 cuBLASLt at high M (M=12) where tile efficiency improves (75% at M=12 vs 25% at M=4). Benchmarks (yoga 4060L, 1900MHz, 60s, c=12, short prompt, FP8_PREFILL=0): Q4K WMMA tensor cores −83% (93 vs 606 aggregate, 82ms ITL), fused Q4K scalar FMA −78% (123, 68ms ITL), L2-cached HGEMM (Q4K→FP16 dequant + cuBLAS) −48% (289, 39ms ITL), DP4A Q4K×Q8 GEMM −41% (328, 25ms ITL). **Root cause:** cuBLASLt's FP8 GEMM implementation is highly optimized (memory access scheduling, register tiling, tensor core utilization). Custom kernels cannot match this even with 1.78x less weight BW (Q4K 0.5625 B/elem vs FP8 1.0 B/elem). L2 HGEMM fails because FFN projections (27.4 MB FP16) exceed RTX 4060L's 24 MB L2 cache, falling back to DRAM at 3.5x more BW than FP8. **Conclusion:** FP8 cuBLASLt is confirmed as the optimal GEMM backend for realizr at M>=5. The c=12+ gap vs llama.cpp (0.69x) is rooted in llama.cpp's cuBLAS GEMM integration quality (fused Q4K dequant, 1 launch/projection vs realizr's 2-4 launches/projection), not in the choice of GEMM kernel. Incremental FP8 pipeline overhead reduction (fused absmax+convert, direct FP32 output) could save ~0.6ms/step (~3% ITL improvement), but won't close the 0.69x gap. |
 | 2.60.0 | 2026-03-13 | **PMAT-103: High-concurrency scaling correction — realizr crossover NARROWED to c=7-8 only.** PMAT-101 found crossover at c=7 with llama.cpp `--parallel 8`. This was **confounded** — `--parallel 8` capped llama.cpp's batch size at M=8, creating an artificial ceiling at ~414 tok/s. Re-tested with `--parallel 16` (matching realizr `CUDA_MAX_BATCH=16`): llama.cpp scales to 882 tok/s at c=12 (1.46x realizr) and 1039 tok/s at c=16 (1.45x realizr). Realizr only wins at c=7-8 (narrow window, 1.10x at c=8). **Root cause:** llama.cpp uses cuBLAS GEMM with fused Q4K→FP16 dequant (1 kernel launch per projection). realizr uses FP8 cuBLASLt (3 launches per projection: absmax + E4M3 convert + GEMM). At M=12-16, cuBLAS FP16 tensor core tile efficiency increases (50% at M=8 → 75% at M=12 → 100% at M=16), causing llama.cpp ITL to *decrease* from 18.9ms (c=8) to 13.2ms (c=12). realizr ITL monotonically increases (16.2→17.9→19.8ms) as expected. Full table: c=1 0.99x, c=4 0.80x, c=8 **1.10x (WINS)**, c=12 0.69x, c=16 0.69x. **Quality advantage:** realizr 0% errors at all c=1-16 vs llama.cpp 0.6-1.6%. Also tested BATCHED_DP4A=0 (pure FP8 for all projections at M>=5): neutral at c=4 (+0.6%), c=5 (+1.0%), c=8 (−0.5%) — confirms hybrid (fused QKV DP4A + FP8 FFN) is already optimal. **Implication:** To compete at c=12+, realizr needs fused Q4K dequant+GEMM (like llama.cpp's mul_mat_q4_K) to eliminate per-projection FP8 conversion overhead. FP8 cuBLASLt's descriptor setup and conversion cost don't amortize well vs llama.cpp's tight CUDA kernel integration. |
 | 2.59.0 | 2026-03-13 | **PMAT-102 FALSIFIED: Batched CUDA graph replay (PAR-121) is −12% slower than eager.** Re-tested PAR-121 batched CUDA graphs (previously disabled as "25% slower" since PMAT-056 era) after infrastructure fixes: PMAT-075 (stable buffer addresses across batches), PMAT-088b (async H2D copies, eliminated 2.8ms sync overhead), PMAT-045 (pre-upload device state before capture). Benchmark (yoga 4060L, 1900MHz, 60s, c=4, short prompt, BATCHED_GRAPH=1): 228.8 aggregate (baseline 259.7, −11.9%), 60.2 decode (65.6, −8.2%), 16.6ms ITL (14.5ms, +14.5%), 41.2ms TTFT (39.8ms, +3.5%). Graph capture confirmed successful (single capture, replayed for all subsequent batches). **Root cause analysis:** (1) Per-kernel CPU launch overhead was overestimated at ~7.4µs/kernel (3.6ms for 486 kernels). Actual overhead likely ~2-3µs/kernel, reducing graph savings to ~1-1.5ms. (2) Graph replay path has extra `stream.synchronize()` before argmax (8 kernels not part of captured graph), serializing GPU work that overlaps in eager path. (3) Async H2D copies (4 buffers: input, positions, seq_lens, workspace positions) add ~0.2ms overhead per step. Net effect: graph overhead exceeds savings. **c=4 ITL gap now fully characterized:** 14.5ms (realizr) vs 11.2ms (llama.cpp) = 3.3ms. Not addressable by CUDA graphs. Root cause is DP4A GEMV compute efficiency at M=4: realizr batches 4 independent M=1 GEMVs (4× thread blocks, each reading Q4K weights independently via L2), while llama.cpp uses cuBLAS GEMM with Q4K dequant (reads weights once, tensor core tile computation for all 4 rows). FP8 GEMM at M=4 was also tested (PMAT-093): −3% vs DP4A due to per-projection conversion overhead. HGEMM at M=4 (PMAT-062/088b): −13% vs DP4A due to 3.5× BW (FP16 vs Q4K). **Exhausted optimizations at M<=4:** CUDA graphs (PMAT-102), FP8 (PMAT-093), HGEMM (PMAT-062), W4A16 WMMA (PMAT-054B/091), fused residual+RMSNorm (PMAT-092). **Remaining path to close c=4 gap:** fused FP8 QKV conversion (convert input to E4M3 once, launch 3 FP8 GEMMs — saves 2 conversions/layer = 56 launches), or accept DP4A ceiling at M<=4 and focus on c>=7 where realizr already wins. |

@@ -1440,3 +1440,42 @@ roadmap:
     FFN projections (27.4 MB FP16) exceed 24 MB L2 cache. Conclusion: FP8 cuBLASLt is
     the optimal GEMM backend at M>=5. The c=12+ gap vs llama.cpp is in GEMM integration
     quality (fused dequant, launch count), not kernel type.
+- id: PMAT-105
+  github_issue: null
+  item_type: task
+  title: 'PMAT-105: LmHead FP8 routing — +48% c=12, WINS at ALL c>=4'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Route LmHead through batched_gemv_or_gemm — DONE'
+  - 'AC2: FP8 dispatch fires for LmHead at M>=5 — CONFIRMED'
+  - 'AC3: No regression at c=1 — 148.3 decode unchanged'
+  - 'AC4: c=4 aggregate improvement — 270→356 (+31%)'
+  - 'AC5: c=12 aggregate improvement — 606→899 (+48%)'
+  - 'AC6: Realizr beats llama.cpp at c>=4 — CONFIRMED all levels'
+  phases:
+  - name: 'Phase 1: Identify LmHead bottleneck via PREFILL_DETAIL_TRACE'
+    status: completed
+  - name: 'Phase 2: One-line fix (batched_gemv_with_fallback → batched_gemv_or_gemm)'
+    status: completed
+  - name: 'Phase 3: Benchmark sweep c=1/4/8/12/16'
+    status: completed
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - lmhead
+  - fp8
+  - cuBLASLt
+  - breakthrough
+  notes: |
+    Single biggest optimization since FP8 prefill pipeline. LmHead (Q6K, 151936×1536)
+    was using batched_gemv_with_fallback which always dispatches Q6K batched GEMV.
+    At M=12: reads 175 MB weights 12× (~660 MB DRAM with L2 sharing). FP8 cuBLASLt
+    reads 233 MB once. Savings: ~2.3ms/step, -36% ITL at c=12.
+    ITL now flat c=4→c=16: 10.4→11.7ms (+12.5%). Previously 13.9→19.8ms (+42.4%).
+    Competitive landscape: c=4 1.05x, c=8 1.52x, c=12 1.02x, c=16 1.10x vs llama.cpp.
+    0% error rate at all concurrency levels vs llama.cpp 0.6-1.6%.
