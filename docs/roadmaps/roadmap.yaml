@@ -1617,3 +1617,35 @@ roadmap:
     already fires at M>=5 via PMAT-093 threshold.
     Also discovered: CUDA_MAX_BATCH=8 was bottlenecking c>8 throughput. Updated
     forjar-yoga-realizr.yaml to CUDA_MAX_BATCH=16. Full scaling curve verified.
+- id: PMAT-111
+  github_issue: null
+  item_type: task
+  title: 'PMAT-111: TTFT scaling analysis — 6.6x growth vs llama.cpp 3.3x'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-13T00:00:00Z
+  updated: 2026-03-13T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: TTFT breakdown identified via TTFT_TRACE — DONE'
+  - 'AC2: Root cause documented (batch-and-step vs continuous batching) — DONE'
+  - 'AC3: Quantitative scoring impact calculated (+1.8 composite) — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 2h
+  labels:
+  - ttft
+  - scheduler
+  - analysis
+  notes: |
+    c=4 TTFT: 36ms = 21ms multi-prompt FP8 prefill (116 tokens, weights read once)
+    + 11ms first M=4 decode step + 4ms HTTP/queue overhead.
+    llama.cpp achieves 19.6ms by interleaving prefill with ongoing decode.
+    TTFT scales linearly with c for realizr (13→87ms, 6.6x c=1→c=16).
+    llama.cpp sublinear (9.8→32.3ms, 3.3x). Fix requires pipeline parallelism
+    or continuous batching (multi-week realizr changes). Score impact: +1.8 composite
+    (78→80 B) — insufficient for grade boundary. DP4A compute ceiling is the true
+    blocker (Aggregate +6.0 and Decode +6.0 if perfect).
+    Fresh v2 benchmarks: realizr c=4 355.5 vs llama.cpp 352.7 (1.01x PARITY).
+    realizr now scores 78 B vs llama.cpp 70 B (was 75 B with --parallel 8 data).
