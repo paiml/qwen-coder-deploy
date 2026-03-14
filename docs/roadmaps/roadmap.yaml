@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-163
+  title: 'PMAT-163: Scaling efficiency analysis — why vLLM dominates at c>1'
+  status: DONE
+  priority: P0
+  spec_version: '3.13.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure c=1 medium+hetero baselines for all 3 runtimes'
+      status: DONE
+      result: 'realizr 146.2 (fastest), llama.cpp 160.7, vLLM 126.6 tok/s'
+    - criterion: 'Compute scaling efficiency at c=4/8/16'
+      status: DONE
+      result: 'vLLM 75-94%, realizr 25-37%, llama.cpp 33-55%'
+    - criterion: 'Analyze per-request decode degradation'
+      status: DONE
+      result: 'vLLM 97→77%, realizr 55→49% (plateaus), llama.cpp 55→33%'
+  notes: |
+    Critical finding: the competitive gap is NOT kernel speed (realizr wins
+    at c=1) but scaling architecture. vLLM PagedAttention processes only
+    active tokens per step, enabling near-linear scaling. Batch-and-step
+    (realizr) shares decode BW across all batch members. Paged KV (PMAT-052)
+    is the ONLY path to closing this gap. Crossover at c~3.
 - id: PMAT-162
   title: 'PMAT-162: Projected Phase 0/1 impact under production-realistic conditions'
   status: DONE

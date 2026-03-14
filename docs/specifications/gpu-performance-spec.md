@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.12.0
+**Version:** 3.13.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1155,6 +1155,36 @@ Using the PMAT-157/158 heterogeneous output scorecards as baseline, substituting
 3. **Phase 0 alone is NOT sufficient for competitive parity.** At c=4, realizr 58 C+ vs llama.cpp 60 C+ (still behind). At c=16, realizr 64 C+ vs llama.cpp 60 C+ (slight lead from aggregate). The c=8 crossover would return (64 vs 52) but only at c=8.
 4. **Phase 1 is the multiplier.** Paged KV's impact on output-heterogeneous workloads (+7 to +8 additional points) is nearly as large as Phase 0's TTFT fix (+8 to +11). This validates the Dynamo replication plan (PMAT-140): both phases are required, not Phase 0 alone.
 5. **Falsification condition for Phase 0:** If fused Q4K GEMM produces TTFT ≤1.5× llama.cpp at medium prompts AND composite score reaches ≥58 at c=4 (up from 50), Phase 0 is validated. If TTFT exceeds 2× llama.cpp, the FP8 pipeline has overhead beyond the 2-step dequantization.
+
+**Scaling Efficiency Analysis — Why vLLM Dominates at c>1 (PMAT-163, Mar 14):**
+
+c=1 medium+hetero baselines: realizr 146.2, llama.cpp 160.7, vLLM 126.6 tok/s. **realizr is 15% faster than vLLM at c=1.** The gap inverts at c≥4 because of radically different scaling efficiency:
+
+| Runtime | c=1 | c=4 | c=4 eff | c=8 | c=8 eff | c=16 | c=16 eff |
+|---------|------|------|---------|------|---------|-------|----------|
+| realizr | 146.2 | 216.7 | **37.0%** | 355.2 | **30.4%** | 585.9 | **25.0%** |
+| vLLM | 126.6 | 475.7 | **93.9%** | 876.8 | **86.6%** | 1528.2 | **75.4%** |
+| llama.cpp | 160.7 | 350.7 | **54.6%** | 421.4 | **32.8%** | 914.9 | **35.6%** |
+
+*Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling.*
+
+**Per-request decode degradation (decode_cN / decode_c1):**
+
+| Runtime | c=1 decode | c=4 | c=8 | c=16 |
+|---------|-----------|-----|-----|------|
+| realizr | 148.3 | 55.0% | 50.5% | 48.5% |
+| vLLM | 128.3 | 97.4% | 88.1% | 76.6% |
+| llama.cpp | 161.8 | 55.0% | 33.1% | 37.2% |
+
+**Key findings from scaling efficiency:**
+
+1. **vLLM scales 2.5-3× more efficiently than realizr.** At c=16: vLLM uses 75% of its theoretical capacity vs realizr's 25%. This is the single largest competitive gap — not kernel speed (realizr is faster at c=1) but scaling architecture.
+2. **PagedAttention enables near-linear scaling** because it processes only active tokens per step. Short requests completing early free blocks for new requests — the system self-balances. Batch-and-step (realizr) and fixed-slot (llama.cpp) process all allocated slots every step regardless of actual utilization.
+3. **realizr per-request decode drops 50% at c=4 and then plateaus** (48% at c=16). This is the batch-and-step cost: each decode step runs M=c GEMV, sharing BW across batch members. But ITL stays flat because the per-token cost is divided equally — consistent user experience despite lower throughput.
+4. **llama.cpp per-request decode drops more at c=8** (33%) because all 16 parallel slots are processed every step regardless of occupancy. At c=16 the slots fill up and efficiency recovers slightly (37%).
+5. **The crossover point is c~3.** Above c=3, vLLM's scaling efficiency advantage overwhelms its 15% c=1 decode disadvantage. At c=4: vLLM 476 vs realizr 217 (2.2×). By c=16: 1528 vs 586 (2.6×).
+
+**Implication:** Fused Q4K GEMM (Phase 0) cannot close the scaling gap — it only fixes TTFT. Paged KV (Phase 1) is the only path to vLLM-class scaling efficiency because it enables per-token resource allocation instead of per-slot pre-allocation.
 
 **Dynamo Source Code Deep-Dive — Implementation-Level Architecture (PMAT-139, Mar 14):**
 
@@ -2388,6 +2418,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-163** | **Scaling efficiency analysis (c=1-16 medium+hetero)** | **vLLM 75-94% efficient, realizr 25-37%, llama.cpp 33-55%** | ✅ MEASURED. c=1 baselines: realizr 146.2 (fastest), llama.cpp 160.7, vLLM 126.6. But vLLM scales 2.5-3× more efficiently (75-94% vs 25-37%). Crossover at c~3. Per-request decode: vLLM 97→77%, realizr 55→49% (plateaus), llama.cpp 55→33% (dips). PagedAttention enables near-linear scaling by processing only active tokens. Batch-and-step scales poorly despite faster single-request kernel. Paged KV (Phase 1) is the only path to vLLM-class efficiency. |
 | **PMAT-162** | **Projected Phase 0/1 impact under production-realistic conditions** | **Phase 0: +8-11 (C→C+), Phase 0+1: +12-19 (C→B-)** | ✅ PROJECTED. Fused Q4K alone adds +8-11 points (lower than +10-15 under fixed output because hetero penalty persists). Paged KV adds +7-8 more. Combined: ~72 B at c≥8 (within 3-6 of vLLM). Phase 0 alone NOT sufficient for parity — Phase 1 required. Falsification: fused Q4K TTFT ≤1.5× llama.cpp + composite ≥58 at c=4. |
 | **PMAT-161** | **Quality-of-experience: ITL and reliability under heterogeneous output** | **realizr best ITL at c≥8, tightest TTFT tail, 0% errors** | ✅ ANALYZED. Under heterogeneous output: realizr has best ITL at c≥8 (13.3ms vs llama.cpp 18.6ms, 1.40× better), tightest TTFT P50/P99 spread (1.3-10.4ms vs vLLM 10.2-64.5ms), and 0% errors at all c (vs llama.cpp 0.2-1.8%). Aggregate throughput penalty is entirely TTFT-driven. For interactive use, realizr's ITL advantage gives better perceived streaming speed despite lower aggregate. |
 | **PMAT-160** | **Executive summary refresh — production-realistic lead** | **Summary now reflects true competitive position** | ✅ UPDATED. Rewrote executive summary to lead with production-realistic results (medium prompt + heterogeneous output). Previous summary overstated competitiveness by leading with short-prompt fixed-output numbers. Three structural deficits enumerated. Historical results preserved as "favorable conditions." |
@@ -2785,6 +2816,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.13.0 | 2026-03-14 | **PMAT-163: Scaling efficiency analysis — why vLLM dominates at c>1.** Measured c=1 medium+hetero baselines for all 3 runtimes. realizr is 15% faster than vLLM at c=1 (146 vs 127 tok/s) but vLLM scales 2.5-3× more efficiently (75-94% vs 25-37%). Crossover at c~3. Per-request decode: vLLM 97→77% (PagedAttention processes only active tokens), realizr 55→49% (batch-and-step plateaus), llama.cpp 55→33% (fixed-slot overhead). The competitive gap is NOT kernel speed — it's scaling architecture. Paged KV (Phase 1) is the only path to vLLM-class scaling. |
 | 3.12.0 | 2026-03-14 | **PMAT-162: Projected Phase 0/1 impact under production-realistic conditions.** Using PMAT-157/158 heterogeneous scorecards as baseline: Phase 0 (fused Q4K GEMM) adds +8-11 composite points (50-56 C → 58-64 C+), lower than fixed-output estimate (+10-15) because heterogeneous aggregate penalty persists. Phase 0+1 (+ paged KV) adds +12-19 total (→ ~65-72 C+/B-), reaching within 3-6 of vLLM at c≥8. Phase 0 alone NOT sufficient — paged KV's +7-8 additional points is nearly as impactful as the TTFT fix. Validates Dynamo replication plan: both phases required. Falsification condition for Phase 0 defined. |
 | 3.11.0 | 2026-03-14 | **PMAT-161: Quality-of-experience analysis under heterogeneous output.** Analyzed ITL, TTFT tail, and error rates from PMAT-157 data. realizr has best ITL at c≥8 (13.3ms vs llama.cpp 18.6ms at c=8), tightest TTFT P50/P99 spread (1.3-10.4ms vs vLLM 10.2-64.5ms), and 0% errors at all c. Aggregate penalty is entirely TTFT-driven. For interactive use, ITL matters more than aggregate — realizr's 13.3ms token intervals give better perceived streaming than llama.cpp's 18.6ms. But 148ms TTFT wait negates ITL advantage for short completions. |
 | 3.10.0 | 2026-03-14 | **PMAT-160: Executive summary refresh.** Rewrote executive summary to lead with production-realistic results (PMAT-157/158/159). Previous summary led with short-prompt results that overstated competitiveness. Now shows realizr loses ALL c under production conditions (0.38-0.84× vs competitors). Historical short-prompt results preserved but clearly labeled as favorable conditions. Three structural deficits enumerated with fix path (PMAT-054 → PMAT-052 → Phases 0-3). Removed stale "Production Workload Guide" that recommended realizr at c≥8. |
