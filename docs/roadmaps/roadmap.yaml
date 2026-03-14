@@ -2105,6 +2105,32 @@ roadmap:
     Max useful batch=32 on RTX 4060 Laptop (8GB).
     Updated forjar-yoga-realizr.yaml: CUDA_MAX_BATCH=16→32.
 
+- id: PMAT-128
+  title: 'PMAT-128: Prompt-length dependent batch ceiling (8GB VRAM)'
+  status: DONE
+  priority: P1
+  spec_version: '2.92.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Test batch=32 with medium prompts'
+      status: DONE
+      result: 'OOM — M_total=4000 prefill workspace exceeds 8GB VRAM. Empty responses for failed batches'
+    - criterion: 'Find max viable batch for medium prompts'
+      status: DONE
+      result: 'batch=30 works (1004 tok/s, +34% over batch=16). batch=32 OOMs'
+    - criterion: 'Characterize per-request quality at higher batch'
+      status: DONE
+      result: 'Decode drops −10% (73.9 vs 82), ITL +12.5% (13.5 vs 12ms) at batch=30 medium'
+    - criterion: 'Map prompt-profile to max batch'
+      status: DONE
+      result: 'short=32 (1850), medium=30 (1004), long~16 (estimated). VRAM-dependent'
+  notes: |
+    Prefill workspace = M_total x cuBLASLt GEMM workspace + FP16 cache + KV.
+    batch=32 medium: M_total=4000, CUDA_ERROR_OUT_OF_MEMORY.
+    batch=30 medium: 1004 tok/s (+34% over batch=16), 0% errors.
+    Fixed-slot architecture makes batch ceiling prompt-length dependent.
+    Paged KV (PMAT-052) decouples batch from prompt length.
+
 - id: PMAT-129
   title: 'PMAT-129: NVIDIA Dynamo agentic inference architecture analysis'
   status: DONE
