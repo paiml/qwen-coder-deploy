@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.85.0
+**Version:** 2.86.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -656,6 +656,17 @@ Longer output dilutes TTFT impact: TTFT is ~5% of latency at 128 tokens vs ~17% 
 | **Ratio** | **1.08x** | **1.25x** | — | — |
 
 realizr's aggregate grows +17.6% (TTFT diluted) while llama.cpp barely changes (+1.2%). **FP8 decode advantage at M≥5 becomes dominant when TTFT is amortized over more output tokens.** For code generation workloads (typically 100-500 output tokens), realizr's c≥8 advantage is much stronger than 32-token benchmarks suggest.
+
+**PMAT-122: vLLM output length sensitivity (medium prompt, 32 vs 128 output tokens, Mar 14):**
+
+| c | vLLM 32-tok | vLLM 128-tok | Δ | realizr 128-tok | realizr/vLLM 128-tok |
+|---|-----------|------------|---|----------------|---------------------|
+| 4 | 551.0 | **588.4** | +6.8% | 317.7 | 0.54x |
+| 8 | 1,023.2 | **1,117.7** | +9.2% | 558.5 | 0.50x |
+| 12 | 1,418.5 | **1,592.0** | +12.2% | — | — |
+| 16 | 1,778.5 | **2,049.3** | +15.2% | — | — |
+
+vLLM aggregate grows monotonically with output length — TTFT dilution effect grows with concurrency (+6.8% at c=4 to +15.2% at c=16). Decode rates stable: 150.3 (c=4), 145.1 (c=8), 138.4 (c=12), 134.0 (c=16) — virtually unchanged from 32-tok. **Output length does NOT close the realizr-vLLM gap** — vLLM also benefits from TTFT dilution. realizr/vLLM ratio: 0.54x at c=4, 0.50x at c=8 (128-tok) vs 0.53x/0.46x (32-tok). Both improve ~4%, net gap unchanged. The 2× architectural gap (W4A16 Marlin + PagedAttention) persists regardless of output length.
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -1825,6 +1836,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-120** | **vLLM full scaling curve (c=1-16 short)** | **1832 tok/s at c=16, 74% efficiency** | ✅ MEASURED. vLLM c=1→c=16: 153.6→1832.2 (11.9×, 74% efficiency). realizr: 7.6× (47.5%). llama.cpp: 6.5× (40.4%). vLLM ITL +14% c=1→c=16 (vs realizr +75%, llama.cpp +139%). PagedAttention + continuous batching gives dramatically better per-request latency stability under load. |
 | **PMAT-114** | **Prompt-profile full matrix + falsification** | **llama.cpp prompt-invariant at ALL c** | ✅ CORRECTED. c=16 504.5 was artifact (GPU contention after vLLM kill). Verified: 1045.3 (+0.8% from short). Complete c=1-16 matrix: realizr only wins c=8 medium (1.08x). c=12: 0.67x, c=16: 0.72x. llama.cpp fused Q4K GEMM is prompt-length invariant (−2.1% to +2.8%). |
 | **PMAT-121** | **vLLM complete prompt-profile matrix (c=1-16)** | **±6% invariant all c, all prompts** | ✅ MEASURED. Added c=12 medium (1418.5, −2.9%), c=12 long (1464.7, +0.2%), c=16 long (1717.0, −6.3%). Max deviation −6.3% (c=16 long) from KV cache pressure at 16×311=4976 tokens. vLLM prompt-invariance confirmed at all 5 concurrency levels. |
+| **PMAT-122** | **vLLM output length sensitivity (128 vs 32 tok)** | **+6.8-15.2% agg, gap unchanged** | ✅ MEASURED. vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged. realizr/vLLM gap persists (0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok). Output length does NOT close the architectural gap. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -2202,6 +2214,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.86.0 | 2026-03-14 | **PMAT-122: vLLM output length sensitivity — 2× gap persists.** vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged across output lengths. realizr/vLLM ratio at 128 tok: 0.54x (c=4), 0.50x (c=8) — virtually unchanged from 32 tok (0.53x, 0.46x). Both runtimes benefit from TTFT dilution at longer output, so net gap unchanged. Output length does NOT close the architectural gap between batch-and-step and continuous batching. vLLM at c=16 128-tok: **2049 tok/s** (new high watermark). |
 | 2.85.0 | 2026-03-14 | **PMAT-121: Complete vLLM prompt-profile matrix (c=12/16 × medium/long).** c=12 medium: 1418.5 (−2.9% from short), c=12 long: 1464.7 (+0.2%), c=16 long: 1717.0 (−6.3%). vLLM prompt-invariance confirmed at all 5 concurrency levels (c=1-16). Max deviation ±6.3% vs realizr ±49%. Updated PMAT-119 table to 5×3 matrix, filled c=12 gap in vLLM medium reference table. |
 | 2.84.0 | 2026-03-13 | **PMAT-120: vLLM full short-prompt scaling curve c=1-16.** c=8: 1058.5, c=12: 1461.3, c=16: 1832.2. Scaling: 11.9× (74% efficiency) vs realizr 7.6× (47.5%) vs llama.cpp 6.5× (40.4%). ITL stability: vLLM +14% (c=1→c=16), realizr +75%, llama.cpp +139%. Added 4-runtime scaling table to competition baselines section. Updated production workload guide with vLLM scaling data. Also added ollama c=1/c=4 short to baselines tables. |
 | 2.83.0 | 2026-03-13 | **PMAT-119: vLLM prompt-length invariance confirmed — realizr is the ONLY prompt-sensitive runtime.** vLLM long prompt: c=4 558.5 (vs medium 551.0, +1.4%), c=8 1040.7 (vs medium 1023.2, +1.7%). Marlin W4A16 is also fused 1-step quantized GEMM. Both vLLM and llama.cpp are prompt-invariant (−2 to +2%). realizr drops 39-49% from short→long. The 2-step FP8 cuBLASLt pipeline is the sole cause. Fused Q4K→GEMM would eliminate an entire class of workload-dependent regression. Full 3-runtime c=4 and c=8 long tables added. |

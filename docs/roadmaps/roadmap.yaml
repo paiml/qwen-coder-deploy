@@ -1944,3 +1944,31 @@ roadmap:
     Max deviation: -6.3% (c=16 long) from KV cache pressure at 16x311=4976 tokens.
     Compare realizr: -34% to -49%. W4A16 Marlin fused 1-step quantized GEMM.
     c=12 medium fills last gap in vLLM reference table.
+- id: PMAT-122
+  github_issue: null
+  item_type: task
+  title: 'PMAT-122: vLLM output length sensitivity (128 vs 32 output tokens)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=4 medium 128-tok benchmarked — DONE (588.4 agg, +6.8%)'
+  - 'AC2: vLLM c=8 medium 128-tok benchmarked — DONE (1117.7 agg, +9.2%)'
+  - 'AC3: vLLM c=12 medium 128-tok benchmarked — DONE (1592.0 agg, +12.2%)'
+  - 'AC4: vLLM c=16 medium 128-tok benchmarked — DONE (2049.3 agg, +15.2%)'
+  - 'AC5: realizr/vLLM gap analysis at 128 tok — DONE (gap unchanged)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - vllm
+  - output-length
+  - competitive-analysis
+  notes: |
+    TTFT dilution grows with concurrency: +6.8% (c=4) to +15.2% (c=16).
+    Decode rates unchanged across output lengths.
+    realizr/vLLM gap persists: 0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok.
+    vLLM c=16 128-tok: 2049 tok/s (new high watermark).
