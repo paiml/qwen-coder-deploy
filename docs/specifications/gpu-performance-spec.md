@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.11.0
+**Version:** 3.12.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1134,6 +1134,27 @@ While aggregate throughput favors vLLM, the per-token experience reveals realizr
 3. **realizr has zero errors at all concurrency levels** under all workload conditions tested. llama.cpp has 0.2-1.8% error rate (fixed-slot overflow). vLLM also 0%.
 4. **The scoring penalty is entirely TTFT** — if realizr could match vLLM's TTFT (via fused Q4K GEMM), its superior ITL consistency and zero errors would make it competitive on composite score despite lower aggregate throughput.
 5. **For latency-sensitive interactive use (e.g., code completion)**, ITL matters more than aggregate. At c=8, a user on realizr sees tokens at 13.3ms intervals (75 tok/s perceived) vs 18.6ms on llama.cpp (54 tok/s perceived). But the 148ms TTFT wait negates this advantage for short completions.
+
+**Projected Phase 0/1 Impact Under Production-Realistic Conditions (PMAT-162, Mar 14):**
+
+Using the PMAT-157/158 heterogeneous output scorecards as baseline, substituting llama.cpp-equivalent TTFT (Phase 0: PMAT-054) and vLLM-equivalent output invariance (Phase 1: PMAT-052):
+
+| Phase | c=4 | c=8 | c=16 | vs vLLM |
+|-------|------|------|------|---------|
+| **Current** | **50 C** | **53 C** | **56 C** | −19 to −29 |
+| Phase 0 (fused Q4K GEMM) | 58 C+ | 64 C+ | 64 C+ | −11 to −21 |
+| Phase 0+1 (+ paged KV) | ~65 C+ | ~72 B | ~72 B | −3 to −14 |
+| vLLM baseline | 79 B | 78 B | 75 B | — |
+
+**Methodology:** Phase 0 substitutes realizr's TTFT dimension score with llama.cpp's (fused Q4K = prompt-invariant TTFT) plus a conservative aggregate improvement from reduced prefill time (+2.7-10% depending on c). Phase 1 recovers the 31-42% aggregate drop from output heterogeneity by replacing contiguous KV with paged allocation (realizr fixed-128 aggregates as ceiling).
+
+**Key findings from production-realistic projection:**
+
+1. **Phase 0 alone adds +8 to +11 composite points** (C → C+). This is lower than the +10-15 estimated under fixed-output conditions (PMAT-115) because the heterogeneous aggregate penalty persists — TTFT is only one of two deficits.
+2. **Phase 0+1 adds +12 to +19 total** (C → B-). At c≥8, realizr reaches ~72 B, within 3-6 points of vLLM. The remaining gap is continuous batching scheduler efficiency + W4A16 Marlin kernel advantage.
+3. **Phase 0 alone is NOT sufficient for competitive parity.** At c=4, realizr 58 C+ vs llama.cpp 60 C+ (still behind). At c=16, realizr 64 C+ vs llama.cpp 60 C+ (slight lead from aggregate). The c=8 crossover would return (64 vs 52) but only at c=8.
+4. **Phase 1 is the multiplier.** Paged KV's impact on output-heterogeneous workloads (+7 to +8 additional points) is nearly as large as Phase 0's TTFT fix (+8 to +11). This validates the Dynamo replication plan (PMAT-140): both phases are required, not Phase 0 alone.
+5. **Falsification condition for Phase 0:** If fused Q4K GEMM produces TTFT ≤1.5× llama.cpp at medium prompts AND composite score reaches ≥58 at c=4 (up from 50), Phase 0 is validated. If TTFT exceeds 2× llama.cpp, the FP8 pipeline has overhead beyond the 2-step dequantization.
 
 **Dynamo Source Code Deep-Dive — Implementation-Level Architecture (PMAT-139, Mar 14):**
 
@@ -2367,6 +2388,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-162** | **Projected Phase 0/1 impact under production-realistic conditions** | **Phase 0: +8-11 (C→C+), Phase 0+1: +12-19 (C→B-)** | ✅ PROJECTED. Fused Q4K alone adds +8-11 points (lower than +10-15 under fixed output because hetero penalty persists). Paged KV adds +7-8 more. Combined: ~72 B at c≥8 (within 3-6 of vLLM). Phase 0 alone NOT sufficient for parity — Phase 1 required. Falsification: fused Q4K TTFT ≤1.5× llama.cpp + composite ≥58 at c=4. |
 | **PMAT-161** | **Quality-of-experience: ITL and reliability under heterogeneous output** | **realizr best ITL at c≥8, tightest TTFT tail, 0% errors** | ✅ ANALYZED. Under heterogeneous output: realizr has best ITL at c≥8 (13.3ms vs llama.cpp 18.6ms, 1.40× better), tightest TTFT P50/P99 spread (1.3-10.4ms vs vLLM 10.2-64.5ms), and 0% errors at all c (vs llama.cpp 0.2-1.8%). Aggregate throughput penalty is entirely TTFT-driven. For interactive use, realizr's ITL advantage gives better perceived streaming speed despite lower aggregate. |
 | **PMAT-160** | **Executive summary refresh — production-realistic lead** | **Summary now reflects true competitive position** | ✅ UPDATED. Rewrote executive summary to lead with production-realistic results (medium prompt + heterogeneous output). Previous summary overstated competitiveness by leading with short-prompt fixed-output numbers. Three structural deficits enumerated. Historical results preserved as "favorable conditions." |
 | **PMAT-159** | **Definitive competitive matrix — all workload dimensions** | **realizr loses ALL c under production conditions** | ✅ COMPILED. Updated PMAT-138 sensitivity matrix with PMAT-157 heterogeneous data. The c=8 invariant win (artifact of fixed output + short prompt) disappears under production conditions. Three-layer competitive gap: TTFT penalty (PMAT-054), output heterogeneity (PMAT-052), architectural ceiling (Phases 0-3). Both fused Q4K GEMM and paged KV required — neither alone sufficient. |
@@ -2763,6 +2785,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.12.0 | 2026-03-14 | **PMAT-162: Projected Phase 0/1 impact under production-realistic conditions.** Using PMAT-157/158 heterogeneous scorecards as baseline: Phase 0 (fused Q4K GEMM) adds +8-11 composite points (50-56 C → 58-64 C+), lower than fixed-output estimate (+10-15) because heterogeneous aggregate penalty persists. Phase 0+1 (+ paged KV) adds +12-19 total (→ ~65-72 C+/B-), reaching within 3-6 of vLLM at c≥8. Phase 0 alone NOT sufficient — paged KV's +7-8 additional points is nearly as impactful as the TTFT fix. Validates Dynamo replication plan: both phases required. Falsification condition for Phase 0 defined. |
 | 3.11.0 | 2026-03-14 | **PMAT-161: Quality-of-experience analysis under heterogeneous output.** Analyzed ITL, TTFT tail, and error rates from PMAT-157 data. realizr has best ITL at c≥8 (13.3ms vs llama.cpp 18.6ms at c=8), tightest TTFT P50/P99 spread (1.3-10.4ms vs vLLM 10.2-64.5ms), and 0% errors at all c. Aggregate penalty is entirely TTFT-driven. For interactive use, ITL matters more than aggregate — realizr's 13.3ms token intervals give better perceived streaming than llama.cpp's 18.6ms. But 148ms TTFT wait negates ITL advantage for short completions. |
 | 3.10.0 | 2026-03-14 | **PMAT-160: Executive summary refresh.** Rewrote executive summary to lead with production-realistic results (PMAT-157/158/159). Previous summary led with short-prompt results that overstated competitiveness. Now shows realizr loses ALL c under production conditions (0.38-0.84× vs competitors). Historical short-prompt results preserved but clearly labeled as favorable conditions. Three structural deficits enumerated with fix path (PMAT-054 → PMAT-052 → Phases 0-3). Removed stale "Production Workload Guide" that recommended realizr at c≥8. |
 | 3.9.0 | 2026-03-14 | **PMAT-159: Definitive competitive matrix — realizr loses ALL c under production conditions.** Updated PMAT-138 sensitivity matrix with PMAT-157 heterogeneous output data. The c=8 "invariant win" was an artifact of fixed output + favorable batching. Three-layer competitive gap identified: (1) TTFT penalty → fused Q4K GEMM (PMAT-054), (2) output heterogeneity → paged KV (PMAT-052), (3) architectural ceiling → full Dynamo replication. Both PMAT-054 and PMAT-052 required for competitive parity — neither alone sufficient. Strikethrough on previous "c=8 invariant" claim. |

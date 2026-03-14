@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-162
+  title: 'PMAT-162: Projected Phase 0/1 impact under production-realistic conditions'
+  status: DONE
+  priority: P0
+  spec_version: '3.12.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Project Phase 0 (PMAT-054) scoring impact with heterogeneous output'
+      status: DONE
+      result: 'Phase 0 adds +8-11 points (C→C+). Lower than +10-15 under fixed output'
+    - criterion: 'Project Phase 0+1 (PMAT-054+052) combined impact'
+      status: DONE
+      result: 'Phase 0+1 adds +12-19 total (C→B-). c≥8 reaches ~72 B, within 3-6 of vLLM'
+    - criterion: 'Define Phase 0 falsification condition'
+      status: DONE
+      result: 'Fused Q4K TTFT ≤1.5× llama.cpp + composite ≥58 at c=4'
+  notes: |
+    Phase 0 alone is NOT sufficient for competitive parity. The
+    heterogeneous output penalty (31-42%) persists regardless of TTFT fix.
+    Paged KV (Phase 1) adds nearly as many points (+7-8) as fused Q4K
+    (+8-11). Both phases are required per the Dynamo replication plan.
 - id: PMAT-161
   title: 'PMAT-161: Quality-of-experience — ITL and reliability under heterogeneous output'
   status: DONE
