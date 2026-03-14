@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.91.0
+**Version:** 2.92.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -729,6 +729,29 @@ vLLM aggregate grows monotonically with output length — TTFT dilution effect g
 **Updated gap to vLLM with batch=32:** realizr 1850 vs vLLM 2840 at c=32 (**0.65x**, up from 0.40x with batch=16). At c=64: 1853 vs 3347 (0.55x, up from 0.34x). The batch size increase halves the gap — additional gains require paged KV for dynamic batch sizing beyond the VRAM limit.
 
 **Recommendation:** Update `forjar-yoga-realizr.yaml` from `CUDA_MAX_BATCH=16` to `CUDA_MAX_BATCH=32` for production at c>16. No config change needed for c≤16 (identical performance).
+
+**PMAT-128: Prompt-length dependent batch ceiling (8GB VRAM, Mar 14):**
+
+| Prompt profile | Max batch (8GB) | Aggregate at max | vs batch=16 | OOM cause |
+|----------------|----------------|-----------------|-------------|-----------|
+| short (~29 tok) | **32** | **1,850** | **+62%** | batch=64: 64 KV slots × 344 MB = 22 GB |
+| medium (~102 tok) | **30** | **1,004** | **+34%** | batch=32: M_total=4000 prefill workspace OOM |
+| long (~311 tok) | ~16 (estimated) | ~750 | — | Prefill workspace scales with batch × prompt_len |
+
+**Root cause:** Prefill workspace allocation is `M_total = batch × prompt_tokens`. At batch=32 medium (M_total≈4000), FP8 cuBLASLt needs workspace for 4000-token GEMM plus FP16 weight cache (2944 MB) plus KV cache — total exceeds 8 GB. batch=30 (M_total≈3750) fits. The OOM manifests as `CUDA_ERROR_OUT_OF_MEMORY` in `init_prefill_workspace`, causing empty responses (0 output tokens) for failed batches while other batches succeed normally.
+
+**Decode quality at higher batch (medium prompt):**
+
+| Batch size | Decode tok/s | ITL P50 | vs batch=16 |
+|-----------|-------------|---------|-------------|
+| 16 | ~82 | ~12ms | baseline |
+| 24 | 75.9 | 13.2ms | −7.4% |
+| 28 | 74.3 | 13.5ms | −9.4% |
+| 30 | 73.9 | 13.5ms | −9.9% |
+
+Per-request decode degrades ~10% from batch=16 to batch=30 at medium prompts (vs −5.5% at short). The Q4K DP4A GEMV compute cost scales with M — at M=30, each decode step processes 30 tokens through all layers.
+
+**Architectural implication (reinforces PMAT-129 Dynamo analysis):** The prompt-length dependent batch ceiling is a direct consequence of fixed-slot contiguous KV allocation. With paged KV (PMAT-052), prefill workspace would allocate only the blocks needed (32 blocks for 32 tokens, not 4096 per slot), making the batch ceiling independent of prompt length. This is the same architectural gap that Dynamo's KVBM solves with dynamic block allocation.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
@@ -1948,6 +1971,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-125** | **realizr high-concurrency scaling (c=16→128)** | **Plateau at 1142 tok/s (batch=16 ceiling)** | ✅ MEASURED. Aggregate constant 1140-1143 at c=16-128. ITL constant 11.7ms, 0% errors — excess requests queue, active batch quality preserved. TTFT scales linearly with queue depth (87→3223ms). Decode constant 85.7 tok/s/req. CUDA_MAX_BATCH=16 is the hard ceiling — need paged KV (PMAT-052) to scale further. |
 | **PMAT-126** | **llama.cpp high-concurrency scaling (c=16→128)** | **Plateau at ~1020 tok/s (parallel=16 ceiling)** | ✅ MEASURED. Aggregate 1038→1003 at c=16→128 (slight decline). ITL stable 14.9-15.6ms. Errors 0.7-1.2% (503 when slots full). TTFT 31.7→3586ms. --parallel 16 is the hard ceiling. Both realizr and llama.cpp are fixed-slot systems — vLLM's paged KV scales 3.4× further to 3849 tok/s. |
 | **PMAT-127** | **CUDA_MAX_BATCH scaling (16→32→64)** | **batch=32: +62% aggregate (1142→1850)** | ✅ MEASURED. batch=32 unlocks second plateau at 1850 tok/s. Decode drops 85.7→81.0 (−5.5%), ITL 11.7→12.3ms (+5.1%). batch=64 OOMs during warmup (8GB VRAM, 64 KV slots). Gap to vLLM narrows: 0.40x→0.65x at c=32. Max useful batch=32 on 8GB RTX 4060L. Recommendation: update forjar config from batch=16 to batch=32. |
+| **PMAT-128** | **Prompt-length dependent batch ceiling** | **batch=32 OOMs at medium, max=30 (1004 tok/s, +34%)** | ✅ MEASURED. batch=32 + medium prompt OOMs (M_total=4000 prefill workspace). Max batch: short=32 (1850), medium=30 (1004), long≈16 (estimated). Decode drops −10% at batch=30 (73.9 vs 82 at batch=16). Architectural: fixed-slot prefill workspace scales with batch × prompt_len. Paged KV (PMAT-052) would decouple batch ceiling from prompt length. |
 | **PMAT-129** | **Dynamo agentic inference architecture analysis** | **Architecture gap taxonomy + roadmap update** | ✅ ANALYZED. NVIDIA Dynamo (Dhanani & Kosec, Mar 2026) represents next-gen beyond vLLM. Key insights: WORM KV pattern (11.7× read/write), 4-tier memory hierarchy, KV-aware routing (170M ops/s Flash Indexer), priority eviction > LRU, disaggregated prefill-decode. Fixed-slot VRAM ceiling: 344 MB/slot × 64 = 22 GB > 8 GB. Paged KV confirmed as P0 keystone (PMAT-052). Updated roadmap with Dynamo-validated priority ordering. Falsification: paged KV must achieve ≥80% of vLLM at c=32. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
@@ -2328,6 +2352,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.92.0 | 2026-03-14 | **PMAT-128: Prompt-length dependent batch ceiling.** batch=32 OOMs at medium prompts (M_total=4000 prefill workspace exceeds 8GB). Max viable batch: short=32 (1850 tok/s), medium=30 (1004 tok/s, +34% over batch=16), long≈16. Per-request decode −10% at batch=30 medium (73.9 vs 82 at batch=16). Prefill workspace scales with batch × prompt_tokens — fixed-slot contiguous allocation makes batch ceiling prompt-length dependent. Reinforces PMAT-052 paged KV as architectural fix. |
 | 2.91.0 | 2026-03-14 | **PMAT-129: NVIDIA Dynamo agentic inference architecture analysis.** Added comprehensive Dynamo comparison table (6 architectural layers), WORM KV access pattern analysis (11.7× read/write ratio from Claude Code sessions), fixed-slot VRAM ceiling quantification (344 MB/slot × 64 = 22 GB > 8 GB), 4-tier memory hierarchy roadmap, updated realizr priority ordering (PMAT-052 paged KV confirmed P0 keystone), falsification condition for paged KV impact (≥80% of vLLM at c=32). Added Dynamo and Mooncake references. Key insight: production agentic workloads are WORM cache-dominated — KV cache routing and retention matters more than raw decode throughput. |
 | 2.90.0 | 2026-03-14 | **PMAT-127: CUDA_MAX_BATCH scaling analysis.** batch=32 unlocks second plateau at 1850 tok/s (+62% over batch=16's 1142). Per-request decode −5.5% (85.7→81.0), ITL +5.1% (11.7→12.3ms). batch=64 OOMs on 8GB VRAM. Gap to vLLM narrows from 0.40x to 0.65x at c=32. Max useful batch=32 on RTX 4060 Laptop. Recommendation: update forjar config to CUDA_MAX_BATCH=32 for c>16 workloads. |
 | 2.89.0 | 2026-03-14 | **PMAT-125/126: Cross-runtime high-concurrency scaling (c=16→128).** Both realizr and llama.cpp plateau at their batch ceiling (16 slots): realizr 1142 tok/s constant (0% errors, 11.7ms ITL constant), llama.cpp ~1020 tok/s (0.7-1.2% errors, 15ms ITL). vLLM scales 3.4× further to 3849 tok/s via paged KV + continuous batching. Quality tradeoff: realizr preserves per-request quality for active batch (ITL constant), vLLM ITL degrades from 7.9→26.4ms at c=128. Fairness inversion at c≥64: vLLM ITL exceeds realizr. Architectural root cause: fixed-slot batch (realizr/llama.cpp) vs dynamic paged KV (vLLM). |
