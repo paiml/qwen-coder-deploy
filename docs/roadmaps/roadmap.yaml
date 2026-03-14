@@ -2337,3 +2337,25 @@ roadmap:
     Fused Q4K GEMM (PMAT-054) would make realizr prompt-invariant like
     llama.cpp, closing the TTFT gap and winning at all c>=8.
     Version 3.0.0 milestone — production-realistic benchmarking complete.
+- id: PMAT-138
+  title: 'PMAT-138: Complete benchmark sensitivity matrix'
+  status: DONE
+  priority: P0
+  spec_version: '3.1.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Build prompt×output×concurrency competitive ratio matrix'
+      status: DONE
+      result: '4x5 matrix: c=8 is the ONLY workload-invariant win (1.08-1.47x). Medium prompts lose c=4/c>=12'
+    - criterion: 'Identify the c=8 invariant and its root cause'
+      status: DONE
+      result: 'FP8 tensor core crossover at M>=5. cuBLASLt batch GEMM outperforms fused Q4K GEMV at M=8'
+    - criterion: 'Confirm medium+128tok concurrency ceiling'
+      status: DONE
+      result: 'Max c=18 clean. c=20 causes partial OOM (p50 output=0). Combined prefill workspace + KV pressure'
+  notes: |
+    Definitive competitive analysis. The sensitivity matrix reveals that
+    benchmark configuration has enormous impact on competitive ratios.
+    Key insight: short+32tok benchmarks (the industry standard) systematically
+    overstate realizr vs llama.cpp. Production workloads (medium+128tok)
+    show realizr wins ONLY at c=8. Fused Q4K GEMM is the unlock.
