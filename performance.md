@@ -173,13 +173,17 @@ Ollama: serial prefill — TTFT 612ms at c=4, aggregate flat vs c=1. Production-
 **realizr is the ONLY runtime with prompt-length sensitivity** — drops 39-49% from short→long prompts.
 **Fused Q4K→GEMM kernel** is the single highest-value optimization — would close this gap entirely.
 
-### vLLM Reference (Marlin W4A16 + PagedAttention, PMAT-119/120)
+### vLLM Reference (Marlin W4A16 + PagedAttention, PMAT-119/120/121)
 
-| c | Short | Medium | Long | Sensitivity |
+| c | Short | Medium | Long | Short→Long Δ |
 |---|-------|--------|------|-------------|
-| 1 | 153.6 | — | 149.1 | −2.9% (invariant) |
-| 4 | 594.8 | 551.0 | 558.5 | −6.1% (invariant) |
-| 8 | 1,058.5 | 1,023.2 | 1,040.7 | −1.7% (invariant) |
+| 1 | 153.6 | — | 149.1 | −2.9% |
+| 4 | 594.8 | 551.0 | 558.5 | −6.1% |
+| 8 | 1,058.5 | 1,023.2 | 1,040.7 | −1.7% |
+| 12 | 1,461.3 | 1,418.5 | 1,464.7 | +0.2% |
+| 16 | 1,832.2 | 1,778.5 | 1,717.0 | −6.3% |
+
+**PMAT-121:** vLLM near-invariant at all c (max ±6.3%). Compare realizr: −34% to −49%.
 
 ### Cross-Prompt Scorecards (probador llm score)
 
