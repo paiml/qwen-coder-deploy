@@ -1999,3 +1999,30 @@ roadmap:
     ITL stable +5.4% over 16x output increase — PagedAttention efficient.
     No cliff for practical code gen workloads (100-500 output tokens).
     Decode rate: 134->132->127.5 = -4.8% from KV attention BW growth.
+- id: PMAT-124
+  github_issue: null
+  item_type: task
+  title: 'PMAT-124: vLLM high-concurrency scaling curve (c=1-128)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=32 short benchmarked — DONE (2839.7 agg, 112.0 decode)'
+  - 'AC2: vLLM c=64 short benchmarked — DONE (3347.2 agg, 59.3 decode)'
+  - 'AC3: vLLM c=128 short benchmarked — DONE (3849.2 agg, 37.8 decode)'
+  - 'AC4: Asymptote and sweet spot identified — DONE (~4000 tok/s, c=16-32)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - vllm
+  - scaling
+  - capacity-planning
+  notes: |
+    Asymptote ~4000 tok/s on RTX 4060 Laptop (8GB, 24 SMs).
+    Sweet spot: c=16-32 (decode>100, ITL<10ms).
+    c=64: decode 59.3 (oversubscribed), ITL 16.9ms.
+    c=128: decode 37.8 (-75% from c=1), ITL 26.4ms.

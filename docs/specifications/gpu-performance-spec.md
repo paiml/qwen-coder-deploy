@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.87.0
+**Version:** 2.88.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -682,6 +682,22 @@ vLLM aggregate grows monotonically with output length — TTFT dilution effect g
 **ITL is remarkably stable (+5.4% over 16× output increase)** — PagedAttention handles KV cache growth efficiently. No cliff or degradation pattern.
 
 **Production capacity planning (c=16 medium):** For code generation workloads (100-500 output tokens), vLLM delivers consistently 2000-2065 tok/s. The KV cache attention BW limit at 512 tok is mild (−2.5%) — no cliff for practical workloads.
+
+**PMAT-124: vLLM high-concurrency scaling curve (c=1→128, short prompt, Mar 14):**
+
+| c | Aggregate tok/s | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) | Scaling eff |
+|---|----------------|-------------|-------------|-------------|-------------|
+| 1 | 153.6 | ~154 | 6.5 | 12.6 | 100% |
+| 4 | 594.8 | 150.4 | 6.7 | 25.3 | 96.8% |
+| 8 | 1,058.5 | — | ~6.8 | — | 86.1% |
+| 16 | 1,832.2 | ~134 | 7.4 | ~53 | 74.5% |
+| 32 | **2,839.7** | 112.0 | 8.9 | 83.0 | 57.8% |
+| 64 | **3,347.2** | 59.3 | 16.9 | 88.4 | 34.1% |
+| 128 | **3,849.2** | 37.8 | 26.4 | 243.4 | 19.6% |
+
+**Asymptote ~4000 tok/s on RTX 4060 Laptop (8GB, 24 SMs).** Aggregate grows sublinearly from c=16 onward — compute throughput saturates while per-request quality degrades. At c=128: decode −75% (37.8 vs 153.6), ITL +306% (26.4 vs 6.5ms), TTFT +1832% (243.4 vs 12.6ms). The useful operating range is c=1-32 where decode stays above 100 tok/s and ITL below 10ms. Beyond c=32, the system is oversubscribed — requests queue and per-token latency degrades rapidly.
+
+**Production sweet spot: c=16-32.** At c=16: 1832 tok/s aggregate, 134 decode, 7.4ms ITL (excellent per-request quality). At c=32: 2840 tok/s aggregate (+55%), 112 decode (−16%), 8.9ms ITL (+20%). The c=32 tradeoff is acceptable for throughput-oriented workloads. Beyond c=32, ITL degrades >2× — unacceptable for interactive use.
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -1853,6 +1869,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-121** | **vLLM complete prompt-profile matrix (c=1-16)** | **±6% invariant all c, all prompts** | ✅ MEASURED. Added c=12 medium (1418.5, −2.9%), c=12 long (1464.7, +0.2%), c=16 long (1717.0, −6.3%). Max deviation −6.3% (c=16 long) from KV cache pressure at 16×311=4976 tokens. vLLM prompt-invariance confirmed at all 5 concurrency levels. |
 | **PMAT-122** | **vLLM output length sensitivity (128 vs 32 tok)** | **+6.8-15.2% agg, gap unchanged** | ✅ MEASURED. vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged. realizr/vLLM gap persists (0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok). Output length does NOT close the architectural gap. |
 | **PMAT-123** | **vLLM output saturation curve (32→512 tok)** | **Peaks at 256 tok, −2.5% at 512** | ✅ MEASURED. c=16 medium: aggregate peaks at 2065.5 (256 tok), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% (134→127.5) from KV cache attention BW at 9824 concurrent tokens. ITL stable +5.4% over 16× output increase. No cliff — PagedAttention handles KV growth efficiently. |
+| **PMAT-124** | **vLLM high-concurrency scaling (c=1→128)** | **Asymptote ~4000 tok/s, sweet spot c=16-32** | ✅ MEASURED. c=32: 2840 tok/s (57.8% eff), c=64: 3347 (34.1%), c=128: 3849 (19.6%). Decode collapses: 154→112→59→38 tok/s. ITL: 6.5→8.9→16.9→26.4ms. Production sweet spot c=16-32 where decode>100 and ITL<10ms. Beyond c=32 system is oversubscribed. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -2230,6 +2247,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.88.0 | 2026-03-14 | **PMAT-124: vLLM high-concurrency scaling curve (c=1→128).** Asymptote ~4000 tok/s on RTX 4060 Laptop. c=32: 2840 tok/s (57.8% efficiency), c=64: 3347 (34.1%), c=128: 3849 (19.6%). Decode collapses from 154→38 tok/s. ITL from 6.5→26.4ms. Production sweet spot c=16-32 where decode>100 tok/s and ITL<10ms. Beyond c=32: system oversubscribed, per-request quality degrades rapidly. |
 | 2.87.0 | 2026-03-14 | **PMAT-123: vLLM output saturation curve.** c=16 medium: aggregate peaks at 2065.5 tok/s (256 output tokens), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% from KV cache attention BW at 16×(102+512)=9824 concurrent tokens. ITL stable (+5.4% over 16× output increase). No cliff — PagedAttention handles KV growth efficiently. For code gen workloads (100-500 output tokens), vLLM delivers consistently 2000-2065 tok/s at c=16. |
 | 2.86.0 | 2026-03-14 | **PMAT-122: vLLM output length sensitivity — 2× gap persists.** vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged across output lengths. realizr/vLLM ratio at 128 tok: 0.54x (c=4), 0.50x (c=8) — virtually unchanged from 32 tok (0.53x, 0.46x). Both runtimes benefit from TTFT dilution at longer output, so net gap unchanged. Output length does NOT close the architectural gap between batch-and-step and continuous batching. vLLM at c=16 128-tok: **2049 tok/s** (new high watermark). |
 | 2.85.0 | 2026-03-14 | **PMAT-121: Complete vLLM prompt-profile matrix (c=12/16 × medium/long).** c=12 medium: 1418.5 (−2.9% from short), c=12 long: 1464.7 (+0.2%), c=16 long: 1717.0 (−6.3%). vLLM prompt-invariance confirmed at all 5 concurrency levels (c=1-16). Max deviation ±6.3% vs realizr ±49%. Updated PMAT-119 table to 5×3 matrix, filled c=12 gap in vLLM medium reference table. |
