@@ -751,6 +751,8 @@ vLLM aggregate grows monotonically with output length — TTFT dilution effect g
 
 Per-request decode degrades ~10% from batch=16 to batch=30 at medium prompts (vs −5.5% at short). The Q4K DP4A GEMV compute cost scales with M — at M=30, each decode step processes 30 tokens through all layers.
 
+**vLLM comparison at c=30 medium:** vLLM 2528 vs realizr batch=30 1004 = **0.40x**. Gap unchanged from batch=16 era (0.42x at c=16 medium). The batch increase improves realizr's absolute throughput (+34%) but doesn't close the vLLM gap because: (1) vLLM scales continuously to c=30 (no batch ceiling), (2) realizr per-request decode degrades more at M=30 (73.9 vs vLLM 98.8 tok/s), (3) realizr TTFT at c=30 medium is 534ms vs vLLM 65ms (8.2×). **The architectural gap is FP8 prefill BW + fixed-slot allocation, not batch size.**
+
 **Architectural implication (reinforces PMAT-129 Dynamo analysis):** The prompt-length dependent batch ceiling is a direct consequence of fixed-slot contiguous KV allocation. With paged KV (PMAT-052), prefill workspace would allocate only the blocks needed (32 blocks for 32 tokens, not 4096 per slot), making the batch ceiling independent of prompt length. This is the same architectural gap that Dynamo's KVBM solves with dynamic block allocation.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
