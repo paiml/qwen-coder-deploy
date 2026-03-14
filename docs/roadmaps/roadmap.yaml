@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-154
+  title: 'PMAT-154: Trajectory baseline — medium+128tok measured'
+  status: DONE
+  priority: P0
+  spec_version: '3.4.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure realizr vs vLLM at medium+128tok across c=4-32'
+      status: DONE
+      result: 'realizr 0.63-0.67x vLLM (not 0.28x). Gap consistent across c, TTFT-dominated (2.4-3.0x). c=18 ceiling (1116), c=20 OOMs. vLLM c=32 = 2189'
+    - criterion: 'Correct PMAT-140 trajectory table with measured data'
+      status: DONE
+      result: 'Replaced estimated values with measured. Phase 0 target: 0.90x. Phase 1 target: 1.00x at c=32'
+    - criterion: 'Document vLLM CUDA graph regression'
+      status: DONE
+      result: 'vLLM 0.17.0 CUDA graphs produce 6x slowdown (23 vs 141 tok/s c=1). All benchmarks use --enforce-eager'
+  notes: |
+    Critical correction to PMAT-140 trajectory. The 0.28x estimate was
+    wrong — actual gap is 0.63-0.67x, which means Phase 0 (fused Q4K +
+    WSPT) could achieve near-parity at c=16, not just 0.46x.
+    vLLM 0.17.0 has a CUDA graph regression on this CUDA driver.
+    Previous baselines (154 tok/s c=1) were on v0.6.x.
 - id: PMAT-140
   title: 'PMAT-140: Full Dynamo replication plan (5 phases, 13 items)'
   status: DONE

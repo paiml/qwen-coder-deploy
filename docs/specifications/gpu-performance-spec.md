@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.3.0
+**Version:** 3.4.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -964,15 +964,29 @@ Realizr is Rust. Dynamo is Rust. The code is directly portable — not "inspired
 | PMAT-152 | NIXL cross-GPU KV transfer | `block_manager/storage/nixl.rs`: `NixlRemoteDescriptor { storage, agent, notif }`. Maps `StorageType → MemType` (Vram/Dram/File). Registration via `NixlRegisterableStorage` trait | Transfer KV blocks between GPUs without CPU bounce. Enables disaggregated prefill across physical GPUs |
 | PMAT-153 | FCFS + WSPT dual scheduling with priority queue | `scheduling/queue.rs`: `SchedulerQueue<P,C,S>` with `BinaryHeap`, `threshold_frac`, per-worker token tracking. Dynamic re-keying on capacity free | Production scheduling: FCFS for tail TTFT, WSPT for average TTFT. Worker-aware load balancing |
 
-**Projected impact (cumulative, yoga RTX 4060L, c=32 medium+128tok):**
+**Measured baseline (PMAT-154, medium prompt + 128 output tokens, yoga RTX 4060L, 1900MHz, 60s, streaming, warmup 5s):**
 
-| After phase | Aggregate tok/s | vs vLLM | Key unlock |
-|-------------|----------------|---------|------------|
-| Current (v3.2.0) | ~800 (est.) | 0.28× | batch=32 ceiling, medium prompt penalty |
-| Phase 0 (fused Q4K + WSPT) | ~1300 | 0.46× | Prompt invariance, cache-aware scheduling |
-| Phase 1 (paged KV) | ~2500 | 0.88× | batch ceiling removed, 100+ concurrent |
-| Phase 2 (cache intelligence) | ~2800 | 0.99× | Prefix reuse, zero re-prefill on multi-turn |
-| Phase 3 (disaggregated) | ~3200 | 1.13× | Prefill never blocks decode |
+| c | realizr | vLLM (0.17.0 eager) | Ratio | realizr TTFT | vLLM TTFT | realizr ITL | vLLM ITL |
+|---|---------|-------------------|-------|-------------|-----------|-------------|----------|
+| 4 | 314.7 | 470.8 | **0.67×** | 75.7ms | 31.8ms | 12.2ms | 8.3ms |
+| 8 | 557.2 | 888.7 | **0.63×** | 148.0ms | 55.3ms | 13.3ms | 8.5ms |
+| 16 | 1003.7 | 1548.9 | **0.65×** | 281.8ms | 95.2ms | 13.8ms | 9.6ms |
+| **18** | **1116.1** | — | — | 315.5ms | — | 13.7ms | — |
+| 32 | **OOM** | **2189.1** | — | — | 127.7ms | — | 13.7ms |
+
+⚠️ **vLLM 0.17.0 CUDA graph regression:** CUDA graphs produce 6× slowdown (23 tok/s vs 141 eager at c=1, ITL 42ms vs 7ms). All vLLM measurements use `--enforce-eager`. With working CUDA graphs, vLLM would be ~8-10% faster. Previous benchmarks (v0.6.x) showed 154 tok/s c=1 with graphs.
+
+**Key findings:** realizr/vLLM gap is consistent **0.63-0.67×** across all concurrency levels at this workload — not the 0.28× previously estimated. realizr OOMs at c=20 medium+128tok (fixed-slot ceiling), while vLLM scales to c=32+ via paged KV. The gap is **TTFT-dominated**: realizr TTFT is 2.4-3.0× vLLM at all c (FP8 pipeline overhead + batch-and-step scheduling).
+
+**Projected impact (cumulative, yoga RTX 4060L, medium+128tok):**
+
+| After phase | c=16 tok/s | c=32 tok/s | vs vLLM c=16 | vs vLLM c=32 | Key unlock |
+|-------------|-----------|-----------|-------------|-------------|------------|
+| **Current (v3.3.0)** | **1003.7** | **OOM** | **0.65×** | **—** | batch=32 ceiling, FP8 TTFT penalty |
+| Phase 0 (fused Q4K + WSPT) | ~1400 | OOM | ~0.90× | — | Prompt invariance (TTFT 282→~100ms), cache-aware scheduling |
+| Phase 1 (paged KV) | ~1600 | ~2200 | ~1.03× | ~1.00× | Batch ceiling removed, 100+ concurrent viable |
+| Phase 2 (cache intelligence) | ~1700 | ~2500 | ~1.10× | ~1.14× | Prefix reuse eliminates redundant prefill on multi-turn |
+| Phase 3 (disaggregated) | ~1800 | ~2800 | ~1.16× | ~1.28× | Prefill never blocks decode, TTFT ~1× scaling |
 
 **Falsification condition (unchanged):** If realizr implements paged KV (PMAT-052) and achieves ≥80% of vLLM aggregate at c=32 (target: ≥2272 tok/s), the fixed-slot architecture is confirmed as the primary bottleneck. If paged KV alone achieves <60% of vLLM (target: <1704), the gap is elsewhere (Marlin W4A16, continuous batching scheduler, or kernel efficiency).
 
@@ -2207,6 +2221,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
 | **PMAT-130** | **llama.cpp --parallel 32 matched-parallelism** | **REGRESSES: −61% at c=16 (404 vs 1038)** | ✅ MEASURED. llama.cpp --parallel 32 at c=16 = 404.5 (vs 1037.8 with --parallel 16, −61%). Per-request decode identical (67.6 vs 67.3) but aggregate collapses — only ~6 of 16 connections decode simultaneously. Fixed-slot architecture processes all 32 slots per step (KV 224 MiB, compute 300 MiB). At c=32: llama.cpp 1151 vs realizr 1850 (0.62x). At optimal configs: realizr WINS c≥16 (1.10-1.61×). Continuous batching (realizr) scales linearly with batch; fixed-slot (llama.cpp) has negative scaling at partial utilization. |
 | **PMAT-135** | **realizr vs llama.cpp at 128-tok output** | **1.43× at c=16 (was 1.09× at 32-tok)** | ✅ MEASURED, ⚠️ CORRECTED by PMAT-136. Initial claim of 2.94× was artifact (server in degraded state). Clean verification: llama.cpp 860 (−17%), realizr 1233 (+8.9%). Ratio shifts from 1.09× to 1.43× (+31%). llama.cpp KV attention cost grows with output length; realizr TTFT dilution compensates. |
 | **PMAT-138** | **Complete benchmark sensitivity matrix** | **c=8 is the ONLY invariant win** | ✅ COMPILED. 4×5 competitive ratio matrix across prompt (short/medium) × output (32/128 tok) × concurrency (c=1-32). realizr wins at c=8 regardless of workload (1.08-1.47×) — FP8 tensor core crossover. At c=4/c≥12: outcome depends on prompt length (short→win, medium→lose). vLLM: 0.42-0.65× ahead at all configs. Definitive competitive picture: fused Q4K GEMM (PMAT-054) would unlock medium-prompt wins at all c≥8. |
@@ -2596,6 +2611,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.4.0 | 2026-03-14 | **PMAT-154: Trajectory baseline measured — realizr 0.63-0.67× vLLM (not 0.28×).** Measured realizr and vLLM (0.17.0 enforce-eager) at medium+128tok workload: c=4 0.67×, c=8 0.63×, c=16 0.65×. Gap is consistent across concurrency, TTFT-dominated (2.4-3.0× vLLM). Realizr ceiling at c=18 (1116 tok/s), c=20 OOMs. vLLM scales to c=32 (2189 tok/s). Corrected PMAT-140 trajectory from estimated to measured values. Also documented vLLM 0.17.0 CUDA graph regression: 6× slowdown (ITL 42ms vs 7ms eager), all benchmarks use enforce-eager. Previous vLLM baselines (154 tok/s c=1) were on v0.6.x with working graphs. |
 | 3.3.0 | 2026-03-14 | **PMAT-140: Full Dynamo replication plan — 5 phases, 13 new PMAT items (PMAT-141→153).** Replaces cautious P2/P3 roadmap with full implementation commitment. Phase 0: AgentHints API + WSPT scheduling + fused Q4K (ship this week). Phase 1: paged KV keystone rewrite (PMAT-052/053/143/144) — targets ≥80% vLLM at c=32. Phase 2: cache intelligence (frequency eviction, radix tree, CPU offload, TTL pinning). Phase 3: stream-level prefill/decode disaggregation. Phase 4: multi-GPU (NIXL, Flash Indexer). Projected trajectory: 0.28× → 0.88× → 1.13× vs vLLM. Rationale: benchmark data proves fixed-slot architecture is the binding constraint, Dynamo source is Rust (directly portable), and every architectural advantage vLLM has traces to paged KV. Tier summary restructured around Dynamo phases. |
 | 3.2.0 | 2026-03-14 | **PMAT-139: Dynamo source code deep-dive (ai-dynamo/dynamo).** Implementation-level analysis of Dynamo's Rust codebase enriching PMAT-129. Key findings: block lifecycle FSM (4-state, content-addressed dedup via Weak<BlockHandle>), 4-tier storage as generic trait hierarchy (not fixed pipeline — tiers independently configurable), ConcurrentRadixTree with per-node Arc<RwLock> hand-over-hand locking for deadlock-free prefix matching, FrequencyFilter exponential-decay eviction (count doubles on access, periodic decrement+prune — neither LRU nor LFU), WSPT scheduling uses KV cache overlap to reduce effective processing time (key=weight/new_tokens), AgentHints and CacheControl are concrete API structs (not vaporware — adoptable at zero cost), PrefillRouter supports 3 modes (query-only, pre-routed, auto-routed). Added 7-row adoption path table: AgentHints API and WSPT scheduling have zero prerequisites; all other patterns require PMAT-052 paged KV. |
 | 3.1.0 | 2026-03-14 | **PMAT-138: Complete benchmark sensitivity matrix.** 4×5 competitive ratio matrix shows c=8 is the ONLY workload-invariant win (FP8 crossover). Short prompts favor realizr at c≥8; medium prompts → realizr wins ONLY c=8. vLLM 0.42-0.65× ahead everywhere. Fused Q4K GEMM (PMAT-054) would make realizr prompt-invariant, unlocking medium-prompt wins. Also confirmed medium+128tok ceiling at c=18 (c=20 OOMs from combined prefill workspace + KV pressure). |
