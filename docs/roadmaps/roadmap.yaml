@@ -2311,3 +2311,29 @@ roadmap:
     The corrected finding (1.43x vs 1.09x at c=16) is still meaningful —
     128-tok output moderately favors realizr over llama.cpp — but not the
     dramatic 2.94x initially claimed.
+- id: PMAT-137
+  title: 'PMAT-137: Production-realistic workload comparison (medium + 128-tok)'
+  status: DONE
+  priority: P0
+  spec_version: '3.0.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Run realizr and llama.cpp at medium prompt + 128-tok at c=4,8,16'
+      status: DONE
+      result: 'realizr: 314.8/557.5/1002.5. llama.cpp: 372.5/433.4/1108.6'
+    - criterion: 'Compare with existing vLLM medium 128-tok data (PMAT-122)'
+      status: DONE
+      result: 'vLLM: 588.4/1117.7/2049.3. Dominates both at all c (0.49-0.54x ahead)'
+    - criterion: 'Identify the binding constraint and corrective action'
+      status: DONE
+      result: 'TTFT is binding: realizr 76-282ms vs llama.cpp 19-31ms (4-9x). Fused Q4K GEMM (PMAT-054) is the fix'
+    - criterion: 'Determine which synthetic benchmark artifacts to flag'
+      status: DONE
+      result: 'short+32tok overstates realizr at c=16 (1.09x -> 0.90x with production workload)'
+  notes: |
+    Most important comparison in the entire spec — represents real-world
+    usage. realizr only wins c=8 (FP8 tensor core crossover). Loses c=4
+    (interactive) and c=16 (throughput) to llama.cpp due to TTFT.
+    Fused Q4K GEMM (PMAT-054) would make realizr prompt-invariant like
+    llama.cpp, closing the TTFT gap and winning at all c>=8.
+    Version 3.0.0 milestone — production-realistic benchmarking complete.
