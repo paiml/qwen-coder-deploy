@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-159
+  title: 'PMAT-159: Definitive competitive matrix — all workload dimensions'
+  status: DONE
+  priority: P0
+  spec_version: '3.9.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Update PMAT-138 matrix with heterogeneous output row'
+      status: DONE
+      result: 'medium+hetero: 0.62/0.84/0.64 — realizr loses at ALL c'
+    - criterion: 'Identify three-layer competitive gap'
+      status: DONE
+      result: 'TTFT (PMAT-054), output heterogeneity (PMAT-052), architectural ceiling (Phases 0-3)'
+    - criterion: 'Falsify the c=8 invariant win claim'
+      status: DONE
+      result: 'Strikethrough applied. c=8 win was artifact of fixed output + favorable batching'
+  notes: |
+    This is the definitive competitive picture. The c=8 invariant from
+    PMAT-138 was the strongest remaining claim — now falsified by PMAT-157.
+    Under production conditions, realizr has no workload where it wins.
+    Both fused Q4K GEMM and paged KV are required for parity.
 - id: PMAT-158
   title: 'PMAT-158: Heterogeneous output scorecards — true production floor'
   status: DONE

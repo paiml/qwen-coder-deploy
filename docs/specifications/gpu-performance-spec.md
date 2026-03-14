@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.8.0
+**Version:** 3.9.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -876,15 +876,30 @@ Each runtime at its best parallelism setting for each concurrency level:
 | medium + 32 tok | 0.53 | 0.46 | 0.42 | — |
 | medium + 128 tok | 0.54 | 0.50 | 0.49 | — |
 
-**The invariant: realizr wins at c=8 regardless of workload configuration.** This is the FP8 tensor core crossover (M≥5 enables cuBLASLt batch GEMM, which outperforms fused Q4K GEMV). At all other concurrency levels, the competitive outcome depends on prompt length:
-- **Short prompts:** realizr wins at c≥8 (decode advantage + TTFT dilution)
-- **Medium prompts:** realizr wins ONLY at c=8, loses c=4 and c≥12 (FP8 TTFT penalty dominates)
+**~~The invariant: realizr wins at c=8 regardless of workload configuration.~~ FALSIFIED by PMAT-157.** The c=8 win held only for fixed-output benchmarks. With heterogeneous output distribution (uniform:16,256), the c=8 advantage disappears entirely:
 
-**What this means for the roadmap:**
-1. **Fused Q4K GEMM (PMAT-054)** would close the TTFT gap by replacing FP8 2-step pipeline with 1-step fused quantized GEMM — making realizr prompt-invariant like llama.cpp. This would unlock wins at ALL concurrency levels with medium prompts.
-2. Until PMAT-054, **realizr's production sweet spot is c=8** where FP8 tensor cores give an aggregate advantage despite TTFT overhead
-3. For c=4 interactive and c≥12 throughput workloads with medium+ prompts, **llama.cpp is currently the better choice**
-4. **vLLM dominates everything** at 0.42-0.65× ahead — the gap is purely architectural (paged KV + Marlin quantized GEMM)
+**realizr/llama.cpp with heterogeneous output (medium + uniform:16,256 tok, PMAT-157):**
+
+| Workload | c=4 | c=8 | c=16 |
+|----------|-----|-----|------|
+| medium + uniform:16,256 | 0.62 L | 0.84 L | 0.64 L |
+
+**Updated competitive picture (PMAT-159, Mar 14):**
+
+| Workload | c=4 | c=8 | c=16 | Notes |
+|----------|-----|-----|------|-------|
+| short + fixed 32 | 1.01 | **1.47 W** | **1.09 W** | Best case — TTFT diluted, uniform batch |
+| short + fixed 128 | 1.02 | — | **1.43 W** | Short prompt + long output = win |
+| medium + fixed 32 | 0.81 L | **1.08 W** | 0.72 L | Narrow c=8 win |
+| medium + fixed 128 | 0.85 L | **1.29 W** | 0.90 L | Narrow c=8 win |
+| **medium + hetero 16-256** | **0.62 L** | **0.84 L** | **0.64 L** | **No wins. Production-realistic.** |
+
+**Revised interpretation:** realizr's c=8 advantage was an artifact of two favorable benchmark conditions: (1) uniform output length creating ideal batching, and (2) short prompts minimizing TTFT penalty. Under production-realistic conditions (medium prompt + variable output), **realizr loses at ALL concurrency levels.** The competitive picture has three layers:
+1. **TTFT penalty** (FP8 2-step prefill): costs 10-40 scoring points vs llama.cpp → fused Q4K GEMM (PMAT-054) fixes this
+2. **Output heterogeneity penalty** (contiguous KV waste): costs 31-42% aggregate → paged KV (PMAT-052) fixes this
+3. **Architectural ceiling** (fixed-slot batch-and-step): vLLM 0.38-0.46× ahead under production conditions → full Dynamo replication (Phases 0-3) needed
+
+**Both PMAT-054 and PMAT-052 are required for competitive parity.** Neither alone is sufficient.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
@@ -2318,6 +2333,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-159** | **Definitive competitive matrix — all workload dimensions** | **realizr loses ALL c under production conditions** | ✅ COMPILED. Updated PMAT-138 sensitivity matrix with PMAT-157 heterogeneous data. The c=8 invariant win (artifact of fixed output + short prompt) disappears under production conditions. Three-layer competitive gap: TTFT penalty (PMAT-054), output heterogeneity (PMAT-052), architectural ceiling (Phases 0-3). Both fused Q4K GEMM and paged KV required — neither alone sufficient. |
 | **PMAT-158** | **Heterogeneous output scorecards — true production floor** | **realizr 50-56 C, vLLM 75-79 B, gap widens to 19-29** | ✅ SCORED. Heterogeneous output scoring: realizr drops 1-7 points (50/53/56), vLLM improves 3-6 points (79/78/75). Gap widens from 12-19 (fixed) to 19-29 (hetero). vLLM improves because short sequences free KV blocks → scheduling advantage. realizr worst at c=4/16 (below llama.cpp). Two-fix minimum: fused Q4K GEMM + paged KV required for competitive parity. |
 | **PMAT-157** | **Heterogeneous output distribution (uniform:16,256)** | **c=8 crossover disappears — realizr loses ALL c** | ✅ MEASURED. realizr drops 31-42% with variable output (vs −1% vLLM). Fixed-128 c=8 WIN (1.29×) → heterogeneous LOSS (0.84×). vLLM immune to output variance (PagedAttention releases blocks dynamically). llama.cpp output capped at ~112 tokens (256-token slot − prompt overhead). Contiguous KV pre-allocation is the root cause — paged KV (PMAT-052) required for output-length invariance. Fixed-output benchmarks systematically overstate realizr's competitive position. |
 | **PMAT-156** | **3-runtime production comparison + scoring (medium+128tok)** | **realizr 57 C at all c, TTFT is sole bottleneck** | ✅ MEASURED. Complete 3-runtime comparison: realizr 0.84× (c=4), 1.29× (c=8 WINS), 0.89× (c=16) vs llama.cpp. vLLM wins everything (0.63-0.67× ahead). Scorecards: vLLM 69-76, llama.cpp 56-67, realizr 57 C flat. TTFT is the ONLY lagging dimension (13-50/100 vs llama.cpp 93-100/100). Decode, ITL, errors all competitive. llama.cpp TTFT prompt-invariant (10.1ms→10.3ms short→medium). Fused Q4K GEMM would add 10-15 composite points. |
@@ -2711,6 +2727,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.9.0 | 2026-03-14 | **PMAT-159: Definitive competitive matrix — realizr loses ALL c under production conditions.** Updated PMAT-138 sensitivity matrix with PMAT-157 heterogeneous output data. The c=8 "invariant win" was an artifact of fixed output + favorable batching. Three-layer competitive gap identified: (1) TTFT penalty → fused Q4K GEMM (PMAT-054), (2) output heterogeneity → paged KV (PMAT-052), (3) architectural ceiling → full Dynamo replication. Both PMAT-054 and PMAT-052 required for competitive parity — neither alone sufficient. Strikethrough on previous "c=8 invariant" claim. |
 | 3.8.0 | 2026-03-14 | **PMAT-158: Heterogeneous output scorecards reveal true production floor.** Scored PMAT-157 heterogeneous results: realizr drops 1-7 points (50/53/56 C), vLLM improves 3-6 points (79/78/75 B) — output variance is a scheduling advantage for continuous batching. Gap widens from 12-19 (fixed) to 19-29 (heterogeneous). realizr worst at c=4 and c=16 (below llama.cpp). Two-fix minimum for competitive parity: fused Q4K GEMM (TTFT +10-15) + paged KV (output invariance +5-10). |
 | 3.7.0 | 2026-03-14 | **PMAT-157: Heterogeneous output distribution falsifies c=8 crossover.** Measured all 3 runtimes with uniform:16,256 output distribution (medium prompt). realizr drops 31-42% (contiguous KV waste), vLLM drops −1% (PagedAttention immune), llama.cpp output capped at ~112 tokens (slot size). The c=8 crossover (realizr's ONLY workload-invariant win from PMAT-138) disappears: 1.29× WIN → 0.84× LOSS. realizr loses at ALL concurrency levels with variable output. Fixed-output benchmarks systematically overstate competitive position. Paged KV (PMAT-052) required for output-length invariance — fused Q4K GEMM alone insufficient. |
 | 3.6.0 | 2026-03-14 | **PMAT-156: Complete 3-runtime production comparison + scoring.** Measured llama.cpp at medium+128tok (c=4-16) to complete the 3-way picture. realizr vs llama.cpp: 0.84× (c=4), 1.29× WIN (c=8), 0.89× (c=16). vLLM dominates at 0.63-0.67×. Production scorecards: realizr 57 C flat at all c — TTFT is the ONLY bottleneck (13-50/100 vs llama.cpp 93-100/100). Decode, aggregate, ITL, errors all competitive. llama.cpp TTFT confirmed prompt-invariant (<2% short→medium). Fused Q4K GEMM (PMAT-054) would add 10-15 composite points → 67-72 C+ to B. |
