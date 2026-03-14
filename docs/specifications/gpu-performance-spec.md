@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.86.0
+**Version:** 2.87.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -667,6 +667,21 @@ realizr's aggregate grows +17.6% (TTFT diluted) while llama.cpp barely changes (
 | 16 | 1,778.5 | **2,049.3** | +15.2% | — | — |
 
 vLLM aggregate grows monotonically with output length — TTFT dilution effect grows with concurrency (+6.8% at c=4 to +15.2% at c=16). Decode rates stable: 150.3 (c=4), 145.1 (c=8), 138.4 (c=12), 134.0 (c=16) — virtually unchanged from 32-tok. **Output length does NOT close the realizr-vLLM gap** — vLLM also benefits from TTFT dilution. realizr/vLLM ratio: 0.54x at c=4, 0.50x at c=8 (128-tok) vs 0.53x/0.46x (32-tok). Both improve ~4%, net gap unchanged. The 2× architectural gap (W4A16 Marlin + PagedAttention) persists regardless of output length.
+
+**PMAT-123: vLLM output saturation curve (c=16 medium, 32→512 output tokens, Mar 14):**
+
+| Output tok | Aggregate tok/s | Decode tok/s | ITL P50 (ms) | TTFT P50 (ms) |
+|-----------|----------------|-------------|-------------|-------------|
+| 32 | 1,778.5 | ~134 | 7.4 | ~53 |
+| 128 | 2,049.3 | 134.0 | 7.5 | 52.5 |
+| 256 | **2,065.5** | 132.0 | 7.6 | 49.3 |
+| 512 | 2,013.0 | 127.5 | 7.8 | 60.1 |
+
+**Aggregate peaks at 256 output tokens** (2065.5 tok/s), then slightly declines at 512 (−2.5%). Decode rate weakly declining: −4.8% from 32→512 tokens. Root cause: KV cache attention BW — at 512 output tokens, 16 concurrent requests maintain 16 × (102+512) = 9,824 total KV entries. Attention BW reads grow linearly with sequence length.
+
+**ITL is remarkably stable (+5.4% over 16× output increase)** — PagedAttention handles KV cache growth efficiently. No cliff or degradation pattern.
+
+**Production capacity planning (c=16 medium):** For code generation workloads (100-500 output tokens), vLLM delivers consistently 2000-2065 tok/s. The KV cache attention BW limit at 512 tok is mild (−2.5%) — no cliff for practical workloads.
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -1837,6 +1852,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-114** | **Prompt-profile full matrix + falsification** | **llama.cpp prompt-invariant at ALL c** | ✅ CORRECTED. c=16 504.5 was artifact (GPU contention after vLLM kill). Verified: 1045.3 (+0.8% from short). Complete c=1-16 matrix: realizr only wins c=8 medium (1.08x). c=12: 0.67x, c=16: 0.72x. llama.cpp fused Q4K GEMM is prompt-length invariant (−2.1% to +2.8%). |
 | **PMAT-121** | **vLLM complete prompt-profile matrix (c=1-16)** | **±6% invariant all c, all prompts** | ✅ MEASURED. Added c=12 medium (1418.5, −2.9%), c=12 long (1464.7, +0.2%), c=16 long (1717.0, −6.3%). Max deviation −6.3% (c=16 long) from KV cache pressure at 16×311=4976 tokens. vLLM prompt-invariance confirmed at all 5 concurrency levels. |
 | **PMAT-122** | **vLLM output length sensitivity (128 vs 32 tok)** | **+6.8-15.2% agg, gap unchanged** | ✅ MEASURED. vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged. realizr/vLLM gap persists (0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok). Output length does NOT close the architectural gap. |
+| **PMAT-123** | **vLLM output saturation curve (32→512 tok)** | **Peaks at 256 tok, −2.5% at 512** | ✅ MEASURED. c=16 medium: aggregate peaks at 2065.5 (256 tok), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% (134→127.5) from KV cache attention BW at 9824 concurrent tokens. ITL stable +5.4% over 16× output increase. No cliff — PagedAttention handles KV growth efficiently. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -2214,6 +2230,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.87.0 | 2026-03-14 | **PMAT-123: vLLM output saturation curve.** c=16 medium: aggregate peaks at 2065.5 tok/s (256 output tokens), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% from KV cache attention BW at 16×(102+512)=9824 concurrent tokens. ITL stable (+5.4% over 16× output increase). No cliff — PagedAttention handles KV growth efficiently. For code gen workloads (100-500 output tokens), vLLM delivers consistently 2000-2065 tok/s at c=16. |
 | 2.86.0 | 2026-03-14 | **PMAT-122: vLLM output length sensitivity — 2× gap persists.** vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged across output lengths. realizr/vLLM ratio at 128 tok: 0.54x (c=4), 0.50x (c=8) — virtually unchanged from 32 tok (0.53x, 0.46x). Both runtimes benefit from TTFT dilution at longer output, so net gap unchanged. Output length does NOT close the architectural gap between batch-and-step and continuous batching. vLLM at c=16 128-tok: **2049 tok/s** (new high watermark). |
 | 2.85.0 | 2026-03-14 | **PMAT-121: Complete vLLM prompt-profile matrix (c=12/16 × medium/long).** c=12 medium: 1418.5 (−2.9% from short), c=12 long: 1464.7 (+0.2%), c=16 long: 1717.0 (−6.3%). vLLM prompt-invariance confirmed at all 5 concurrency levels (c=1-16). Max deviation ±6.3% vs realizr ±49%. Updated PMAT-119 table to 5×3 matrix, filled c=12 gap in vLLM medium reference table. |
 | 2.84.0 | 2026-03-13 | **PMAT-120: vLLM full short-prompt scaling curve c=1-16.** c=8: 1058.5, c=12: 1461.3, c=16: 1832.2. Scaling: 11.9× (74% efficiency) vs realizr 7.6× (47.5%) vs llama.cpp 6.5× (40.4%). ITL stability: vLLM +14% (c=1→c=16), realizr +75%, llama.cpp +139%. Added 4-runtime scaling table to competition baselines section. Updated production workload guide with vLLM scaling data. Also added ollama c=1/c=4 short to baselines tables. |
