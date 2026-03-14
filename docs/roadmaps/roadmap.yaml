@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-157
+  title: 'PMAT-157: Heterogeneous output distribution — c=8 crossover falsified'
+  status: DONE
+  priority: P0
+  spec_version: '3.7.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure all 3 runtimes with uniform:16,256 output at c=4/8/16'
+      status: DONE
+      result: 'realizr: 216.7/355.2/585.9. vLLM: 475.7/876.8/1528.2. llama.cpp: 350.7/421.4/914.9'
+    - criterion: 'Compare to fixed-128 baselines'
+      status: DONE
+      result: 'realizr drops 31-42%, vLLM drops ~1%, llama.cpp output capped at ~112 tokens (slot size)'
+    - criterion: 'Determine if c=8 crossover (1.29x) survives heterogeneous output'
+      status: DONE
+      result: 'FALSIFIED. c=8 fixed-128 1.29x WIN → heterogeneous 0.84x LOSS. realizr loses at ALL c'
+  notes: |
+    Fixed-output benchmarks systematically overstate realizr competitive position.
+    vLLM immune to output variance (PagedAttention releases blocks dynamically).
+    Contiguous KV pre-allocation is root cause — paged KV (PMAT-052) required.
+    llama.cpp output capped at ~112 tokens with medium prompt due to 256-token slot.
+    Fused Q4K GEMM alone insufficient — paged KV needed for output-length invariance.
 - id: PMAT-156
   title: 'PMAT-156: 3-runtime production comparison + scoring (medium+128tok)'
   status: DONE
