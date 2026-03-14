@@ -2208,3 +2208,20 @@ roadmap:
     continuous batching gives 2x better scaling efficiency than llama.cpp
     fixed-slot architecture. vLLM paged KV gives 3x better scaling.
     realizr dominates llama.cpp at all c>=8. Gap grows monotonically.
+- id: PMAT-132
+  title: 'PMAT-132: Long prompt batch ceiling verification'
+  status: DONE
+  priority: P1
+  spec_version: '2.95.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Verify max batch for long prompts (~311 tok)'
+      status: DONE
+      result: 'Max batch=8 (c=8 works: 324.7 tok/s). c=9 OOMs: M_total=2799. Previously estimated ~16'
+    - criterion: 'Confirm batch ceiling inversely proportional to prompt length'
+      status: DONE
+      result: 'short=32, medium=30, long=8. FP8 prefill workspace budget ~2500 tokens'
+  notes: |
+    Verified PMAT-128 estimate was 2x too optimistic for long prompts.
+    Max viable batch halves roughly per 3x prompt length increase.
+    Paged KV (PMAT-052) would eliminate this dependency entirely.
