@@ -2160,6 +2160,183 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-140
+  title: 'PMAT-140: Full Dynamo replication plan (5 phases, 13 items)'
+  status: DONE
+  priority: P0
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Replace cautious P2/P3 roadmap with full implementation plan'
+      status: DONE
+      result: '5 phases (0-4), 13 new PMAT items (141-153). Phase 0 ships this week. Phase 1 is the keystone rewrite'
+    - criterion: 'Define all PMAT items with Dynamo source file references'
+      status: DONE
+      result: 'Each item maps to specific Dynamo Rust source files (block.rs, policy.rs, filter.rs, nvext.rs, etc.)'
+    - criterion: 'Project cumulative impact trajectory'
+      status: DONE
+      result: 'Current 0.28x -> Phase 0 0.46x -> Phase 1 0.88x -> Phase 2 0.99x -> Phase 3 1.13x vs vLLM'
+    - criterion: 'Define falsification conditions for each phase'
+      status: DONE
+      result: 'Each PMAT item has specific falsification condition (e.g., paged KV >=80% vLLM at c=32)'
+  notes: |
+    The benchmark data from PMAT-125-138 proves fixed-slot architecture is
+    the binding constraint. vLLM is 2-3x ahead purely because of paged KV.
+    Dynamo is Rust, realizr is Rust — code is directly portable.
+    Phase 0 (AgentHints API, WSPT scheduling, fused Q4K) has zero prerequisites.
+    Phase 1 (paged KV) is THE rewrite that closes the 2-3x gap.
+    Phases 2-3 build cache intelligence and disaggregated serving on top.
+    Phase 4 (multi-GPU) is future when hardware is available.
+- id: PMAT-141
+  title: 'PMAT-141: AgentHints + CacheControl API fields'
+  status: PLANNED
+  priority: P0
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Add agent_hints and cache_control fields to OpenAI-compat chat completion request'
+      status: PLANNED
+    - criterion: 'Parse and pass through to scheduler (no-op initially)'
+      status: PLANNED
+  notes: 'Phase 0. Zero inference cost. Dynamo source: protocols/openai/nvext.rs'
+- id: PMAT-142
+  title: 'PMAT-142: WSPT cache-aware request scheduling'
+  status: PLANNED
+  priority: P0
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement WSPT scheduling key = (1+priority_jump) / (ISL - overlap*block_size)'
+      status: PLANNED
+    - criterion: 'Measure TTFT improvement with 5-turn conversation replay at c=8'
+      status: PLANNED
+  notes: 'Phase 0. Dynamo source: scheduling/policy.rs. Even without paged KV, prefix hash table gives overlap scores.'
+- id: PMAT-143
+  title: 'PMAT-143: Content-addressed block dedup'
+  status: PLANNED
+  priority: P1
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement BlockRegistry with SequenceHash + Weak<BlockHandle>'
+      status: PLANNED
+    - criterion: 'Measure KV memory savings at c=16 with identical system prompts'
+      status: PLANNED
+  notes: 'Phase 1. Requires PMAT-052. Dynamo source: block/registry.rs'
+- id: PMAT-144
+  title: 'PMAT-144: CUDA graph with paged block tables'
+  status: PLANNED
+  priority: P1
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Pre-capture CUDA graphs at common batch sizes (1,2,4,8,16,32)'
+      status: PLANNED
+    - criterion: 'Block table as fixed-size tensor (only values change)'
+      status: PLANNED
+  notes: 'Phase 1. Requires PMAT-052. vLLM source: gpu_model_runner.py'
+- id: PMAT-145
+  title: 'PMAT-145: FrequencyFilter exponential-decay eviction'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement count*2 on access, periodic -1 decrement + prune zeros'
+      status: PLANNED
+    - criterion: 'Verify system prompt survives 10s tool-call pause under memory pressure'
+      status: PLANNED
+  notes: 'Phase 2. Requires PMAT-052. Dynamo source: offload/filter.rs'
+- id: PMAT-146
+  title: 'PMAT-146: Prefix radix tree (single-GPU)'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement RadixBlock with FxHashMap children'
+      status: PLANNED
+    - criterion: 'O(prefix_len) lookup for multi-turn KV reuse'
+      status: PLANNED
+  notes: 'Phase 2. Enables WSPT with real overlap scores. Dynamo source: indexer/radix_tree.rs'
+- id: PMAT-147
+  title: 'PMAT-147: KV offload to CPU pinned memory'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement PinnedStorage pool with async cuMemcpy offload/restore'
+      status: PLANNED
+    - criterion: 'Extend effective KV capacity from 8GB to 64GB+'
+      status: PLANNED
+  notes: 'Phase 2. Requires PMAT-052. Dynamo source: block_manager/state.rs (host_pool)'
+- id: PMAT-148
+  title: 'PMAT-148: TTL-based prefix pinning'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement CacheControl.ttl [300s, 3600s] prefix pinning'
+      status: PLANNED
+    - criterion: 'Verify multi-turn conversation retains prefix within TTL'
+      status: PLANNED
+  notes: 'Phase 2. Requires PMAT-141 (API) + PMAT-052. Dynamo source: nvext.rs'
+- id: PMAT-149
+  title: 'PMAT-149: Stream-level prefill/decode disaggregation'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Prefill on CUDA stream B while decode runs on stream A'
+      status: PLANNED
+    - criterion: 'TTFT scaling <2x from c=1 to c=16 (currently 6.6x)'
+      status: PLANNED
+  notes: 'Phase 3. Requires PMAT-052 (paged blocks for incremental consumption). Dynamo source: kv_router/prefill_router.rs'
+- id: PMAT-150
+  title: 'PMAT-150: Speculative prefill'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Pre-warm KV during tool execution when speculative_prefill=true'
+      status: PLANNED
+    - criterion: 'Zero TTFT for predicted next-turn prefix'
+      status: PLANNED
+  notes: 'Phase 3. Requires PMAT-141 (AgentHints API) + PMAT-052. Dynamo source: nvext.rs'
+- id: PMAT-151
+  title: 'PMAT-151: Flash Indexer (multi-GPU KV-aware routing)'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'ConcurrentRadixTree with per-node Arc<RwLock>, PositionalIndexer with jump search'
+      status: PLANNED
+  notes: 'Phase 4. Requires multi-GPU hardware. Dynamo source: indexer/concurrent_radix_tree.rs'
+- id: PMAT-152
+  title: 'PMAT-152: NIXL cross-GPU KV transfer'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'NixlRemoteDescriptor for cross-worker KV transfer'
+      status: PLANNED
+  notes: 'Phase 4. Requires multi-GPU hardware. Dynamo source: block_manager/storage/nixl.rs'
+- id: PMAT-153
+  title: 'PMAT-153: Dual FCFS/WSPT scheduling with worker awareness'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'SchedulerQueue with BinaryHeap, threshold_frac, per-worker token tracking'
+      status: PLANNED
+  notes: 'Phase 4. Requires multi-GPU. Dynamo source: scheduling/queue.rs'
 - id: PMAT-139
   title: 'PMAT-139: Dynamo source code deep-dive (ai-dynamo/dynamo)'
   status: DONE

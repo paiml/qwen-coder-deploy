@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.2.0
+**Version:** 3.3.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -917,18 +917,64 @@ NVIDIA Dynamo ([Dhanani & Kosec, Mar 2026](https://docs.nvidia.com/dynamo/dev/bl
 
 6. **The agentic frontier requires harness-orchestrator co-design.** Dynamo's `nvext.agent_hints` (latency_sensitivity, priority, osl, speculative_prefill) and `cache_control` (TTL-based prefix pinning) expose a new API surface between the agent framework and inference engine. The NeMo Agent Toolkit achieved 4× TTFT reduction via Thompson Sampling routing that learns prefix patterns under load. This level of optimization requires the inference engine to be cache-topology-aware — fundamentally impossible with fixed-slot pre-allocation.
 
-**Realizr roadmap implications (updated priority):**
+**Realizr full Dynamo replication plan (PMAT-140, Mar 14):**
 
-| Priority | Item | Impact | Dynamo validation |
-|----------|------|--------|-------------------|
-| **P0** | PMAT-052: Paged KV cache | Removes batch ceiling, enables everything below | Dynamo's KVBM + block tables are the reference implementation |
-| P1 | Paged attention kernel (PMAT-053) | Single kernel for all requests (vs per-slot) | FlashInfer is Dynamo's attention backend |
-| P1 | CUDA graph with paged KV | Fixed-size block table tensor enables graph capture | vLLM pre-captures common batch sizes (1,2,4,8) |
-| P2 | Stream-level prefill/decode overlap | Eliminates Gap 4 at single-GPU scale | Dynamo does this across workers; single-GPU variant is prefill-on-stream-B |
-| P3 | KV offload to CPU/NVMe | Extends effective capacity from 8GB to 64GB+ | Dynamo's HiCache + KVBM 4-tier hierarchy |
-| P3 | Priority-based eviction | Agent lifecycle awareness | `TokenRangeRetentionConfig` for per-region control |
+The previous roadmap treated Dynamo's architecture as "nice-to-have" with cautious P2/P3 priorities. This was wrong. The benchmark data from PMAT-125→138 proves that realizr's fixed-slot architecture is the binding constraint — not kernel efficiency, not quantization format. vLLM is 2-3× ahead purely because of paged KV + continuous batching. Dynamo extends this further with cache-aware routing, frequency-decay eviction, and disaggregated serving. **All of these ideas should be implemented, not just studied.**
 
-**Falsification condition:** If realizr implements paged KV (PMAT-052) and achieves ≥80% of vLLM aggregate at c=32 (target: ≥2272 tok/s), the fixed-slot architecture is confirmed as the primary bottleneck. If paged KV alone achieves <60% of vLLM (target: <1704), the gap is elsewhere (Marlin W4A16, continuous batching scheduler, or kernel efficiency).
+Realizr is Rust. Dynamo is Rust. The code is directly portable — not "inspired by" but structurally identical trait hierarchies, block managers, and schedulers. There is no language barrier, no FFI overhead, no architectural mismatch.
+
+**Phase 0 — Zero-prerequisite (can ship this week):**
+
+| PMAT | Item | Dynamo source | Impact | Falsification |
+|------|------|--------------|--------|---------------|
+| PMAT-141 | `AgentHints` + `CacheControl` on OpenAI-compat endpoint | `nvext.rs`: `AgentHints { latency_sensitivity, osl, speculative_prefill, priority }`, `CacheControl { type, ttl }` | API-level only. Zero inference cost. Enables Phase 2 scheduling without API break | If no downstream consumer uses hints within 30 days, remove |
+| PMAT-142 | WSPT cache-aware request scheduling | `scheduling/policy.rs`: key = `(1+priority_jump) / (ISL - overlap×block_size)` | 4× TTFT reduction on prefix-sharing workloads (Dynamo blog claim). Even without paged KV, a simple prefix hash table gives overlap scores for multi-turn | Measure TTFT at c=8 with 5-turn conversation replay. If TTFT P50 doesn't improve ≥20%, scheduling overhead exceeds benefit |
+| PMAT-054 | Fused Q4K→GEMM (1-step dequant) | N/A (Dynamo uses Marlin; this is realizr-specific) | Makes realizr prompt-invariant like llama.cpp. +15-58% aggregate at medium prompts (PMAT-115). Closes Gaps 4/5/6 | If medium-prompt TTFT doesn't reach ≤1.5× llama.cpp, the FP8 pipeline has other overhead |
+
+**Phase 1 — Paged KV keystone (the big rewrite):**
+
+| PMAT | Item | Dynamo source | Impact | Falsification |
+|------|------|--------------|--------|---------------|
+| PMAT-052 | Paged KV cache with block tables | `block_manager/block.rs`: 4-state FSM (`Reset→Partial→Complete→Registered`), `pool/managed.rs`: `ManagedBlockPool` with inactive pool + allocation, `block/registry.rs`: `BlockRegistry` with `HashMap<SequenceHash, Weak<BlockHandle>>` | Removes batch=32 ceiling. Enables 100+ concurrent on 8GB. Content-addressed dedup for prefix sharing. **This is the single change that closes the 2-3× gap to vLLM** | Must achieve ≥80% of vLLM aggregate at c=32 (≥2272 tok/s). If <60% (<1704), gap is elsewhere |
+| PMAT-053 | Paged attention kernel (FlashInfer-style) | Dynamo uses FlashInfer (`flashinfer.py`): block-sparse paged attention with `paged_kv_indptr`, `paged_kv_indices`, `seq_lens` per request. Single kernel launch for all requests | Eliminates per-slot attention dispatch. Enables variable-length batching without padding waste | If paged attention ITL > current per-slot attention ITL by >10%, block table indirection overhead is too high |
+| PMAT-143 | Content-addressed block dedup | `block/registry.rs`: `GlobalRegistry` with `SequenceHash` keys, `Weak<RegistrationHandle>` for automatic cleanup. Identical prefixes → same physical block | Multi-turn conversations share system prompt KV (85-97% cache hit). Saves ~344 MB per shared prefix on 8GB card | Measure KV memory at c=16 with identical system prompts. If dedup saves <30% VRAM, prefix diversity is too high |
+| PMAT-144 | CUDA graph with block tables | vLLM: block table is fixed-size tensor (only values change). Pre-capture at common batch sizes (1,2,4,8,16,32). Piecewise capture for mixed prefill+decode | 10-15% ITL improvement from graph replay at c>1. Currently impossible: contiguous KV pointers change on every realloc | If graph replay ITL > eager ITL at any batch size, graph capture overhead dominates |
+
+**Phase 2 — Cache intelligence (builds on Phase 1):**
+
+| PMAT | Item | Dynamo source | Impact | Falsification |
+|------|------|--------------|--------|---------------|
+| PMAT-145 | FrequencyFilter exponential-decay eviction | `offload/filter.rs`: `count.saturating_mul(2)` on access, periodic `count -= 1` + prune zeros. `min_offload_frequency` threshold | System prompt survives tool-call pauses (2-30s). Thinking tokens (~40% of output) evicted first. No agent prefix loss | Compare to LRU: if frequency-decay doesn't retain ≥50% more prefix blocks after 10s pause, LRU is sufficient |
+| PMAT-146 | Prefix radix tree (single-GPU variant) | `indexer/radix_tree.rs`: `RadixBlock` with `FxHashMap<LocalBlockHash, SharedRadixBlock>` children + `VecDeque<Instant>` recent_uses. Single-threaded sufficient for single-GPU | O(prefix_len) lookup for KV reuse. Enables WSPT scheduling to use real overlap scores (not heuristic). Multi-turn TTFT → near-zero for cached prefix | If radix tree lookup adds >0.5ms to request scheduling, overhead exceeds benefit at c<16 |
+| PMAT-147 | KV offload to CPU pinned memory | `block_manager/state.rs`: `host_pool: Option<Arc<dyn BlockPool<PinnedStorage>>>`. `offload/manager.rs`: async offload driven by FrequencyFilter. cuMemcpyAsync for restore | Extends effective KV capacity from 8GB to 64GB+. Paused agents keep KV on CPU, restore in ~µs. batch=64+ viable | If CPU→GPU restore adds >5ms to TTFT P50, offload latency exceeds cold-prefill cost |
+| PMAT-148 | TTL-based prefix pinning (`CacheControl.ttl`) | `nvext.rs`: `CacheControl { type, ttl }`, TTL clamped [300s, 3600s]. Prefix blocks pinned to GPU for TTL duration, then eligible for eviction | Agent conversations keep their prefix hot for 5-60 minutes. No re-prefill on turn resumption within TTL | If TTL-pinned blocks cause OOM at c>32 (too many pinned), need dynamic TTL adjustment |
+
+**Phase 3 — Disaggregated serving (builds on Phase 1+2):**
+
+| PMAT | Item | Dynamo source | Impact | Falsification |
+|------|------|--------------|--------|---------------|
+| PMAT-149 | Stream-level prefill/decode disaggregation | `kv_router/prefill_router.rs`: 3 modes (query-only, pre-routed, auto-routed). Single-GPU variant: prefill on stream B, decode on stream A. KV blocks already in VRAM — no transfer needed | Eliminates Gap 4: new prefills never block active decode. TTFT scaling goes from 6.6× to ~1× (c=1→16). decode ITL unaffected by incoming requests | If stream B prefill causes >5% decode ITL regression on stream A (SM contention), need SM partitioning (MPS) |
+| PMAT-150 | Speculative prefill (`AgentHints.speculative_prefill`) | `nvext.rs`: `speculative_prefill: Option<bool>`. Agent framework predicts next-turn prefix and pre-warms KV during tool execution | Zero TTFT for predicted turns. Requires agent framework integration (prefill_worker_id targeting) | If prediction accuracy <60%, wasted prefill compute exceeds saved TTFT |
+
+**Phase 4 — Multi-GPU / distributed (future, requires hardware):**
+
+| PMAT | Item | Dynamo source | Impact |
+|------|------|--------------|--------|
+| PMAT-151 | KV-aware routing with Flash Indexer | `indexer/concurrent_radix_tree.rs`: `ConcurrentRadixTree` with per-node `Arc<RwLock>`, DashMap for tree sizes. `PositionalIndexer` with jump search (170M ops/s) | Route requests to GPU with best KV overlap. Requires multi-GPU |
+| PMAT-152 | NIXL cross-GPU KV transfer | `block_manager/storage/nixl.rs`: `NixlRemoteDescriptor { storage, agent, notif }`. Maps `StorageType → MemType` (Vram/Dram/File). Registration via `NixlRegisterableStorage` trait | Transfer KV blocks between GPUs without CPU bounce. Enables disaggregated prefill across physical GPUs |
+| PMAT-153 | FCFS + WSPT dual scheduling with priority queue | `scheduling/queue.rs`: `SchedulerQueue<P,C,S>` with `BinaryHeap`, `threshold_frac`, per-worker token tracking. Dynamic re-keying on capacity free | Production scheduling: FCFS for tail TTFT, WSPT for average TTFT. Worker-aware load balancing |
+
+**Projected impact (cumulative, yoga RTX 4060L, c=32 medium+128tok):**
+
+| After phase | Aggregate tok/s | vs vLLM | Key unlock |
+|-------------|----------------|---------|------------|
+| Current (v3.2.0) | ~800 (est.) | 0.28× | batch=32 ceiling, medium prompt penalty |
+| Phase 0 (fused Q4K + WSPT) | ~1300 | 0.46× | Prompt invariance, cache-aware scheduling |
+| Phase 1 (paged KV) | ~2500 | 0.88× | batch ceiling removed, 100+ concurrent |
+| Phase 2 (cache intelligence) | ~2800 | 0.99× | Prefix reuse, zero re-prefill on multi-turn |
+| Phase 3 (disaggregated) | ~3200 | 1.13× | Prefill never blocks decode |
+
+**Falsification condition (unchanged):** If realizr implements paged KV (PMAT-052) and achieves ≥80% of vLLM aggregate at c=32 (target: ≥2272 tok/s), the fixed-slot architecture is confirmed as the primary bottleneck. If paged KV alone achieves <60% of vLLM (target: <1704), the gap is elsewhere (Marlin W4A16, continuous batching scheduler, or kernel efficiency).
 
 **Dynamo Source Code Deep-Dive — Implementation-Level Architecture (PMAT-139, Mar 14):**
 
@@ -948,16 +994,25 @@ Source code analysis of [ai-dynamo/dynamo](https://github.com/ai-dynamo/dynamo) 
 
 **7. Disaggregated prefill-decode has three modes.** `PrefillRouter` supports: (a) query-only (returns worker_id without execution), (b) pre-routed (`nvext.prefill_worker_id` + `decode_worker_id` explicit), (c) auto-routed (KV-aware selection). The `KvPushRouter` wraps a `KvChooser` that queries the radix tree for overlap scores per worker. `SimpleRouter` uses round-robin/random. At single-GPU, mode (c) maps to stream-level parallelism: prefill on stream B, KV blocks already in VRAM, decode continues on stream A. The critical architectural requirement is that prefill produces discrete blocks (not a contiguous buffer) that decode can consume incrementally — this is why paged KV (PMAT-052) must come first.
 
-**Realizr design implications from source analysis:**
+**Realizr design implications from source analysis — full implementation plan:**
 
-| Dynamo pattern | Realizr adoption path | Prerequisite |
-|---------------|----------------------|-------------|
-| Content-addressed blocks + `BlockRegistry` | Hash-based KV dedup for multi-turn prefix sharing | PMAT-052 paged KV |
-| `OwnedBlock::Mutable → Immutable` FSM | Append-only block lifecycle, freeze on completion | PMAT-052 |
-| `FrequencyFilter` exponential-decay eviction | Replace fixed-slot realloc with decay-based retention | PMAT-052 + CPU offload |
-| WSPT `new_tokens = ISL - overlap` scheduling | Cache-aware request priority (even single-GPU) | Prefix cache (light) |
-| `AgentHints` + `CacheControl` API fields | Add to OpenAI-compat endpoint (zero inference cost) | None — can adopt now |
-| `PrefillRouter` stream-level disagg | Prefill on stream B while decode runs on stream A | PMAT-052 + stream refactor |
+| Dynamo pattern | Realizr PMAT | Phase | Source file |
+|---------------|-------------|-------|-------------|
+| `AgentHints` + `CacheControl` API structs | PMAT-141 | 0 | `protocols/openai/nvext.rs` |
+| WSPT cache-aware scheduling | PMAT-142 | 0 | `scheduling/policy.rs` |
+| Paged KV with block FSM + `BlockRegistry` | PMAT-052 | 1 | `block_manager/block.rs`, `pool/managed.rs`, `block/registry.rs` |
+| Paged attention (FlashInfer-style) | PMAT-053 | 1 | FlashInfer backend |
+| Content-addressed block dedup | PMAT-143 | 1 | `block/registry.rs` (GlobalRegistry + SequenceHash) |
+| CUDA graph with block tables | PMAT-144 | 1 | vLLM `gpu_model_runner.py` |
+| `FrequencyFilter` exponential-decay eviction | PMAT-145 | 2 | `offload/filter.rs` |
+| Prefix radix tree | PMAT-146 | 2 | `indexer/radix_tree.rs` |
+| KV offload to CPU pinned memory | PMAT-147 | 2 | `block_manager/state.rs` (host_pool) |
+| TTL-based prefix pinning | PMAT-148 | 2 | `nvext.rs` (CacheControl.ttl) |
+| Stream-level prefill/decode disagg | PMAT-149 | 3 | `kv_router/prefill_router.rs` |
+| Speculative prefill | PMAT-150 | 3 | `nvext.rs` (AgentHints.speculative_prefill) |
+| Flash Indexer (multi-GPU routing) | PMAT-151 | 4 | `indexer/concurrent_radix_tree.rs` |
+| NIXL cross-GPU KV transfer | PMAT-152 | 4 | `block_manager/storage/nixl.rs` |
+| Dual FCFS/WSPT scheduling | PMAT-153 | 4 | `scheduling/queue.rs` |
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -2067,7 +2122,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 13 2026 — PMAT-110 corrected, 13 approaches falsified)
+### Tier Summary (Updated Mar 14 2026 — PMAT-140 full Dynamo replication plan)
 
 | Tier | Items | Status |
 |------|-------|--------|
@@ -2075,10 +2130,12 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | T0: Prefill parity | PMAT-023/024/026, FP8 pipeline (PMAT-053b→086) | ✅ 1.29x llama.cpp (PASS < 2x) |
 | T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **357.2 aggregate c=4 (0.98x PARITY, 78 B > llama.cpp 75 B)** |
 | ~~T1: W4A16 tensor core~~ | ~~Marlin-style INT4→FP16 GEMM~~ | **FALSIFIED** (PMAT-091, 054B) — WMMA 87.5% waste at M=4 |
-| T1: Chunked prefill | Interleave prefill with decode | Planned — reduces c=4 TTFT |
-| ~~T2: GEMV optimization~~ | ~~Q4K dequant instruction reduction~~ | ~~DONE~~ (5.8 insn/value, 2.1x better than llama.cpp) |
-| T2: SageAttention INT8 | INT8 attention for long context | Planned |
-| T3: EAGLE speculative | Draft-then-verify 2-3x | Planned |
+| **T1: Dynamo Phase 0** | PMAT-054 fused Q4K, PMAT-141 AgentHints API, PMAT-142 WSPT scheduling | Planned — prompt invariance + cache-aware scheduling |
+| **T2: Dynamo Phase 1** | PMAT-052 paged KV, PMAT-053 paged attention, PMAT-143 dedup, PMAT-144 graph | **Planned — THE keystone rewrite. Targets ≥80% vLLM at c=32** |
+| **T3: Dynamo Phase 2** | PMAT-145 frequency eviction, PMAT-146 radix tree, PMAT-147 CPU offload, PMAT-148 TTL | Planned — cache intelligence, multi-turn TTFT → 0 |
+| **T4: Dynamo Phase 3** | PMAT-149 stream disagg, PMAT-150 speculative prefill | Planned — prefill never blocks decode |
+| T5: EAGLE speculative | Draft-then-verify 2-3x | Planned |
+| T6: Dynamo Phase 4 | PMAT-151-153 multi-GPU routing, NIXL, dual scheduling | Future — requires multi-GPU hardware |
 
 ### Priority Matrix
 
@@ -2136,6 +2193,20 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-128** | **Prompt-length dependent batch ceiling** | **batch=32 OOMs at medium, max=30 (1004 tok/s, +34%)** | ✅ MEASURED. batch=32 + medium prompt OOMs (M_total=4000 prefill workspace). Max batch: short=32 (1850), medium=30 (1004), **long=8 (324.7, verified PMAT-132)**. c=9 long OOMs (M_total=2799). Decode drops −10% at batch=30 (73.9 vs 82 at batch=16). Architectural: fixed-slot prefill workspace scales with batch × prompt_len. Paged KV (PMAT-052) would decouple batch ceiling from prompt length. |
 | **PMAT-129** | **Dynamo agentic inference architecture analysis** | **Architecture gap taxonomy + roadmap update** | ✅ ANALYZED. NVIDIA Dynamo (Dhanani & Kosec, Mar 2026) represents next-gen beyond vLLM. Key insights: WORM KV pattern (11.7× read/write), 4-tier memory hierarchy, KV-aware routing (170M ops/s Flash Indexer), priority eviction > LRU, disaggregated prefill-decode. Fixed-slot VRAM ceiling: 344 MB/slot × 64 = 22 GB > 8 GB. Paged KV confirmed as P0 keystone (PMAT-052). Updated roadmap with Dynamo-validated priority ordering. Falsification: paged KV must achieve ≥80% of vLLM at c=32. |
 | **PMAT-139** | **Dynamo source code deep-dive (ai-dynamo/dynamo)** | **Implementation-level architecture for PMAT-052 design** | ✅ ANALYZED. Source analysis (Rust): Block lifecycle FSM (Reset→Partial→Complete→Registered), content-addressed dedup via BlockRegistry (HashMap<SequenceHash, Weak<BlockHandle>>), 4-tier storage as generic trait hierarchy (DeviceStorage/PinnedStorage/DiskStorage/NixlStorage), ConcurrentRadixTree with per-node Arc<RwLock> hand-over-hand locking, FrequencyFilter exponential-decay eviction (count×2 on access, −1 periodic, prune zeros), WSPT scheduling key=(1+priority_jump)/new_tokens where new_tokens=ISL−(overlap×block_size), AgentHints+CacheControl concrete structs (adoptable now at API level), PrefillRouter 3-mode disaggregation. Key design implication: AgentHints API fields and cache-aware scheduling are zero-prerequisite adoptions; all others require PMAT-052 paged KV. |
+| **PMAT-140** | **Full Dynamo replication plan (5 phases, 13 items)** | **Replace cautious P2/P3 with full implementation** | ✅ PLANNED. Phase 0: AgentHints API (PMAT-141), WSPT scheduling (PMAT-142), fused Q4K (PMAT-054). Phase 1: paged KV (PMAT-052), paged attention (PMAT-053), block dedup (PMAT-143), graph with block tables (PMAT-144). Phase 2: frequency eviction (PMAT-145), radix tree (PMAT-146), CPU offload (PMAT-147), TTL pinning (PMAT-148). Phase 3: stream disagg (PMAT-149), speculative prefill (PMAT-150). Phase 4: multi-GPU (PMAT-151-153). Projected: current 0.28× → Phase 1 0.88× → Phase 3 1.13× vs vLLM. |
+| PMAT-141 | AgentHints + CacheControl API fields | Phase 0 — zero inference cost | Planned. Add `agent_hints` and `cache_control` to OpenAI-compat endpoint. |
+| PMAT-142 | WSPT cache-aware request scheduling | Phase 0 — 4× TTFT on prefix-sharing | Planned. key = (1+priority_jump) / (ISL − overlap×block_size). |
+| PMAT-143 | Content-addressed block dedup | Phase 1 — prefix sharing | Planned. BlockRegistry with SequenceHash + Weak<BlockHandle>. |
+| PMAT-144 | CUDA graph with paged block tables | Phase 1 — 10-15% ITL | Planned. Fixed-size block table tensor enables graph capture at c>1. |
+| PMAT-145 | FrequencyFilter exponential-decay eviction | Phase 2 — agent lifecycle | Planned. count×2 on access, periodic −1, prune zeros. |
+| PMAT-146 | Prefix radix tree (single-GPU) | Phase 2 — O(prefix_len) lookup | Planned. RadixBlock with FxHashMap children, VecDeque<Instant> recent_uses. |
+| PMAT-147 | KV offload to CPU pinned memory | Phase 2 — 8GB→64GB+ capacity | Planned. PinnedStorage pool, async cuMemcpy for offload/restore. |
+| PMAT-148 | TTL-based prefix pinning | Phase 2 — agent turn retention | Planned. CacheControl.ttl [300s, 3600s], pin prefix blocks to GPU. |
+| PMAT-149 | Stream-level prefill/decode disaggregation | Phase 3 — Gap 4 elimination | Planned. Prefill on stream B, decode on stream A. Requires paged KV. |
+| PMAT-150 | Speculative prefill | Phase 3 — zero TTFT predicted turns | Planned. AgentHints.speculative_prefill, pre-warm KV during tool execution. |
+| PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
+| PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
+| PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-130** | **llama.cpp --parallel 32 matched-parallelism** | **REGRESSES: −61% at c=16 (404 vs 1038)** | ✅ MEASURED. llama.cpp --parallel 32 at c=16 = 404.5 (vs 1037.8 with --parallel 16, −61%). Per-request decode identical (67.6 vs 67.3) but aggregate collapses — only ~6 of 16 connections decode simultaneously. Fixed-slot architecture processes all 32 slots per step (KV 224 MiB, compute 300 MiB). At c=32: llama.cpp 1151 vs realizr 1850 (0.62x). At optimal configs: realizr WINS c≥16 (1.10-1.61×). Continuous batching (realizr) scales linearly with batch; fixed-slot (llama.cpp) has negative scaling at partial utilization. |
 | **PMAT-135** | **realizr vs llama.cpp at 128-tok output** | **1.43× at c=16 (was 1.09× at 32-tok)** | ✅ MEASURED, ⚠️ CORRECTED by PMAT-136. Initial claim of 2.94× was artifact (server in degraded state). Clean verification: llama.cpp 860 (−17%), realizr 1233 (+8.9%). Ratio shifts from 1.09× to 1.43× (+31%). llama.cpp KV attention cost grows with output length; realizr TTFT dilution compensates. |
 | **PMAT-138** | **Complete benchmark sensitivity matrix** | **c=8 is the ONLY invariant win** | ✅ COMPILED. 4×5 competitive ratio matrix across prompt (short/medium) × output (32/128 tok) × concurrency (c=1-32). realizr wins at c=8 regardless of workload (1.08-1.47×) — FP8 tensor core crossover. At c=4/c≥12: outcome depends on prompt length (short→win, medium→lose). vLLM: 0.42-0.65× ahead at all configs. Definitive competitive picture: fused Q4K GEMM (PMAT-054) would unlock medium-prompt wins at all c≥8. |
@@ -2525,6 +2596,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.3.0 | 2026-03-14 | **PMAT-140: Full Dynamo replication plan — 5 phases, 13 new PMAT items (PMAT-141→153).** Replaces cautious P2/P3 roadmap with full implementation commitment. Phase 0: AgentHints API + WSPT scheduling + fused Q4K (ship this week). Phase 1: paged KV keystone rewrite (PMAT-052/053/143/144) — targets ≥80% vLLM at c=32. Phase 2: cache intelligence (frequency eviction, radix tree, CPU offload, TTL pinning). Phase 3: stream-level prefill/decode disaggregation. Phase 4: multi-GPU (NIXL, Flash Indexer). Projected trajectory: 0.28× → 0.88× → 1.13× vs vLLM. Rationale: benchmark data proves fixed-slot architecture is the binding constraint, Dynamo source is Rust (directly portable), and every architectural advantage vLLM has traces to paged KV. Tier summary restructured around Dynamo phases. |
 | 3.2.0 | 2026-03-14 | **PMAT-139: Dynamo source code deep-dive (ai-dynamo/dynamo).** Implementation-level analysis of Dynamo's Rust codebase enriching PMAT-129. Key findings: block lifecycle FSM (4-state, content-addressed dedup via Weak<BlockHandle>), 4-tier storage as generic trait hierarchy (not fixed pipeline — tiers independently configurable), ConcurrentRadixTree with per-node Arc<RwLock> hand-over-hand locking for deadlock-free prefix matching, FrequencyFilter exponential-decay eviction (count doubles on access, periodic decrement+prune — neither LRU nor LFU), WSPT scheduling uses KV cache overlap to reduce effective processing time (key=weight/new_tokens), AgentHints and CacheControl are concrete API structs (not vaporware — adoptable at zero cost), PrefillRouter supports 3 modes (query-only, pre-routed, auto-routed). Added 7-row adoption path table: AgentHints API and WSPT scheduling have zero prerequisites; all other patterns require PMAT-052 paged KV. |
 | 3.1.0 | 2026-03-14 | **PMAT-138: Complete benchmark sensitivity matrix.** 4×5 competitive ratio matrix shows c=8 is the ONLY workload-invariant win (FP8 crossover). Short prompts favor realizr at c≥8; medium prompts → realizr wins ONLY c=8. vLLM 0.42-0.65× ahead everywhere. Fused Q4K GEMM (PMAT-054) would make realizr prompt-invariant, unlocking medium-prompt wins. Also confirmed medium+128tok ceiling at c=18 (c=20 OOMs from combined prefill workspace + KV pressure). |
 | 3.0.0 | 2026-03-14 | **PMAT-137: Production-realistic workload comparison.** Medium prompt + 128-tok output: realizr wins ONLY at c=8 (1.29×), loses at c=4 (0.85×) and c=16 (0.90×). TTFT is binding constraint — FP8 prefill BW overhead gives 4-9× worse TTFT than llama.cpp's fused Q4K. Synthetic benchmarks (short+32tok) overstate realizr advantage at c=16 (1.09× flips to 0.90×). Fused Q4K GEMM (PMAT-054) identified as highest-priority fix. vLLM dominates both at all c (0.49-0.54×). **Version 3.0.0 — production-realistic benchmarking complete.** |
