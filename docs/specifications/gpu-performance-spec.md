@@ -54,7 +54,9 @@ This specification consolidates all GPU decoder throughput optimization work for
 **realizr loses at ALL concurrency levels under production conditions.** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits:
 1. **TTFT penalty** (FP8 2-step prefill, 4-9× slower than llama.cpp) → fused Q4K GEMM (PMAT-054)
 2. **Output heterogeneity** (contiguous KV wastes 31-42% on variable-length) → paged KV (PMAT-052)
-3. **Architectural ceiling** (fixed-slot batch-and-step) → full Dynamo replication (Phases 0-3)
+3. **Scaling efficiency** (25-37% vs vLLM's 75-94%, PMAT-163) → paged KV enables per-token allocation
+
+**The gap is NOT kernel speed — realizr is 15% faster than vLLM at c=1** (146 vs 127 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~3.
 
 **Historical short-prompt results (PMAT-109/113, short prompt + fixed 32 tok) — favorable conditions for realizr:**
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms. TTFT P99 14.2ms (bimodal tail eliminated by PMAT-109)
@@ -65,7 +67,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **High-concurrency (PMAT-127):** batch=32 unlocks 1850 tok/s at c=32. Gap to vLLM: 0.40×→0.65×. batch=64 OOMs.
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
-**Roadmap:** Phase 0 (fused Q4K GEMM + WSPT scheduling) → Phase 1 (paged KV keystone) → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). Target: ≥80% vLLM at c=32 after Phase 1.
+**Roadmap:** Phase 0 (fused Q4K GEMM + WSPT scheduling, +8-11 pts) → Phase 1 (paged KV keystone, +7-8 pts, vLLM-class scaling) → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). Target: ≥80% vLLM at c=32 after Phase 1. **Phase 1 is the high-leverage change** — it fixes both output heterogeneity AND scaling efficiency simultaneously.
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
