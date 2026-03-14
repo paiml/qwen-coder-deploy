@@ -1972,3 +1972,30 @@ roadmap:
     Decode rates unchanged across output lengths.
     realizr/vLLM gap persists: 0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok.
     vLLM c=16 128-tok: 2049 tok/s (new high watermark).
+- id: PMAT-123
+  github_issue: null
+  item_type: task
+  title: 'PMAT-123: vLLM output saturation curve (32-512 output tokens at c=16)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=16 medium 256-tok benchmarked — DONE (2065.5 agg, decode 132.0)'
+  - 'AC2: vLLM c=16 medium 512-tok benchmarked — DONE (2013.0 agg, decode 127.5)'
+  - 'AC3: Saturation point identified — DONE (peaks at 256 tok, -2.5% at 512)'
+  - 'AC4: KV cache attention BW impact quantified — DONE (-4.8% decode 32->512)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - vllm
+  - output-length
+  - kv-cache
+  notes: |
+    Aggregate peaks at 256 tok (2065.5), then mild decline at 512 (-2.5%).
+    ITL stable +5.4% over 16x output increase — PagedAttention efficient.
+    No cliff for practical code gen workloads (100-500 output tokens).
+    Decode rate: 134->132->127.5 = -4.8% from KV attention BW growth.
