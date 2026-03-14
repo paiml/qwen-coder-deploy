@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.89.0
+**Version:** 2.90.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -714,6 +714,21 @@ vLLM aggregate grows monotonically with output length — TTFT dilution effect g
 **Quality tradeoff at high c:** realizr maintains constant ITL (11.7ms) and 0% errors for all active requests — excess requests simply queue. vLLM packs all requests into the batch but ITL degrades from 7.9→26.4ms at c=128. At c≥64 vLLM ITL exceeds realizr ITL — the fairness inversion point. llama.cpp ITL is 15.1-15.6ms (stable but 30% worse than realizr) with 0.7-1.2% errors.
 
 **Architectural root cause:** realizr and llama.cpp are fixed-slot batch systems (max_slots=16, --parallel 16). Beyond that, requests queue at the HTTP layer. vLLM dynamically expands its batch via PagedAttention — each request gets a KV block allocation, not a fixed slot. This is the fundamental advantage of paged KV cache (PMAT-052, not yet implemented in realizr).
+
+**PMAT-127: CUDA_MAX_BATCH scaling (batch=16 vs batch=32, short prompt, Mar 14):**
+
+| c | batch=16 agg | batch=32 agg | Gain | batch=32 decode | batch=32 ITL |
+|---|-------------|-------------|------|----------------|-------------|
+| 4 | 357.2 | 355.9 | — | 95.8 | 10.4ms |
+| 16 | 1,140.2 | 1,131.7 | — | 85.7 | 11.7ms |
+| 32 | 1,142 (cap) | **1,849.7** | **+62%** | 81.0 | 12.3ms |
+| 64 | 1,142 (cap) | 1,853.3 (cap) | +62% | 81.0 | 12.3ms |
+
+**CUDA_MAX_BATCH=32 unlocks a second plateau at 1850 tok/s** (+62% over batch=16's 1142). batch=64 OOMs during warmup (8GB VRAM insufficient for 64 KV slots). Per-request decode drops 85.7→81.0 tok/s (−5.5%) and ITL rises 11.7→12.3ms (+5.1%) at M=32 — acceptable tradeoff. At c=64 with batch=32, aggregate caps at 1853 (queue delay only).
+
+**Updated gap to vLLM with batch=32:** realizr 1850 vs vLLM 2840 at c=32 (**0.65x**, up from 0.40x with batch=16). At c=64: 1853 vs 3347 (0.55x, up from 0.34x). The batch size increase halves the gap — additional gains require paged KV for dynamic batch sizing beyond the VRAM limit.
+
+**Recommendation:** Update `forjar-yoga-realizr.yaml` from `CUDA_MAX_BATCH=16` to `CUDA_MAX_BATCH=32` for production at c>16. No config change needed for c≤16 (identical performance).
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -1888,6 +1903,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-124** | **vLLM high-concurrency scaling (c=1→128)** | **Asymptote ~4000 tok/s, sweet spot c=16-32** | ✅ MEASURED. c=32: 2840 tok/s (57.8% eff), c=64: 3347 (34.1%), c=128: 3849 (19.6%). Decode collapses: 154→112→59→38 tok/s. ITL: 6.5→8.9→16.9→26.4ms. Production sweet spot c=16-32 where decode>100 and ITL<10ms. Beyond c=32 system is oversubscribed. |
 | **PMAT-125** | **realizr high-concurrency scaling (c=16→128)** | **Plateau at 1142 tok/s (batch=16 ceiling)** | ✅ MEASURED. Aggregate constant 1140-1143 at c=16-128. ITL constant 11.7ms, 0% errors — excess requests queue, active batch quality preserved. TTFT scales linearly with queue depth (87→3223ms). Decode constant 85.7 tok/s/req. CUDA_MAX_BATCH=16 is the hard ceiling — need paged KV (PMAT-052) to scale further. |
 | **PMAT-126** | **llama.cpp high-concurrency scaling (c=16→128)** | **Plateau at ~1020 tok/s (parallel=16 ceiling)** | ✅ MEASURED. Aggregate 1038→1003 at c=16→128 (slight decline). ITL stable 14.9-15.6ms. Errors 0.7-1.2% (503 when slots full). TTFT 31.7→3586ms. --parallel 16 is the hard ceiling. Both realizr and llama.cpp are fixed-slot systems — vLLM's paged KV scales 3.4× further to 3849 tok/s. |
+| **PMAT-127** | **CUDA_MAX_BATCH scaling (16→32→64)** | **batch=32: +62% aggregate (1142→1850)** | ✅ MEASURED. batch=32 unlocks second plateau at 1850 tok/s. Decode drops 85.7→81.0 (−5.5%), ITL 11.7→12.3ms (+5.1%). batch=64 OOMs during warmup (8GB VRAM, 64 KV slots). Gap to vLLM narrows: 0.40x→0.65x at c=32. Max useful batch=32 on 8GB RTX 4060L. Recommendation: update forjar config from batch=16 to batch=32. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -2265,6 +2281,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.90.0 | 2026-03-14 | **PMAT-127: CUDA_MAX_BATCH scaling analysis.** batch=32 unlocks second plateau at 1850 tok/s (+62% over batch=16's 1142). Per-request decode −5.5% (85.7→81.0), ITL +5.1% (11.7→12.3ms). batch=64 OOMs on 8GB VRAM. Gap to vLLM narrows from 0.40x to 0.65x at c=32. Max useful batch=32 on RTX 4060 Laptop. Recommendation: update forjar config to CUDA_MAX_BATCH=32 for c>16 workloads. |
 | 2.89.0 | 2026-03-14 | **PMAT-125/126: Cross-runtime high-concurrency scaling (c=16→128).** Both realizr and llama.cpp plateau at their batch ceiling (16 slots): realizr 1142 tok/s constant (0% errors, 11.7ms ITL constant), llama.cpp ~1020 tok/s (0.7-1.2% errors, 15ms ITL). vLLM scales 3.4× further to 3849 tok/s via paged KV + continuous batching. Quality tradeoff: realizr preserves per-request quality for active batch (ITL constant), vLLM ITL degrades from 7.9→26.4ms at c=128. Fairness inversion at c≥64: vLLM ITL exceeds realizr. Architectural root cause: fixed-slot batch (realizr/llama.cpp) vs dynamic paged KV (vLLM). |
 | 2.88.0 | 2026-03-14 | **PMAT-124: vLLM high-concurrency scaling curve (c=1→128).** Asymptote ~4000 tok/s on RTX 4060 Laptop. c=32: 2840 tok/s (57.8% efficiency), c=64: 3347 (34.1%), c=128: 3849 (19.6%). Decode collapses from 154→38 tok/s. ITL from 6.5→26.4ms. Production sweet spot c=16-32 where decode>100 tok/s and ITL<10ms. Beyond c=32: system oversubscribed, per-request quality degrades rapidly. |
 | 2.87.0 | 2026-03-14 | **PMAT-123: vLLM output saturation curve.** c=16 medium: aggregate peaks at 2065.5 tok/s (256 output tokens), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% from KV cache attention BW at 16×(102+512)=9824 concurrent tokens. ITL stable (+5.4% over 16× output increase). No cliff — PagedAttention handles KV growth efficiently. For code gen workloads (100-500 output tokens), vLLM delivers consistently 2000-2065 tok/s at c=16. |

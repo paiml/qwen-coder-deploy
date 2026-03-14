@@ -2078,3 +2078,29 @@ roadmap:
     Errors 0.7-1.2% vs realizr 0%.
     TTFT 31.7ms (c=16) → 3586ms (c=128).
     Both fixed-slot systems cap at 16 concurrent decode slots.
+
+- id: PMAT-127
+  title: 'PMAT-127: CUDA_MAX_BATCH scaling analysis (16→32→64)'
+  status: DONE
+  priority: P1
+  spec_version: '2.90.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Test realizr with CUDA_MAX_BATCH=32 at c=4,16,32,64'
+      status: DONE
+      result: 'c≤16 identical. c=32: 1850 tok/s (+62%). c=64: 1853 (capped at 32). Decode 81.0, ITL 12.3ms'
+    - criterion: 'Test CUDA_MAX_BATCH=64'
+      status: DONE
+      result: 'OOM during warmup — 8GB VRAM insufficient for 64 KV slots'
+    - criterion: 'Compare with vLLM at matching concurrency'
+      status: DONE
+      result: 'Gap narrows 0.40x→0.65x at c=32. vLLM still 1.5x ahead (dynamic paging)'
+    - criterion: 'Update forjar config recommendation'
+      status: DONE
+      result: 'Recommend CUDA_MAX_BATCH=32 for production. Config updated'
+  notes: |
+    batch=32 unlocks second plateau at 1850 tok/s (+62% over batch=16).
+    Per-request quality: decode 81.0 (-5.5%), ITL 12.3ms (+5.1%).
+    batch=64 OOMs on 8GB VRAM.
+    Max useful batch=32 on RTX 4060 Laptop (8GB).
+    Updated forjar-yoga-realizr.yaml: CUDA_MAX_BATCH=16→32.
