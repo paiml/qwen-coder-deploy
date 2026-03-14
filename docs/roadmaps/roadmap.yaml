@@ -2225,3 +2225,25 @@ roadmap:
     Verified PMAT-128 estimate was 2x too optimistic for long prompts.
     Max viable batch halves roughly per 3x prompt length increase.
     Paged KV (PMAT-052) would eliminate this dependency entirely.
+- id: PMAT-133
+  title: 'PMAT-133: realizr output length sensitivity (128 vs 32 tokens)'
+  status: DONE
+  priority: P2
+  spec_version: '2.96.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure realizr aggregate at 128-tok output vs 32-tok baseline'
+      status: DONE
+      result: 'c=4: +0.1% (356), c=16: +8.9% (1233), c=32: +21.2% (2242 tok/s — new realizr record)'
+    - criterion: 'Quantify TTFT dilution effect'
+      status: DONE
+      result: '170ms TTFT = 30% of 32-tok request, 9% of 128-tok. Aggregate gain grows with c (more TTFT at high c)'
+    - criterion: 'Update vLLM gap at production-realistic output length'
+      status: DONE
+      result: 'Gap narrows 0.65x→0.69x at c=32. Production typically 100-200 tok output'
+  notes: |
+    TTFT dilution is significant at high concurrency — 21% aggregate
+    improvement at c=32 just from generating more tokens per request.
+    2242 tok/s is the highest realizr aggregate ever measured on RTX 4060L.
+    Production workloads (100-200 tok output) favor realizr more than
+    synthetic 32-tok benchmarks suggest.
