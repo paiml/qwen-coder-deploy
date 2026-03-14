@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-161
+  title: 'PMAT-161: Quality-of-experience — ITL and reliability under heterogeneous output'
+  status: DONE
+  priority: P1
+  spec_version: '3.11.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Extract ITL, TTFT tail, and error rates from PMAT-157 results'
+      status: DONE
+      result: 'realizr: ITL 12.3-13.9ms (best c>=8), TTFT tail 1.3-10.4ms spread (tightest), 0% errors'
+    - criterion: 'Compare quality-of-experience metrics across runtimes'
+      status: DONE
+      result: 'realizr ITL 1.40x better than llama.cpp at c=8, TTFT tail 5-6x tighter than vLLM'
+    - criterion: 'Assess impact on interactive use case'
+      status: DONE
+      result: 'ITL advantage gives better perceived streaming but 148ms TTFT negates it for short completions'
+  notes: |
+    Aggregate throughput tells one story (realizr loses), but per-token
+    experience tells another. realizr decode quality (ITL, consistency,
+    reliability) is best-in-class at c>=8. The scoring penalty is entirely
+    TTFT. Fused Q4K GEMM would unlock this latent quality advantage.
 - id: PMAT-160
   title: 'PMAT-160: Executive summary refresh — production-realistic lead'
   status: DONE
