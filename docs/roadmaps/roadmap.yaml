@@ -2160,6 +2160,41 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-139
+  title: 'PMAT-139: Dynamo source code deep-dive (ai-dynamo/dynamo)'
+  status: DONE
+  priority: P2
+  spec_version: '3.2.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Analyze block lifecycle state machine and dedup mechanism'
+      status: DONE
+      result: '4-state FSM (Reset→Partial→Complete→Registered). Content-addressed dedup via BlockRegistry HashMap<SequenceHash, Weak<BlockHandle>>, auto-unregister on Arc drop'
+    - criterion: 'Characterize 4-tier storage implementation'
+      status: DONE
+      result: 'Generic trait hierarchy (DeviceStorage/PinnedStorage/DiskStorage/NixlStorage), tiers independently configurable via Option<Arc<dyn BlockPool<T>>>. NIXL maps StorageType→MemType for cross-worker transfer'
+    - criterion: 'Document concurrent radix tree locking strategy'
+      status: DONE
+      result: 'Per-node Arc<RwLock<Block>>, hand-over-hand read locking (parent released before child acquired). PositionalIndexer variant: DashMap<(usize, LocalBlockHash), SeqEntry> with jump_size for O(1) position lookup'
+    - criterion: 'Verify eviction is frequency-decay (not LRU/LFU)'
+      status: DONE
+      result: 'FrequencyFilter: count×2 on access (init=1), periodic −1 decrement + prune zeros. Recency-weighted: 3 recent accesses (count=8) outlives 10 old accesses (decayed to 1). Threshold: count >= min_offload_frequency'
+    - criterion: 'Extract scheduling algorithm details'
+      status: DONE
+      result: 'WSPT key=(1+priority_jump)/(ISL−overlap×block_size). Cache overlap reduces effective processing time. FCFS key=priority_jump−arrival_offset. Both use BinaryHeap with per-worker token tracking'
+    - criterion: 'Document AgentHints and CacheControl API structs'
+      status: DONE
+      result: 'AgentHints{latency_sensitivity, osl, speculative_prefill, priority}. CacheControl{type, ttl} clamped [300s,3600s]. NvExt includes prefill_worker_id, decode_worker_id, token_data, max_thinking_tokens'
+    - criterion: 'Identify zero-prerequisite adoption paths for realizr'
+      status: DONE
+      result: 'AgentHints+CacheControl API fields (zero cost, API-level only) and WSPT cache-aware scheduling (light prefix cache). All other patterns require PMAT-052 paged KV'
+  notes: |
+    Source code analysis of ai-dynamo/dynamo Rust codebase.
+    Enriches PMAT-129 blog-level analysis with implementation details.
+    Key insight: AgentHints API adoption is zero-cost and can happen immediately.
+    WSPT scheduling with cache overlap is the algorithmic mechanism behind
+    the 4× TTFT reduction — applicable even at single-GPU with prefix cache.
+    All block management, eviction, and disaggregation patterns require PMAT-052.
 - id: PMAT-130
   title: 'PMAT-130: llama.cpp --parallel 32 matched-parallelism comparison'
   status: DONE
