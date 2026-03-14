@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-156
+  title: 'PMAT-156: 3-runtime production comparison + scoring (medium+128tok)'
+  status: DONE
+  priority: P0
+  spec_version: '3.6.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp at medium+128tok c=4/8/16'
+      status: DONE
+      result: 'c=4 372.8, c=8 433.4, c=16 1126.1 tok/s. TTFT invariant: 18.8-29.7ms'
+    - criterion: 'Complete 3-runtime comparison with scoring'
+      status: DONE
+      result: 'Scorecards: vLLM 69-76 B/C+, llama.cpp 56-67 C/C+, realizr 57 C flat. TTFT is sole bottleneck'
+    - criterion: 'Verify llama.cpp prompt invariance at medium'
+      status: DONE
+      result: 'TTFT 10.1ms (short) vs 10.3ms (medium), <2%. Fused Q4K GEMM is prompt-invariant'
+  notes: |
+    Production-realistic scoring reveals TTFT as the ONLY dimension where
+    realizr lags. All other dimensions competitive. Fused Q4K GEMM
+    would add 10-15 composite points, lifting realizr from 57 C to
+    67-72 C+/B at all concurrency levels.
 - id: PMAT-155
   title: 'PMAT-155: Prefix cost quantification — TTFT scaling by prompt length'
   status: DONE
