@@ -1013,6 +1013,8 @@ Realizr is Rust. Dynamo is Rust. The code is directly portable — not "inspired
 | Phase 2 (cache intelligence) | ~1700 | ~2500 | ~1.10× | ~1.14× | Prefix reuse eliminates redundant prefill on multi-turn |
 | Phase 3 (disaggregated) | ~1800 | ~2800 | ~1.16× | ~1.28× | Prefill never blocks decode, TTFT ~1× scaling |
 
+⚠️ **PMAT-163 correction:** These projections use fixed-128 baselines. Under production-realistic conditions (medium + uniform:16,256 output), realizr's scaling efficiency is only 25-37% (vs vLLM's 75-94%). Phase 0 alone lifts scores from 50-56 C to 58-64 C+. Phase 0+1 together reach ~65-72 C+/B- (see PMAT-162). The trajectory ratios above assume Phase 1 solves the output-heterogeneity penalty; if it doesn't, ~0.90× at c=16 drops to ~0.70×.
+
 **Falsification condition (unchanged):** If realizr implements paged KV (PMAT-052) and achieves ≥80% of vLLM aggregate at c=32 (target: ≥2272 tok/s), the fixed-slot architecture is confirmed as the primary bottleneck. If paged KV alone achieves <60% of vLLM (target: <1704), the gap is elsewhere (Marlin W4A16, continuous batching scheduler, or kernel efficiency).
 
 **Prefix cost quantification (PMAT-155, Mar 14):**
