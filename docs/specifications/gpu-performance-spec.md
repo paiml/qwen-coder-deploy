@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.88.0
+**Version:** 2.89.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -51,6 +51,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **PMAT-114 FALSIFICATION:** Initial c=16 medium run (504.5 tok/s llama.cpp) was measurement artifact — GPU contention from freshly-killed vLLM. Verification: 1045.3 (+0.8% from short). **llama.cpp is prompt-length invariant at all concurrency levels.**
 - **PMAT-117 ollama:** Best M=1 decode (164.5 tok/s, +3% vs llama.cpp) but **serial processing** — TTFT explodes at c=4 (602ms, 32× llama.cpp). Production-incompatible at c>1. Only suitable for single-user interactive use.
 - **Production Workload Guide (PMAT-113→117):** No single runtime optimal. c=1-7 + medium prompts → llama.cpp. c≥8 → realizr (FP8 decode, 1.25× at c=8 128-tok). All concurrencies → vLLM (2-3× all others). Single-user → ollama (best M=1 decode, zero-config).
+- **PMAT-125/126 high-concurrency (c=16→128):** Both realizr (1142 tok/s) and llama.cpp (~1020) plateau at batch=16 ceiling. vLLM scales 3.4× further to 3849 via paged KV. Quality tradeoff: realizr ITL constant 11.7ms + 0% errors vs vLLM ITL degrading 7.9→26.4ms. Fairness inversion at c≥64.
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 - **PMAT-105 breakthrough:** LmHead (Q6K, 151,936×1536) was using batched GEMV (reads weights M times) instead of FP8 cuBLASLt (reads weights once). Routing through `batched_gemv_or_gemm` enables FP8 dispatch at M>=5. Single biggest optimization since FP8 prefill. ITL now nearly flat c=4→c=16 (10.4→11.7ms).
 
@@ -698,6 +699,21 @@ vLLM aggregate grows monotonically with output length — TTFT dilution effect g
 **Asymptote ~4000 tok/s on RTX 4060 Laptop (8GB, 24 SMs).** Aggregate grows sublinearly from c=16 onward — compute throughput saturates while per-request quality degrades. At c=128: decode −75% (37.8 vs 153.6), ITL +306% (26.4 vs 6.5ms), TTFT +1832% (243.4 vs 12.6ms). The useful operating range is c=1-32 where decode stays above 100 tok/s and ITL below 10ms. Beyond c=32, the system is oversubscribed — requests queue and per-token latency degrades rapidly.
 
 **Production sweet spot: c=16-32.** At c=16: 1832 tok/s aggregate, 134 decode, 7.4ms ITL (excellent per-request quality). At c=32: 2840 tok/s aggregate (+55%), 112 decode (−16%), 8.9ms ITL (+20%). The c=32 tradeoff is acceptable for throughput-oriented workloads. Beyond c=32, ITL degrades >2× — unacceptable for interactive use.
+
+**PMAT-125/126: Cross-runtime high-concurrency comparison (c=16→128, short prompt, Mar 14):**
+
+| c | realizr agg | llama.cpp agg | vLLM agg | realizr ITL | llama.cpp ITL | vLLM ITL | realizr err | llama.cpp err |
+|---|------------|--------------|---------|-------------|---------------|----------|-------------|---------------|
+| 16 | 1,140 | 1,038 | **1,832** | **11.7** | 14.9 | 7.9 | **0%** | 0.8% |
+| 32 | 1,142 | 1,011 | **2,840** | **11.7** | 15.4 | 8.9 | **0%** | 0.7% |
+| 64 | 1,142 | 1,032 | **3,347** | **11.7** | 15.1 | 16.9 | **0%** | 1.2% |
+| 128 | 1,143 | 1,003 | **3,849** | **11.7** | 15.6 | 26.4 | **0%** | 1.2% |
+
+**Key finding: Both realizr and llama.cpp plateau at their batch ceiling (16), while vLLM scales 3.4× further.** realizr aggregate is constant at 1142 tok/s (c=16-128) — CUDA_MAX_BATCH=16 is the hard ceiling. llama.cpp is capped at ~1020 tok/s (--parallel 16). vLLM's continuous batching with PagedAttention scales to 3849 (3.4× realizr plateau).
+
+**Quality tradeoff at high c:** realizr maintains constant ITL (11.7ms) and 0% errors for all active requests — excess requests simply queue. vLLM packs all requests into the batch but ITL degrades from 7.9→26.4ms at c=128. At c≥64 vLLM ITL exceeds realizr ITL — the fairness inversion point. llama.cpp ITL is 15.1-15.6ms (stable but 30% worse than realizr) with 0.7-1.2% errors.
+
+**Architectural root cause:** realizr and llama.cpp are fixed-slot batch systems (max_slots=16, --parallel 16). Beyond that, requests queue at the HTTP layer. vLLM dynamically expands its batch via PagedAttention — each request gets a KV block allocation, not a fixed slot. This is the fundamental advantage of paged KV cache (PMAT-052, not yet implemented in realizr).
 
 **PMAT-115: Theoretical fused Q4K→GEMM impact (medium prompt):**
 
@@ -1870,6 +1886,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-122** | **vLLM output length sensitivity (128 vs 32 tok)** | **+6.8-15.2% agg, gap unchanged** | ✅ MEASURED. vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged. realizr/vLLM gap persists (0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok). Output length does NOT close the architectural gap. |
 | **PMAT-123** | **vLLM output saturation curve (32→512 tok)** | **Peaks at 256 tok, −2.5% at 512** | ✅ MEASURED. c=16 medium: aggregate peaks at 2065.5 (256 tok), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% (134→127.5) from KV cache attention BW at 9824 concurrent tokens. ITL stable +5.4% over 16× output increase. No cliff — PagedAttention handles KV growth efficiently. |
 | **PMAT-124** | **vLLM high-concurrency scaling (c=1→128)** | **Asymptote ~4000 tok/s, sweet spot c=16-32** | ✅ MEASURED. c=32: 2840 tok/s (57.8% eff), c=64: 3347 (34.1%), c=128: 3849 (19.6%). Decode collapses: 154→112→59→38 tok/s. ITL: 6.5→8.9→16.9→26.4ms. Production sweet spot c=16-32 where decode>100 and ITL<10ms. Beyond c=32 system is oversubscribed. |
+| **PMAT-125** | **realizr high-concurrency scaling (c=16→128)** | **Plateau at 1142 tok/s (batch=16 ceiling)** | ✅ MEASURED. Aggregate constant 1140-1143 at c=16-128. ITL constant 11.7ms, 0% errors — excess requests queue, active batch quality preserved. TTFT scales linearly with queue depth (87→3223ms). Decode constant 85.7 tok/s/req. CUDA_MAX_BATCH=16 is the hard ceiling — need paged KV (PMAT-052) to scale further. |
+| **PMAT-126** | **llama.cpp high-concurrency scaling (c=16→128)** | **Plateau at ~1020 tok/s (parallel=16 ceiling)** | ✅ MEASURED. Aggregate 1038→1003 at c=16→128 (slight decline). ITL stable 14.9-15.6ms. Errors 0.7-1.2% (503 when slots full). TTFT 31.7→3586ms. --parallel 16 is the hard ceiling. Both realizr and llama.cpp are fixed-slot systems — vLLM's paged KV scales 3.4× further to 3849 tok/s. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -2247,6 +2265,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.89.0 | 2026-03-14 | **PMAT-125/126: Cross-runtime high-concurrency scaling (c=16→128).** Both realizr and llama.cpp plateau at their batch ceiling (16 slots): realizr 1142 tok/s constant (0% errors, 11.7ms ITL constant), llama.cpp ~1020 tok/s (0.7-1.2% errors, 15ms ITL). vLLM scales 3.4× further to 3849 tok/s via paged KV + continuous batching. Quality tradeoff: realizr preserves per-request quality for active batch (ITL constant), vLLM ITL degrades from 7.9→26.4ms at c=128. Fairness inversion at c≥64: vLLM ITL exceeds realizr. Architectural root cause: fixed-slot batch (realizr/llama.cpp) vs dynamic paged KV (vLLM). |
 | 2.88.0 | 2026-03-14 | **PMAT-124: vLLM high-concurrency scaling curve (c=1→128).** Asymptote ~4000 tok/s on RTX 4060 Laptop. c=32: 2840 tok/s (57.8% efficiency), c=64: 3347 (34.1%), c=128: 3849 (19.6%). Decode collapses from 154→38 tok/s. ITL from 6.5→26.4ms. Production sweet spot c=16-32 where decode>100 tok/s and ITL<10ms. Beyond c=32: system oversubscribed, per-request quality degrades rapidly. |
 | 2.87.0 | 2026-03-14 | **PMAT-123: vLLM output saturation curve.** c=16 medium: aggregate peaks at 2065.5 tok/s (256 output tokens), then 2013.0 at 512 tok (−2.5%). Decode rate −4.8% from KV cache attention BW at 16×(102+512)=9824 concurrent tokens. ITL stable (+5.4% over 16× output increase). No cliff — PagedAttention handles KV growth efficiently. For code gen workloads (100-500 output tokens), vLLM delivers consistently 2000-2065 tok/s at c=16. |
 | 2.86.0 | 2026-03-14 | **PMAT-122: vLLM output length sensitivity — 2× gap persists.** vLLM aggregate grows +6.8% (c=4) to +15.2% (c=16) with 128 vs 32 output tokens. TTFT dilution grows with concurrency. Decode rates unchanged across output lengths. realizr/vLLM ratio at 128 tok: 0.54x (c=4), 0.50x (c=8) — virtually unchanged from 32 tok (0.53x, 0.46x). Both runtimes benefit from TTFT dilution at longer output, so net gap unchanged. Output length does NOT close the architectural gap between batch-and-step and continuous batching. vLLM at c=16 128-tok: **2049 tok/s** (new high watermark). |
