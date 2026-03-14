@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-158
+  title: 'PMAT-158: Heterogeneous output scorecards — true production floor'
+  status: DONE
+  priority: P0
+  spec_version: '3.8.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Score PMAT-157 heterogeneous results with probador llm score'
+      status: DONE
+      result: 'realizr 50/53/56, vLLM 79/78/75, llama.cpp 60/52/60'
+    - criterion: 'Compare to fixed-128 scorecards from PMAT-156'
+      status: DONE
+      result: 'realizr drops 1-7pts, vLLM improves 3-6pts, gap widens 12-19 → 19-29'
+    - criterion: 'Identify minimum fix path for competitive parity'
+      status: DONE
+      result: 'Two-fix minimum: fused Q4K GEMM (TTFT +10-15) + paged KV (output invariance +5-10)'
+  notes: |
+    vLLM improves with heterogeneous output — short sequences free KV blocks,
+    creating a scheduling advantage for continuous batching. realizr drops
+    because contiguous KV pre-allocation wastes memory on short outputs.
+    This is the definitive production floor measurement.
 - id: PMAT-157
   title: 'PMAT-157: Heterogeneous output distribution — c=8 crossover falsified'
   status: DONE

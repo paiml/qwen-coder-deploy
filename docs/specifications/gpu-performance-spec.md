@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.7.0
+**Version:** 3.8.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1067,6 +1067,24 @@ PMAT-156's fixed 128-token output benchmark showed realizr winning at c=8 (1.29�
 5. **Fixed-output benchmarks systematically overstate realizr's competitive position.** The 1.29× c=8 win was an artifact of uniform output length creating ideal batching conditions. Production workloads have high output variance.
 
 **Implication for PMAT-054 (fused Q4K GEMM):** Even with TTFT fixed, realizr would still drop ~35% with heterogeneous output due to contiguous KV waste. Paged KV (PMAT-052) is required to match vLLM's output-length invariance. The Dynamo replication plan (PMAT-140) addresses this in Phase 1.
+
+**Heterogeneous Output Scorecards — True Production Floor (PMAT-158, Mar 14):**
+
+Scoring the PMAT-157 heterogeneous output results reveals the true production-realistic floor for all runtimes:
+
+| c | realizr (fixed→hetero) | vLLM (fixed→hetero) | llama.cpp (fixed→hetero) | Gap (realizr→vLLM) |
+|---|----------------------|--------------------|-----------------------|-------------------|
+| 4 | 57 C → **50 C** (−7) | 76 B → **79 B** (+3) | 67 C+ → **60 C+** (−7) | −29 |
+| 8 | 58 C → **53 C** (−5) | 75 B → **78 B** (+3) | 56 C → **52 C** (−4) | −25 |
+| 16 | 57 C → **56 C** (−1) | 69 C+ → **75 B** (+6) | 67 C+ → **60 C+** (−4) | −19 |
+
+**Key findings from heterogeneous scoring (PMAT-158):**
+
+1. **vLLM improves with heterogeneous output** (+3 to +6 points). Short sequences finish early, freeing KV blocks for new requests — continuous batching turns output variance into a scheduling advantage.
+2. **realizr drops 1-7 points.** The c=4 penalty is largest (−7) because batch utilization drops most at low concurrency — fewer concurrent requests means more wasted KV pre-allocation per short output.
+3. **The gap to vLLM widens** from 12-19 (fixed) to 19-29 (heterogeneous). At c=4 heterogeneous, realizr scores 50 C vs vLLM's 79 B — a 29-point gap (nearly two full grade boundaries).
+4. **realizr is now the worst runtime at c=4 and c=16** (50 and 56 vs llama.cpp's 60 and 60). Only at c=8 does realizr edge llama.cpp (53 vs 52, +1 point — statistical noise).
+5. **Two-fix minimum for competitive parity:** fused Q4K GEMM (TTFT, +10-15 points) + paged KV (output invariance, +5-10 points) needed to reach vLLM's ~75 B floor. Neither alone is sufficient.
 
 **Dynamo Source Code Deep-Dive — Implementation-Level Architecture (PMAT-139, Mar 14):**
 
@@ -2300,6 +2318,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-158** | **Heterogeneous output scorecards — true production floor** | **realizr 50-56 C, vLLM 75-79 B, gap widens to 19-29** | ✅ SCORED. Heterogeneous output scoring: realizr drops 1-7 points (50/53/56), vLLM improves 3-6 points (79/78/75). Gap widens from 12-19 (fixed) to 19-29 (hetero). vLLM improves because short sequences free KV blocks → scheduling advantage. realizr worst at c=4/16 (below llama.cpp). Two-fix minimum: fused Q4K GEMM + paged KV required for competitive parity. |
 | **PMAT-157** | **Heterogeneous output distribution (uniform:16,256)** | **c=8 crossover disappears — realizr loses ALL c** | ✅ MEASURED. realizr drops 31-42% with variable output (vs −1% vLLM). Fixed-128 c=8 WIN (1.29×) → heterogeneous LOSS (0.84×). vLLM immune to output variance (PagedAttention releases blocks dynamically). llama.cpp output capped at ~112 tokens (256-token slot − prompt overhead). Contiguous KV pre-allocation is the root cause — paged KV (PMAT-052) required for output-length invariance. Fixed-output benchmarks systematically overstate realizr's competitive position. |
 | **PMAT-156** | **3-runtime production comparison + scoring (medium+128tok)** | **realizr 57 C at all c, TTFT is sole bottleneck** | ✅ MEASURED. Complete 3-runtime comparison: realizr 0.84× (c=4), 1.29× (c=8 WINS), 0.89× (c=16) vs llama.cpp. vLLM wins everything (0.63-0.67× ahead). Scorecards: vLLM 69-76, llama.cpp 56-67, realizr 57 C flat. TTFT is the ONLY lagging dimension (13-50/100 vs llama.cpp 93-100/100). Decode, ITL, errors all competitive. llama.cpp TTFT prompt-invariant (10.1ms→10.3ms short→medium). Fused Q4K GEMM would add 10-15 composite points. |
 | **PMAT-155** | **Prefix cost quantification (TTFT scaling by prompt length)** | **Prefix = 56-79% of TTFT, 4.6× amplified at c=8** | ✅ MEASURED. TTFT at c=1/4/8 across short/medium/long prompts. Prefix cost (long−short): 26.2ms (c=1), 139ms (c=4), 183ms (c=8). Cost per token: ~0.09ms at c=1, super-linear scaling. At c=8 long, prefix is 4.6× the c=1 cost. Prefix caching (PMAT-146) would eliminate 50-90% of multi-turn TTFT. vLLM 87.9% prefix hit rate explains its 4× TTFT scaling vs realizr's 4.2×. |
@@ -2692,6 +2711,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.8.0 | 2026-03-14 | **PMAT-158: Heterogeneous output scorecards reveal true production floor.** Scored PMAT-157 heterogeneous results: realizr drops 1-7 points (50/53/56 C), vLLM improves 3-6 points (79/78/75 B) — output variance is a scheduling advantage for continuous batching. Gap widens from 12-19 (fixed) to 19-29 (heterogeneous). realizr worst at c=4 and c=16 (below llama.cpp). Two-fix minimum for competitive parity: fused Q4K GEMM (TTFT +10-15) + paged KV (output invariance +5-10). |
 | 3.7.0 | 2026-03-14 | **PMAT-157: Heterogeneous output distribution falsifies c=8 crossover.** Measured all 3 runtimes with uniform:16,256 output distribution (medium prompt). realizr drops 31-42% (contiguous KV waste), vLLM drops −1% (PagedAttention immune), llama.cpp output capped at ~112 tokens (slot size). The c=8 crossover (realizr's ONLY workload-invariant win from PMAT-138) disappears: 1.29× WIN → 0.84× LOSS. realizr loses at ALL concurrency levels with variable output. Fixed-output benchmarks systematically overstate competitive position. Paged KV (PMAT-052) required for output-length invariance — fused Q4K GEMM alone insufficient. |
 | 3.6.0 | 2026-03-14 | **PMAT-156: Complete 3-runtime production comparison + scoring.** Measured llama.cpp at medium+128tok (c=4-16) to complete the 3-way picture. realizr vs llama.cpp: 0.84× (c=4), 1.29× WIN (c=8), 0.89× (c=16). vLLM dominates at 0.63-0.67×. Production scorecards: realizr 57 C flat at all c — TTFT is the ONLY bottleneck (13-50/100 vs llama.cpp 93-100/100). Decode, aggregate, ITL, errors all competitive. llama.cpp TTFT confirmed prompt-invariant (<2% short→medium). Fused Q4K GEMM (PMAT-054) would add 10-15 composite points → 67-72 C+ to B. |
 | 3.5.0 | 2026-03-14 | **PMAT-155: Prefix cost quantification — 56-79% of TTFT is prefix prefill.** Measured TTFT scaling across short/medium/long prompts at c=1/4/8. Prefix cost (long−short): 26.2ms (c=1), 139ms (c=4), 183ms (c=8) — 4.6× amplification from batch scheduling. Per-token cost ~0.09ms at c=1. For 500-token system prompts, prefix caching (PMAT-146) would eliminate 50-90% of multi-turn TTFT, giving 10-25% aggregate improvement at c=8-16. vLLM's 87.9% prefix cache hit rate explains its flatter TTFT scaling. |
