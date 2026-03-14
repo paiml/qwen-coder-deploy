@@ -2160,6 +2160,26 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-160
+  title: 'PMAT-160: Executive summary refresh — production-realistic lead'
+  status: DONE
+  priority: P0
+  spec_version: '3.10.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Lead exec summary with production-realistic results'
+      status: DONE
+      result: 'Now shows medium+hetero table first: realizr 0.38-0.84x, loses ALL c'
+    - criterion: 'Remove stale production workload guide'
+      status: DONE
+      result: 'Replaced with three structural deficits + fix path'
+    - criterion: 'Preserve historical short-prompt results as reference'
+      status: DONE
+      result: 'Labeled as favorable conditions, retained for completeness'
+  notes: |
+    The executive summary is what people read first. It was leading with
+    short-prompt results that suggested realizr was competitive at c>=8.
+    Now honestly shows the production-realistic picture.
 - id: PMAT-159
   title: 'PMAT-159: Definitive competitive matrix — all workload dimensions'
   status: DONE
