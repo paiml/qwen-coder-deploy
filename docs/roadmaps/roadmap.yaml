@@ -2268,3 +2268,25 @@ roadmap:
     Beyond 256 tokens, KV attention bandwidth dominates. PagedAttention
     (PMAT-052) would improve long-output performance via block-indexed access.
     Production workloads (100-200 tok) are at or near the peak, which is good.
+- id: PMAT-135
+  title: 'PMAT-135: realizr vs llama.cpp at 128-tok output'
+  status: DONE
+  priority: P1
+  spec_version: '2.98.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp at 128-tok output at c=4,8,16'
+      status: DONE
+      result: 'c=4: 350 (stable), c=8: 418 (−2.5%), c=16: 420 (−59.5% collapse)'
+    - criterion: 'Compare with realizr 128-tok data from PMAT-133'
+      status: DONE
+      result: 'c=16 ratio shifts 1.09x→2.94x. realizr gains +8.9%, llama.cpp collapses −59.5%'
+    - criterion: 'Quantify benchmark configuration sensitivity'
+      status: DONE
+      result: '32-tok benchmarks understate realizr advantage. Production-realistic (128-tok) shows 2.94x vs 1.09x'
+  notes: |
+    Most significant competitive finding since PMAT-131. 32-tok synthetic
+    benchmarks systematically favor llama.cpp (low KV cache, fast cycling).
+    Production workloads (100-200 tok output) expose llama.cpp fixed-slot
+    attention scaling weakness. realizr advantage at c=16 is 2.7x larger
+    than synthetic benchmarks suggest.
