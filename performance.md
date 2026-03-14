@@ -49,24 +49,24 @@
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 13 |
 | 2026-03-01 | realizar-gguf | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 45 |
 
-## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — 2026-03-12 (PMAT-087)
+## Isolated Streaming (c=1, 60s, 5s warmup, stream=true) — 2026-03-13 (PMAT-109)
 
 ### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1900MHz)
 
 **Short prompt (23 tokens):**
 
-| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
-|---------|-------------|--------------|---------------|-------------|----------|
-| **vLLM** | **168.3** | 2,016 | 11.4 | **5.9** | — |
-| ollama | 163.5 | 326 | 70.5 | 6.1 | — |
-| llama.cpp | 160.7 | **2,280** | **10.1** | 6.2 | — |
-| **realizr** | **154.8** | 1,718 | 13.4 | 6.5 | — |
+| Runtime | Decode tok/s | Prefill tok/s | TTFT P50 (ms) | TTFT P99 (ms) | ITL P50 (ms) |
+|---------|-------------|--------------|---------------|---------------|-------------|
+| ollama | **164.6** | — | 69.8 | — | **6.1** |
+| llama.cpp | 161.7 | **2,280** | **10.2** | — | 6.2 |
+| vLLM | 153.6 | 2,016 | 12.6 | — | 6.5 |
+| realizr | 149.5 | 1,718 | 13.2 | **14.2** | 6.7 |
 
-**Decode: 4-way near-parity.** vLLM leads at 168.3, realizr at 154.8 = **0.92x**.
-realizr vs llama.cpp = **0.96x** (within noise).
-**TTFT (short): 1.33x** (13.4ms vs 10.1ms) — FP8 prefill (1 B/elem) vs Q4K (0.56 B/elem).
-PMAT-087: Clock correction 1500→1900MHz (+12% across all runtimes).
-PMAT-086: cuBLASLt descriptor caching + non-blocking batch drain (−1.2ms queue overhead).
+**Decode: 4-way near-parity.** ollama leads M=1 at 164.6 but serial processing (c>1 incompatible).
+realizr vs llama.cpp = **0.92x** (DP4A BW ceiling: 57% vs 62% roofline utilization).
+**TTFT: 1.29x** (13.2ms vs 10.2ms) — FP8 prefill (1 B/elem) vs Q4K fused GEMM (0.56 B/elem).
+**PMAT-109:** Graph persistence fix — bimodal TTFT tail ELIMINATED. P99 14.2ms (was 35ms). Tail score 86→100 A+.
+**PMAT-106/107/110:** 13 kernel approaches falsified for M=1 decode improvement. 92% of DP4A ceiling reached.
 
 ### RTX 4090 (128 SMs, sm_89)
 
@@ -102,16 +102,18 @@ Prefill gap: 1.4x (HGEMM FP16 on-demand vs fused Q4K GEMM). TTFT narrowed from 5
 | +Flash Decode chunk=32 | 36.3 | **411.7** | — | Mar 8 |
 | +PMAT-044 PTX parity | — | — | 140.3 | Mar 8 |
 | +PMAT-086 FP8+batch0 | — | — | 139.0 (TTFT: 46→15.5ms) | Mar 11 |
-| +PMAT-087 1900MHz | — | — | **154.8** (TTFT: 13.4ms) | Mar 12 |
+| +PMAT-087 1900MHz | — | — | 154.8 (TTFT: 13.4ms) | Mar 12 |
+| +PMAT-109 Graph persist | — | — | **149.5** (TTFT: 13.2ms, P99: **14.2ms**) | Mar 13 |
+| +PMAT-105 FP8 LmHead | — | — | c=4: **357.2** (was 210.8, +69%) | Mar 13 |
 | +MAXN_SUPER 1020MHz | **40.8** | — | — | Mar 12 |
 
 ### Cross-Platform Decode Summary (c=1, isolated, streaming)
 
-| Platform | vLLM | realizr | llama.cpp | ollama |
-|----------|------|---------|-----------|--------|
-| **RTX 4060 Laptop** (24 SMs, 1900MHz) | **168.3** | 154.8 | 160.7 | 163.5 |
-| RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
-| Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | **40.8** | 36.1 | — |
+| Platform | ollama | llama.cpp | vLLM | realizr |
+|----------|--------|-----------|------|---------|
+| **RTX 4060 Laptop** (24 SMs, 1900MHz) | **164.6** | 161.7 | 153.6 | 149.5 |
+| RTX 4090 (128 SMs) | — | 436.9 | — | 411.7 |
+| Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | 36.1 | — | **40.8** |
 
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
@@ -123,21 +125,68 @@ Prefill gap: 1.4x (HGEMM FP16 on-demand vs fused Q4K GEMM). TTFT narrowed from 5
 
 Tracking: [GH-131](https://github.com/paiml/realizar/issues/131)
 
-## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — 2026-03-12 (PMAT-088)
+## Concurrent Streaming (c=4, 60s, 5s warmup, stream=true) — 2026-03-13 (PMAT-111)
 
 ### RTX 4060 Laptop — yoga (24 SMs, sm_89, 8GB VRAM, locked 1900MHz, short prompt)
 
-| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Requests |
-|---------|----------------|-------------|---------------|-------------|----------|
-| **vLLM** | **598.0** | **162.3** | 23.4 | **6.2** | — |
-| llama.cpp | 338.6 | 86.0 | **17.3** | 11.6 | — |
-| realizr | 210.8 | 72.4 | 41.0 | 13.8 | — |
-| ollama | 158.0 | 160.6 | 616.0 | 6.2 | — |
+| Runtime | Aggregate tok/s | Decode tok/s | TTFT P50 (ms) | ITL P50 (ms) | Errors |
+|---------|----------------|-------------|---------------|-------------|--------|
+| **vLLM** | **594.8** | **150.4** | 25.3 | **6.7** | 0% |
+| llama.cpp | 365.8 | — | **19.0** | 10.7 | 1.3% |
+| **realizr** | **357.2** | 96.1 | 36.2 | 10.4 | **0%** |
+| ollama | 159.1 | 161.5 | 612.3 | 6.2 | 0% |
 
-**vLLM dominates c=4** via continuous batching + PagedAttention (2.8x over realizr).
-llama.cpp 1.6x over realizr aggregate (4-slot parallel vs iteration scheduler).
-realizr c=4 latest: 257.4 aggregate (PMAT-088d, +22% via continuous batch recycling).
-Ollama: no continuous batching — TTFT 616ms (serial prefill), aggregate flat vs c=1.
+**vLLM dominates c=4** via continuous batching + PagedAttention (1.67x over realizr).
+realizr vs llama.cpp: **0.98x PARITY** (short prompt) — 0% errors vs 1.3%.
+**PMAT-105:** FP8 cuBLASLt LmHead at M>=5 — reads weights once instead of M times. Single biggest c≥4 breakthrough.
+Ollama: serial prefill — TTFT 612ms at c=4, aggregate flat vs c=1. Production-incompatible at c>1.
+
+## Concurrency Scaling (c=1→16, 60s, 5s warmup, short prompt) — 2026-03-13 (PMAT-120)
+
+### RTX 4060 Laptop — yoga (all runtimes --parallel/batch 16, isolated)
+
+| c | realizr | llama.cpp | vLLM | ollama | realizr/llama.cpp |
+|---|---------|-----------|------|--------|-------------------|
+| 1 | 149.5 | 158.9 | 153.6 | **164.6** | 0.94x |
+| 4 | 357.2 | 365.8 | **594.8** | 159.1 | **0.98x** PARITY |
+| **8** | **637.8** | 430.0 | **1,058.5** | — | **1.48x** WINS |
+| 12 | 899.3 | 906.0 | **1,461.3** | — | 0.99x PARITY |
+| **16** | **1,139.5** | 1,000.4 | **1,832.2** | — | **1.14x** WINS |
+
+**Scaling efficiency (c=1→c=16):** vLLM 11.9× (74%) > realizr 7.6× (47.5%) > llama.cpp 6.5× (40.4%).
+**ITL stability (c=1→c=16):** vLLM +14% (5.9→6.7ms) > realizr +75% (6.7→11.7ms) > llama.cpp +139% (6.2→15.4ms).
+**Quality:** realizr 0% errors at all c. llama.cpp 1.3-3.2% errors. vLLM 0%.
+**PMAT-105 breakthrough:** LmHead FP8 dispatch at M≥5. ITL nearly flat c=4→c=16 (10.4→11.7ms).
+
+## Prompt-Profile Sensitivity (short/medium/long) — 2026-03-13 (PMAT-113→118)
+
+### RTX 4060 Laptop — realizr vs llama.cpp competitive ratio (aggregate tok/s)
+
+| c | Short (~23 tok) | Medium (~102 tok) | Long (~311 tok) | Direction |
+|---|----------------|-------------------|-----------------|-----------|
+| 1 | 0.93x | 0.90x | 0.82x | realizr worse with length |
+| 4 | **1.01x** PARITY | **0.81x** LOSES | **0.60x** LOSES | Grade inversion: B→D |
+| **8** | **1.47x** WINS | **1.08x** wins | **0.77x** LOSES | Crossover disappears |
+
+**Root cause:** realizr's 2-step FP8 pipeline (Q4K→FP8 convert + FP8 GEMM) reads **1.78× more weight bandwidth** per prefill than llama.cpp's fused 1-step Q4K GEMM. This is the SOLE cause of prompt-length sensitivity.
+**llama.cpp and vLLM are prompt-length invariant** (−2% to +3% across all profiles and concurrency levels).
+**realizr is the ONLY runtime with prompt-length sensitivity** — drops 39-49% from short→long prompts.
+**Fused Q4K→GEMM kernel** is the single highest-value optimization — would close this gap entirely.
+
+### vLLM Reference (Marlin W4A16 + PagedAttention, PMAT-119/120)
+
+| c | Short | Medium | Long | Sensitivity |
+|---|-------|--------|------|-------------|
+| 1 | 153.6 | — | 149.1 | −2.9% (invariant) |
+| 4 | 594.8 | 551.0 | 558.5 | −6.1% (invariant) |
+| 8 | 1,058.5 | 1,023.2 | 1,040.7 | −1.7% (invariant) |
+
+### Cross-Prompt Scorecards (probador llm score)
+
+| Runtime | c=4 Short | c=4 Medium | c=4 Long | Drop |
+|---------|-----------|------------|----------|------|
+| realizr | 78 B | 67 C+ | **49 D** | −30 points |
+| llama.cpp | 70 B | 71 B | 67 C+ | −3 points |
 
 ### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
@@ -227,76 +276,6 @@ Source: `results/profile-gpu-20260302.txt`
 
 | Date | Runtime | Concurrency | RPS | P50 (ms) | P95 (ms) | P99 (ms) | TTFT P50 (ms) | Tok/s | Avg tok/req | ITL P50 (ms) | Decode tok/s | Prefill tok/s | TPOT P50 (ms) | Err% | Requests |
 |------|---------|-------------|-----|----------|----------|----------|---------------|-------|-------------|--------------|--------------|---------------|---------------|------|----------|
-| 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 0.0 | - | - | - | - | 0% | 13 |
-| 2026-03-01 | realizar-gguf-1 | 4 | 1.5 | 2586.0 | 4155.6 | 4179.1 | 2586.0 | 1.5 | 0.0 | - | - | - | - | 0% | 45 |
-| 2026-03-01 | realizar-gguf-2 | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 0.0 | - | - | - | - | 0% | 45 |
-| 2026-03-02 | realizar-gpu | 4 | 10.2 | 392.6 | 599.6 | 705.2 | 392.6 | 10.2 | 0.0 | - | - | - | - | 0% | 609 |
-| 2026-03-02 | ollama-gpu | 4 | 120.3 | 30.8 | 48.8 | 72.0 | 30.8 | 240.5 | 0.0 | - | - | - | - | 0% | 7216 |
-| 2026-03-02 | llamacpp-gpu | 4 | 328.2 | 11.4 | 15.6 | 18.5 | 11.4 | 656.4 | 0.0 | - | - | - | - | 0% | 19692 |
-| 2026-03-02 | realizar-gpu | 4 | 4.5 | 743.6 | 1647.6 | 2154.1 | 743.6 | 4.5 | 0.0 | - | - | - | - | 0% | 267 |
-| 2026-03-02 | ollama-gpu | 4 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 0% | 400038 |
-| 2026-03-02 | llamacpp-gpu | 4 | 97.5 | 33.1 | 91.3 | 95.1 | 33.1 | 195.1 | 0.0 | - | - | - | - | 0% | 5853 |
-| 2026-03-02 | realizar-gpu | 4 | 5.1 | 608.6 | 1611.8 | 1664.8 | 608.5 | 5.1 | 0.0 | - | - | - | - | 0% | 306 |
-| 2026-03-02 | ollama-gpu | 4 | 91.9 | 35.0 | 75.4 | 85.6 | 35.0 | 183.8 | 0.0 | - | - | - | - | 0% | 5514 |
-| 2026-03-02 | llamacpp-gpu | 4 | 161.0 | 11.6 | 67.8 | 70.7 | 11.6 | 322.0 | 0.0 | - | - | - | - | 0% | 9660 |
-| 2026-03-04 | realizar-gpu | 4 | 1.2 | 2529.5 | 5013.3 | 5794.3 | 2529.4 | 151.4 | 121.9 | 24.5 | 40.8 | - | 0.0 | 0% | 78 |
-| 2026-03-04 | ollama-gpu | 4 | 4.4 | 914.7 | 951.5 | 957.8 | 914.6 | 561.6 | 128.0 | 7.1 | 139.9 | - | 0.0 | 0% | 264 |
-| 2026-03-04 | llamacpp-gpu | 4 | 7.3 | 548.2 | 576.4 | 586.9 | 548.2 | 931.5 | 128.0 | 4.3 | 233.5 | - | 0.0 | 0% | 440 |
-| 2026-03-04 | ollama-jetson | 1 | 0.1 | 11313.3 | 11600.5 | 11600.5 | 11313.3 | 11.3 | 128.0 | 88.4 | 11.3 | - | 0.0 | 0% | 6 |
-| 2026-03-04 | llamacpp-jetson | 1 | 0.3 | 3986.4 | 3990.2 | 3991.6 | 3986.4 | 32.1 | 128.0 | 31.1 | 32.1 | - | 0.0 | 0% | 16 |
-| 2026-03-04 | llamacpp-jetson-c4 | 4 | 0.5 | 7484.2 | 7505.4 | 7507.4 | 7484.2 | 68.5 | 128.0 | 58.5 | 17.1 | - | 0.0 | 0% | 36 |
-| 2026-03-04 | ollama-jetson-c4 | 4 | 0.1 | 41578.9 | 42946.3 | 42946.3 | 41578.9 | 12.3 | 128.0 | 324.8 | 3.1 | - | 0.0 | 0% | 9 |
-| 2026-03-04 | realizr-jetson-cpu | 1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 100.0% | 377086 |
-| 2026-03-05 | realizar-jetson | 1 | 0.1 | 11581.4 | 11584.8 | 11584.9 | 3960.3 | 11.1 | 128.0 | 60.0 | 16.7 | 25.8 | 60.0 | 0% | 6 |
-| 2026-03-05 | llamacpp-jetson | 1 | 0.3 | 3981.9 | 3986.1 | 3986.7 | 48.5 | 32.1 | 128.0 | 31.0 | 32.3 | 2101.8 | 31.0 | 0% | 16 |
-| 2026-03-05 | ollama-jetson | 1 | 0.2 | 4258.4 | 4282.1 | 4283.4 | 426.4 | 30.1 | 128.0 | 30.2 | 33.2 | 239.2 | 30.2 | 0% | 15 |
-| 2026-03-05 | realizar-jetson | 1 | 0.1 | 11583.0 | 11587.2 | 11587.9 | 3962.0 | 11.1 | 128.0 | 60.0 | 16.7 | 25.7 | 60.0 | 0% | 6 |
-| 2026-03-05 | llamacpp-jetson | 1 | 0.3 | 3981.8 | 3982.9 | 3983.2 | 48.8 | 32.1 | 128.0 | 31.0 | 32.3 | 2090.6 | 31.0 | 5.9% | 17 |
-| 2026-03-05 | realizar-jetson-nodp4a | 1 | 0.1 | 14016.7 | 14020.7 | 14021.0 | 3976.0 | 9.1 | 128.0 | 79.1 | 12.6 | 25.7 | 79.1 | 0% | 5 |
-| 2026-03-05 | realizar-jetson-4warp | 1 | 0.1 | 12293.0 | 12299.4 | 12299.7 | 3963.6 | 10.4 | 128.0 | 65.6 | 15.2 | 25.7 | 65.6 | 0% | 5 |
-| 2026-03-05 | realizar-jetson-2warp | 1 | 0.1 | 12721.0 | 12727.7 | 12728.8 | 3970.3 | 10.1 | 128.0 | 68.9 | 14.5 | 25.7 | 68.9 | 0% | 5 |
-| 2026-03-05 | realizar-jetson-nodp4aq6k | 1 | 0.1 | 12601.1 | 12603.2 | 12603.4 | 3817.5 | 10.2 | 128.0 | 69.1 | 14.5 | 26.7 | 69.1 | 0% | 5 |
-| 2026-03-05 | realizar-jetson | 1 | 0.1 | 11574.8 | 11585.2 | 11587.0 | 3956.3 | 11.1 | 128.0 | 60.0 | 16.7 | 25.8 | 60.0 | 0% | 6 |
-| 2026-03-05 | llamacpp-jetson | 1 | 0.3 | 3980.9 | 3985.6 | 3991.3 | 48.8 | 32.1 | 128.0 | 31.0 | 32.3 | 2092.0 | 31.0 | 0% | 16 |
-| 2026-03-05 | ollama-jetson | 1 | 0.1 | 10781.8 | 18705.0 | 20272.3 | 448.9 | 10.1 | 128.0 | 80.0 | 12.5 | 227.2 | 80.0 | 0% | 5 |
-| 2026-03-08 | realizar-cpu | 4 | 0.1 | 37029.1 | 40395.4 | 40435.8 | 18846.8 | 13.8 | 128.0 | 143.7 | 7.0 | 5.5 | 143.7 | 0% | 8 |
-| 2026-03-08 | ollama-cpu | 4 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 100.0% | 517540 |
-| 2026-03-08 | llamacpp-cpu | 4 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 100.0% | 4 |
-| 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 0.0 | - | - | - | - | 0% | 13 |
-| 2026-03-01 | realizar-gguf-1 | 4 | 1.5 | 2586.0 | 4155.6 | 4179.1 | 2586.0 | 1.5 | 0.0 | - | - | - | - | 0% | 45 |
-| 2026-03-01 | realizar-gguf-2 | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 0.0 | - | - | - | - | 0% | 45 |
-| 2026-03-02 | realizar-gpu | 4 | 10.2 | 392.6 | 599.6 | 705.2 | 392.6 | 10.2 | 0.0 | - | - | - | - | 0% | 609 |
-| 2026-03-02 | ollama-gpu | 4 | 120.3 | 30.8 | 48.8 | 72.0 | 30.8 | 240.5 | 0.0 | - | - | - | - | 0% | 7216 |
-| 2026-03-02 | llamacpp-gpu | 4 | 328.2 | 11.4 | 15.6 | 18.5 | 11.4 | 656.4 | 0.0 | - | - | - | - | 0% | 19692 |
-| 2026-03-02 | realizar-gpu | 4 | 4.5 | 743.6 | 1647.6 | 2154.1 | 743.6 | 4.5 | 0.0 | - | - | - | - | 0% | 267 |
-| 2026-03-02 | ollama-gpu | 4 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 0% | 400038 |
-| 2026-03-02 | llamacpp-gpu | 4 | 97.5 | 33.1 | 91.3 | 95.1 | 33.1 | 195.1 | 0.0 | - | - | - | - | 0% | 5853 |
-| 2026-03-02 | realizar-gpu | 4 | 5.1 | 608.6 | 1611.8 | 1664.8 | 608.5 | 5.1 | 0.0 | - | - | - | - | 0% | 306 |
-| 2026-03-02 | ollama-gpu | 4 | 91.9 | 35.0 | 75.4 | 85.6 | 35.0 | 183.8 | 0.0 | - | - | - | - | 0% | 5514 |
-| 2026-03-02 | llamacpp-gpu | 4 | 161.0 | 11.6 | 67.8 | 70.7 | 11.6 | 322.0 | 0.0 | - | - | - | - | 0% | 9660 |
-| 2026-03-04 | realizar-gpu | 4 | 1.2 | 2529.5 | 5013.3 | 5794.3 | 2529.4 | 151.4 | 121.9 | 24.5 | 40.8 | - | 0.0 | 0% | 78 |
-| 2026-03-04 | ollama-gpu | 4 | 4.4 | 914.7 | 951.5 | 957.8 | 914.6 | 561.6 | 128.0 | 7.1 | 139.9 | - | 0.0 | 0% | 264 |
-| 2026-03-04 | llamacpp-gpu | 4 | 7.3 | 548.2 | 576.4 | 586.9 | 548.2 | 931.5 | 128.0 | 4.3 | 233.5 | - | 0.0 | 0% | 440 |
-| 2026-03-04 | ollama-jetson | 1 | 0.1 | 11313.3 | 11600.5 | 11600.5 | 11313.3 | 11.3 | 128.0 | 88.4 | 11.3 | - | 0.0 | 0% | 6 |
-| 2026-03-04 | llamacpp-jetson | 1 | 0.3 | 3986.4 | 3990.2 | 3991.6 | 3986.4 | 32.1 | 128.0 | 31.1 | 32.1 | - | 0.0 | 0% | 16 |
-| 2026-03-04 | llamacpp-jetson-c4 | 4 | 0.5 | 7484.2 | 7505.4 | 7507.4 | 7484.2 | 68.5 | 128.0 | 58.5 | 17.1 | - | 0.0 | 0% | 36 |
-| 2026-03-04 | ollama-jetson-c4 | 4 | 0.1 | 41578.9 | 42946.3 | 42946.3 | 41578.9 | 12.3 | 128.0 | 324.8 | 3.1 | - | 0.0 | 0% | 9 |
-| 2026-03-04 | realizr-jetson-cpu | 1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 100.0% | 377086 |
-| 2026-03-05 | realizar-jetson | 1 | 0.1 | 11581.4 | 11584.8 | 11584.9 | 3960.3 | 11.1 | 128.0 | 60.0 | 16.7 | 25.8 | 60.0 | 0% | 6 |
-| 2026-03-05 | llamacpp-jetson | 1 | 0.3 | 3981.9 | 3986.1 | 3986.7 | 48.5 | 32.1 | 128.0 | 31.0 | 32.3 | 2101.8 | 31.0 | 0% | 16 |
-| 2026-03-05 | ollama-jetson | 1 | 0.2 | 4258.4 | 4282.1 | 4283.4 | 426.4 | 30.1 | 128.0 | 30.2 | 33.2 | 239.2 | 30.2 | 0% | 15 |
-| 2026-03-05 | realizar-jetson | 1 | 0.1 | 11583.0 | 11587.2 | 11587.9 | 3962.0 | 11.1 | 128.0 | 60.0 | 16.7 | 25.7 | 60.0 | 0% | 6 |
-| 2026-03-05 | llamacpp-jetson | 1 | 0.3 | 3981.8 | 3982.9 | 3983.2 | 48.8 | 32.1 | 128.0 | 31.0 | 32.3 | 2090.6 | 31.0 | 5.9% | 17 |
-| 2026-03-05 | realizar-jetson-nodp4a | 1 | 0.1 | 14016.7 | 14020.7 | 14021.0 | 3976.0 | 9.1 | 128.0 | 79.1 | 12.6 | 25.7 | 79.1 | 0% | 5 |
-| 2026-03-05 | realizar-jetson-4warp | 1 | 0.1 | 12293.0 | 12299.4 | 12299.7 | 3963.6 | 10.4 | 128.0 | 65.6 | 15.2 | 25.7 | 65.6 | 0% | 5 |
-| 2026-03-05 | realizar-jetson-2warp | 1 | 0.1 | 12721.0 | 12727.7 | 12728.8 | 3970.3 | 10.1 | 128.0 | 68.9 | 14.5 | 25.7 | 68.9 | 0% | 5 |
-| 2026-03-05 | realizar-jetson-nodp4aq6k | 1 | 0.1 | 12601.1 | 12603.2 | 12603.4 | 3817.5 | 10.2 | 128.0 | 69.1 | 14.5 | 26.7 | 69.1 | 0% | 5 |
-| 2026-03-05 | realizar-jetson | 1 | 0.1 | 11574.8 | 11585.2 | 11587.0 | 3956.3 | 11.1 | 128.0 | 60.0 | 16.7 | 25.8 | 60.0 | 0% | 6 |
-| 2026-03-05 | llamacpp-jetson | 1 | 0.3 | 3980.9 | 3985.6 | 3991.3 | 48.8 | 32.1 | 128.0 | 31.0 | 32.3 | 2092.0 | 31.0 | 0% | 16 |
-| 2026-03-05 | ollama-jetson | 1 | 0.1 | 10781.8 | 18705.0 | 20272.3 | 448.9 | 10.1 | 128.0 | 80.0 | 12.5 | 227.2 | 80.0 | 0% | 5 |
-| 2026-03-08 | realizar-cpu | 4 | 0.1 | 37029.1 | 40395.4 | 40435.8 | 18846.8 | 13.8 | 128.0 | 143.7 | 7.0 | 5.5 | 143.7 | 0% | 8 |
-| 2026-03-08 | ollama-cpu | 4 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 100.0% | 517540 |
-| 2026-03-08 | llamacpp-cpu | 4 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | - | - | - | - | 100.0% | 4 |
 | 2026-03-01 | realizar-apr | 4 | 0.4 | 12807.2 | 12950.4 | 12963.4 | 12807.2 | 6.9 | 0.0 | - | - | - | - | 0% | 13 |
 | 2026-03-01 | realizar-gguf-1 | 4 | 1.5 | 2586.0 | 4155.6 | 4179.1 | 2586.0 | 1.5 | 0.0 | - | - | - | - | 0% | 45 |
 | 2026-03-01 | realizar-gguf-2 | 4 | 1.5 | 2510.7 | 3839.4 | 3876.5 | 2510.6 | 1.5 | 0.0 | - | - | - | - | 0% | 45 |
