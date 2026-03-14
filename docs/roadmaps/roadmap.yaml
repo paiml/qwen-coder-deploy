@@ -2104,3 +2104,33 @@ roadmap:
     batch=64 OOMs on 8GB VRAM.
     Max useful batch=32 on RTX 4060 Laptop (8GB).
     Updated forjar-yoga-realizr.yaml: CUDA_MAX_BATCH=16→32.
+
+- id: PMAT-129
+  title: 'PMAT-129: NVIDIA Dynamo agentic inference architecture analysis'
+  status: DONE
+  priority: P2
+  spec_version: '2.91.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Analyze Dynamo architecture layers vs realizr gaps'
+      status: DONE
+      result: '6-layer comparison table: KV cache, batch sizing, routing, prefill/decode, eviction, agent lifecycle'
+    - criterion: 'Quantify fixed-slot VRAM ceiling'
+      status: DONE
+      result: '344 MB/slot (4096 ctx). batch=64 needs 22 GB > 8 GB. Paged KV removes ceiling entirely'
+    - criterion: 'Extract agentic workload access patterns'
+      status: DONE
+      result: 'WORM pattern: 11.7x read/write ratio, 85-97% cache hit, 97.2% multi-agent. Cache routing/retention is central target'
+    - criterion: 'Update roadmap priorities with Dynamo validation'
+      status: DONE
+      result: 'PMAT-052 (paged KV) confirmed P0 keystone. Added P1-P3 layers. Falsification: paged KV must achieve >=80% vLLM at c=32'
+    - criterion: 'Add Dynamo and Mooncake references'
+      status: DONE
+      result: 'Refs 41-42 added to academic references section'
+  notes: |
+    NVIDIA Dynamo (Dhanani & Kosec, Mar 2026) represents next-gen beyond vLLM.
+    Key insight: agentic workloads are WORM cache-dominated (11.7x read/write).
+    KV cache routing and retention > raw decode throughput for production.
+    Paged KV is the keystone — routing, eviction, disagg all build on it.
+    Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
+    4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
