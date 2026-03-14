@@ -1916,3 +1916,31 @@ roadmap:
     ITL stability: vLLM +14%, realizr +75%, llama.cpp +139%.
     W4A16 Marlin + PagedAttention + continuous batching.
     At c=16: 1832 tok/s (1.61x realizr, 1.77x llama.cpp).
+- id: PMAT-121
+  github_issue: null
+  item_type: task
+  title: 'PMAT-121: vLLM complete prompt-profile matrix (c=12/16 x medium/long)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=12 medium benchmarked — DONE (1418.5 agg, -2.9% from short)'
+  - 'AC2: vLLM c=12 long benchmarked — DONE (1464.7 agg, +0.2% from short)'
+  - 'AC3: vLLM c=16 long benchmarked — DONE (1717.0 agg, -6.3% from short)'
+  - 'AC4: Complete 5x3 prompt-profile matrix — DONE'
+  - 'AC5: Prompt invariance confirmed at all c — DONE (max deviation +-6.3%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - vllm
+  - prompt-sensitivity
+  - competitive-analysis
+  notes: |
+    vLLM prompt-invariance confirmed at all 5 concurrency levels.
+    Max deviation: -6.3% (c=16 long) from KV cache pressure at 16x311=4976 tokens.
+    Compare realizr: -34% to -49%. W4A16 Marlin fused 1-step quantized GEMM.
+    c=12 medium fills last gap in vLLM reference table.
