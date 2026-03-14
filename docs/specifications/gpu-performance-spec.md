@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 2.92.0
+**Version:** 2.93.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -52,6 +52,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **PMAT-117 ollama:** Best M=1 decode (164.5 tok/s, +3% vs llama.cpp) but **serial processing** — TTFT explodes at c=4 (602ms, 32× llama.cpp). Production-incompatible at c>1. Only suitable for single-user interactive use.
 - **Production Workload Guide (PMAT-113→117):** No single runtime optimal. c=1-7 + medium prompts → llama.cpp. c≥8 → realizr (FP8 decode, 1.25× at c=8 128-tok). All concurrencies → vLLM (2-3× all others). Single-user → ollama (best M=1 decode, zero-config).
 - **PMAT-125/126/127 high-concurrency (c=16→128):** With batch=16: realizr 1142, llama.cpp ~1020 (plateau). **PMAT-127: batch=32 unlocks 1850 tok/s (+62%), gap to vLLM narrows 0.40x→0.65x.** batch=64 OOMs (8GB). vLLM scales to 3849 via paged KV. Quality: realizr ITL constant 11.7-12.3ms + 0% errors vs vLLM 7.9→26.4ms.
+- **PMAT-130: llama.cpp --parallel 32 REGRESSES.** llama.cpp with --parallel 32 at c=16 = 404.5 (vs 1038 with --parallel 16, **−61%**). Fixed-slot architecture processes all 32 slots per step even with 16 empty. At c=32: realizr 1850 vs llama.cpp 1151 (**1.61×**). realizr's continuous batching scales linearly; llama.cpp's fixed-slot architecture has negative scaling at partial utilization.
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 - **PMAT-105 breakthrough:** LmHead (Q6K, 151,936×1536) was using batched GEMV (reads weights M times) instead of FP8 cuBLASLt (reads weights once). Routing through `batched_gemv_or_gemm` enables FP8 dispatch at M>=5. Single biggest optimization since FP8 prefill. ITL now nearly flat c=4→c=16 (10.4→11.7ms).
 
@@ -754,6 +755,32 @@ Per-request decode degrades ~10% from batch=16 to batch=30 at medium prompts (vs
 **vLLM comparison at c=30 medium:** vLLM 2528 vs realizr batch=30 1004 = **0.40x**. Gap unchanged from batch=16 era (0.42x at c=16 medium). The batch increase improves realizr's absolute throughput (+34%) but doesn't close the vLLM gap because: (1) vLLM scales continuously to c=30 (no batch ceiling), (2) realizr per-request decode degrades more at M=30 (73.9 vs vLLM 98.8 tok/s), (3) realizr TTFT at c=30 medium is 534ms vs vLLM 65ms (8.2×). **The architectural gap is FP8 prefill BW + fixed-slot allocation, not batch size.**
 
 **Architectural implication (reinforces PMAT-129 Dynamo analysis):** The prompt-length dependent batch ceiling is a direct consequence of fixed-slot contiguous KV allocation. With paged KV (PMAT-052), prefill workspace would allocate only the blocks needed (32 blocks for 32 tokens, not 4096 per slot), making the batch ceiling independent of prompt length. This is the same architectural gap that Dynamo's KVBM solves with dynamic block allocation.
+
+**PMAT-130: llama.cpp --parallel 32 matched-parallelism comparison (Mar 14):**
+
+Does increasing llama.cpp's parallelism from 16→32 yield the same throughput gains as realizr's CUDA_MAX_BATCH 16→32? **No — llama.cpp REGRESSES at partially-filled slot arrays.**
+
+| c | realizr b=32 | llama.cpp p=32 | Ratio | realizr ITL | llama.cpp ITL |
+|---|-------------|---------------|-------|-------------|---------------|
+| 1 | — | 157.6 | — | — | 6.2ms |
+| 4 | 355.9 | 354.0 | **1.01x PARITY** | 10.4ms | 11.1ms |
+| 16 | 1,131.7 | **404.5** | **2.80x realizr WINS** | 11.7ms | 14.8ms |
+| 32 | **1,849.7** | 1,151.2 | **1.61x realizr WINS** | **12.3ms** | 27.1ms |
+
+**Critical finding: llama.cpp --parallel 32 is 2.5× SLOWER at c=16 than --parallel 16 (404.5 vs 1037.8).** The per-request decode rate is identical (67.6 vs 67.3 tok/s) — the kernel isn't slower. But aggregate drops from 1038→404, indicating only ~6 of 16 connections are actively decoding simultaneously. Root cause: llama.cpp allocates compute infrastructure for all 32 slots per decode step, even with 16 empty. With `--ctx-size 8192` (8192/32=256 tok/slot), the KV buffer (224 MiB), compute buffer (300 MiB), and scheduler overhead scale with slot count, not active-request count.
+
+**Each runtime at its OPTIMAL parallelism configuration:**
+
+| c | realizr best (config) | llama.cpp best (config) | Ratio | Winner |
+|---|----------------------|------------------------|-------|--------|
+| 1 | 149.5 (b=16) | 161.7 (p=16) | 0.92x | llama.cpp |
+| 4 | 357.2 (b=16) | 365.8 (p=16) | 0.98x | parity |
+| 16 | 1,139.5 (b=16) | 1,037.8 (p=16) | 1.10x | **realizr** |
+| 32 | **1,849.7 (b=32)** | 1,151.2 (p=32) | **1.61x** | **realizr** |
+
+**Scaling architecture difference:** realizr's continuous batching dynamically sizes each decode step to active requests — CUDA_MAX_BATCH=32 means "up to 32", not "always 32". llama.cpp's fixed-slot architecture allocates all slots at startup and processes them all per step. This makes realizr's throughput scale linearly with batch config (batch=16→32 = +62%), while llama.cpp LOSES throughput at partially-utilized slot counts. At full utilization (c=32): realizr 1850 vs llama.cpp 1151 (1.61×) — realizr's DP4A GEMV + continuous batching fundamentally outperforms llama.cpp's Q4K fused GEMM at high batch sizes.
+
+**Falsification condition:** If llama.cpp achieves >1200 tok/s at c=32 with --parallel 32 --ctx-size 8192 on the same hardware, the "fixed-slot overhead" hypothesis is falsified.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
@@ -1975,6 +2002,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-127** | **CUDA_MAX_BATCH scaling (16→32→64)** | **batch=32: +62% aggregate (1142→1850)** | ✅ MEASURED. batch=32 unlocks second plateau at 1850 tok/s. Decode drops 85.7→81.0 (−5.5%), ITL 11.7→12.3ms (+5.1%). batch=64 OOMs during warmup (8GB VRAM, 64 KV slots). Gap to vLLM narrows: 0.40x→0.65x at c=32. Max useful batch=32 on 8GB RTX 4060L. Recommendation: update forjar config from batch=16 to batch=32. |
 | **PMAT-128** | **Prompt-length dependent batch ceiling** | **batch=32 OOMs at medium, max=30 (1004 tok/s, +34%)** | ✅ MEASURED. batch=32 + medium prompt OOMs (M_total=4000 prefill workspace). Max batch: short=32 (1850), medium=30 (1004), long≈16 (estimated). Decode drops −10% at batch=30 (73.9 vs 82 at batch=16). Architectural: fixed-slot prefill workspace scales with batch × prompt_len. Paged KV (PMAT-052) would decouple batch ceiling from prompt length. |
 | **PMAT-129** | **Dynamo agentic inference architecture analysis** | **Architecture gap taxonomy + roadmap update** | ✅ ANALYZED. NVIDIA Dynamo (Dhanani & Kosec, Mar 2026) represents next-gen beyond vLLM. Key insights: WORM KV pattern (11.7× read/write), 4-tier memory hierarchy, KV-aware routing (170M ops/s Flash Indexer), priority eviction > LRU, disaggregated prefill-decode. Fixed-slot VRAM ceiling: 344 MB/slot × 64 = 22 GB > 8 GB. Paged KV confirmed as P0 keystone (PMAT-052). Updated roadmap with Dynamo-validated priority ordering. Falsification: paged KV must achieve ≥80% of vLLM at c=32. |
+| **PMAT-130** | **llama.cpp --parallel 32 matched-parallelism** | **REGRESSES: −61% at c=16 (404 vs 1038)** | ✅ MEASURED. llama.cpp --parallel 32 at c=16 = 404.5 (vs 1037.8 with --parallel 16, −61%). Per-request decode identical (67.6 vs 67.3) but aggregate collapses — only ~6 of 16 connections decode simultaneously. Fixed-slot architecture processes all 32 slots per step (KV 224 MiB, compute 300 MiB). At c=32: llama.cpp 1151 vs realizr 1850 (0.62x). At optimal configs: realizr WINS c≥16 (1.10-1.61×). Continuous batching (realizr) scales linearly with batch; fixed-slot (llama.cpp) has negative scaling at partial utilization. |
 | PMAT-008 | SageAttention INT8 | 2-3x attention | Planned |
 | PMAT-009 | EAGLE speculative decoding | 2-3x | Planned |
 | PMAT-010 | Marlin-style GPTQ kernel | 2.6x | Planned |
@@ -2354,6 +2382,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.93.0 | 2026-03-14 | **PMAT-130: llama.cpp --parallel 32 matched-parallelism comparison.** llama.cpp --parallel 32 REGRESSES at c=16 (404.5 vs 1037.8 with --parallel 16, −61%). Fixed-slot architecture processes all 32 slots per step regardless of active count. Per-request decode identical (67.6 vs 67.3) but aggregate collapses due to compute waste on empty slots. At c=32 full utilization: realizr 1850 vs llama.cpp 1151 (1.61×). realizr's continuous batching scales linearly with batch config; llama.cpp has negative scaling at partial utilization. Architectural: realizr batch=N means "up to N active"; llama.cpp --parallel N means "always N compute slots". |
 | 2.92.0 | 2026-03-14 | **PMAT-128: Prompt-length dependent batch ceiling.** batch=32 OOMs at medium prompts (M_total=4000 prefill workspace exceeds 8GB). Max viable batch: short=32 (1850 tok/s), medium=30 (1004 tok/s, +34% over batch=16), long≈16. Per-request decode −10% at batch=30 medium (73.9 vs 82 at batch=16). Prefill workspace scales with batch × prompt_tokens — fixed-slot contiguous allocation makes batch ceiling prompt-length dependent. Reinforces PMAT-052 paged KV as architectural fix. |
 | 2.91.0 | 2026-03-14 | **PMAT-129: NVIDIA Dynamo agentic inference architecture analysis.** Added comprehensive Dynamo comparison table (6 architectural layers), WORM KV access pattern analysis (11.7× read/write ratio from Claude Code sessions), fixed-slot VRAM ceiling quantification (344 MB/slot × 64 = 22 GB > 8 GB), 4-tier memory hierarchy roadmap, updated realizr priority ordering (PMAT-052 paged KV confirmed P0 keystone), falsification condition for paged KV impact (≥80% of vLLM at c=32). Added Dynamo and Mooncake references. Key insight: production agentic workloads are WORM cache-dominated — KV cache routing and retention matters more than raw decode throughput. |
 | 2.90.0 | 2026-03-14 | **PMAT-127: CUDA_MAX_BATCH scaling analysis.** batch=32 unlocks second plateau at 1850 tok/s (+62% over batch=16's 1142). Per-request decode −5.5% (85.7→81.0), ITL +5.1% (11.7→12.3ms). batch=64 OOMs on 8GB VRAM. Gap to vLLM narrows from 0.40x to 0.65x at c=32. Max useful batch=32 on RTX 4060 Laptop. Recommendation: update forjar config to CUDA_MAX_BATCH=32 for c>16 workloads. |

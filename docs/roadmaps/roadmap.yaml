@@ -2160,3 +2160,30 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-130
+  title: 'PMAT-130: llama.cpp --parallel 32 matched-parallelism comparison'
+  status: DONE
+  priority: P1
+  spec_version: '2.93.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Run llama.cpp --parallel 32 --ctx-size 8192 at c=1,4,16,32'
+      status: DONE
+      result: 'c=1: 157.6 (unchanged), c=4: 354.0 (-3%), c=16: 404.5 (-61%!), c=32: 1151.2'
+    - criterion: 'Compare with realizr batch=32 at same concurrency levels'
+      status: DONE
+      result: 'realizr WINS: c=16 2.80x (1132 vs 405), c=32 1.61x (1850 vs 1151). Parity at c=4'
+    - criterion: 'Identify root cause of llama.cpp regression at partial utilization'
+      status: DONE
+      result: 'Fixed-slot processes all 32 slots per step (KV 224MiB, compute 300MiB) even with 16 active. Per-request decode identical (67.6 vs 67.3) but aggregate collapses'
+    - criterion: 'Document optimal parallelism config for each runtime'
+      status: DONE
+      result: 'realizr: batch=32 best (linear scaling). llama.cpp: --parallel 16 best at c<=16, --parallel 32 only at c=32 full utilization'
+  notes: |
+    Critical architectural finding: realizr continuous batching scales linearly
+    with CUDA_MAX_BATCH (16->32 = +62%). llama.cpp fixed-slot architecture has
+    NEGATIVE scaling at partial utilization (--parallel 32 at c=16 = -61%).
+    llama.cpp processes all N slots per decode step regardless of active count.
+    realizr only processes active requests — batch=N means "up to N".
+    At full utilization (c=32): realizr 1850 vs llama.cpp 1151 (1.61x).
+    DP4A GEMV + continuous batching > fused Q4K GEMM + fixed-slot at high batch.
