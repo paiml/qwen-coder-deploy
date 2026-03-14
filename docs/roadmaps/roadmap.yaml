@@ -2285,8 +2285,29 @@ roadmap:
       status: DONE
       result: '32-tok benchmarks understate realizr advantage. Production-realistic (128-tok) shows 2.94x vs 1.09x'
   notes: |
-    Most significant competitive finding since PMAT-131. 32-tok synthetic
-    benchmarks systematically favor llama.cpp (low KV cache, fast cycling).
-    Production workloads (100-200 tok output) expose llama.cpp fixed-slot
-    attention scaling weakness. realizr advantage at c=16 is 2.7x larger
-    than synthetic benchmarks suggest.
+    CORRECTED by PMAT-136. Initial 2.94x claim was measurement artifact
+    (server degraded state from rapid sequential benchmarking). Corrected
+    ratio: 1.43x at c=16 (not 2.94x). llama.cpp -17% from KV attention
+    cost, realizr +8.9% from TTFT dilution. Shift is +31%, still meaningful.
+- id: PMAT-136
+  title: 'PMAT-136: PMAT-135 verification — correct 2.94x artifact'
+  status: DONE
+  priority: P1
+  spec_version: '2.99.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Re-run llama.cpp 128-tok with clean server restart'
+      status: DONE
+      result: 'c=4: 348 (stable), c=8: 415 (stable), c=16: 860 (was 420, artifact confirmed)'
+    - criterion: 'Determine root cause of PMAT-135 artifact'
+      status: DONE
+      result: 'Rapid sequential benchmarking without server restart caused degraded state. Clean restart gives reproducible results'
+    - criterion: 'Correct spec with verified numbers'
+      status: DONE
+      result: 'Ratio corrected: 1.43x (not 2.94x). llama.cpp -17% (not -59.5%). Effect is +31% (not +170%)'
+  notes: |
+    Important Popperian correction. Initial PMAT-135 finding was too dramatic
+    to be credible. Verification confirmed it was a measurement artifact.
+    The corrected finding (1.43x vs 1.09x at c=16) is still meaningful —
+    128-tok output moderately favors realizr over llama.cpp — but not the
+    dramatic 2.94x initially claimed.
