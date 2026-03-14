@@ -2026,3 +2026,55 @@ roadmap:
     Sweet spot: c=16-32 (decode>100, ITL<10ms).
     c=64: decode 59.3 (oversubscribed), ITL 16.9ms.
     c=128: decode 37.8 (-75% from c=1), ITL 26.4ms.
+
+- id: PMAT-125
+  title: 'PMAT-125: realizr high-concurrency scaling (c=16-128)'
+  status: DONE
+  priority: P2
+  spec_version: '2.89.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure realizr aggregate at c=16,32,64,128 short prompt'
+      status: DONE
+      result: 'c=16: 1140, c=32: 1142, c=64: 1142, c=128: 1143 — flat at batch ceiling'
+    - criterion: 'Measure ITL and error rates at high concurrency'
+      status: DONE
+      result: 'ITL constant 11.7ms, 0% errors at all c — excess requests queue cleanly'
+    - criterion: 'Identify scaling ceiling mechanism'
+      status: DONE
+      result: 'CUDA_MAX_BATCH=16 is hard ceiling. Fixed-slot batch. Need paged KV (PMAT-052) to scale further'
+    - criterion: 'Compare with vLLM PMAT-124 data'
+      status: DONE
+      result: 'vLLM scales 3.4x further (1142→3849). Quality tradeoff: realizr constant ITL vs vLLM degrading'
+  notes: |
+    realizr aggregate plateaus at 1142 tok/s for c>=16.
+    CUDA_MAX_BATCH=16 is the hard ceiling — active batch quality preserved.
+    ITL constant 11.7ms, 0% errors at all c (excess requests queue).
+    TTFT scales linearly: 87ms (c=16) → 3223ms (c=128).
+    Decode constant 85.7 tok/s per request.
+
+- id: PMAT-126
+  title: 'PMAT-126: llama.cpp high-concurrency scaling (c=16-128)'
+  status: DONE
+  priority: P2
+  spec_version: '2.89.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp aggregate at c=16,32,64,128 short prompt'
+      status: DONE
+      result: 'c=16: 1038, c=32: 1011, c=64: 1032, c=128: 1003 — plateau ~1020 (slight decline)'
+    - criterion: 'Measure ITL and error rates at high concurrency'
+      status: DONE
+      result: 'ITL 14.9-15.6ms (stable). Errors 0.7-1.2% (503 when slots full)'
+    - criterion: 'Cross-runtime comparison at c=16-128'
+      status: DONE
+      result: 'Both realizr/llama.cpp fixed-slot plateau. vLLM 3.4x further. realizr best ITL (11.7ms constant)'
+    - criterion: 'Update spec and cross-runtime comparison table'
+      status: DONE
+      result: 'Spec v2.89.0 with 4-column high-concurrency table'
+  notes: |
+    llama.cpp plateaus at ~1020 tok/s with --parallel 16.
+    ITL stable 14.9-15.6ms (30% worse than realizr 11.7ms).
+    Errors 0.7-1.2% vs realizr 0%.
+    TTFT 31.7ms (c=16) → 3586ms (c=128).
+    Both fixed-slot systems cap at 16 concurrent decode slots.
