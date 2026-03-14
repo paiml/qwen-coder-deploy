@@ -1,0 +1,7 @@
+tests:
+  - name: no_system_prompt
+    messages:
+      - role: user
+        content: "Write a Python function to check if a number is prime. Just the function."
+    max_tokens: 128
+    temperature: 0.0

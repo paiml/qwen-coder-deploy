@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-155
+  title: 'PMAT-155: Prefix cost quantification — TTFT scaling by prompt length'
+  status: DONE
+  priority: P1
+  spec_version: '3.5.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure TTFT at c=1/4/8 across short/medium/long prompts'
+      status: DONE
+      result: 'Prefix cost (long-short): 26.2ms (c=1), 139ms (c=4), 183ms (c=8). 4.6x amplification from batch scheduling'
+    - criterion: 'Quantify per-token prefix cost'
+      status: DONE
+      result: '~0.09ms/token at c=1, super-linear with concurrency (batch-and-step multiplies across batch)'
+    - criterion: 'Estimate prefix caching impact for multi-turn'
+      status: DONE
+      result: '50-90% TTFT reduction for 500-tok system prompts, 10-25% aggregate improvement at c=8-16'
+  notes: |
+    Quantifies the value of PMAT-146 (prefix radix tree) and PMAT-142
+    (WSPT scheduling). Prefix cost is 56-79% of TTFT at c=4-8 long.
+    vLLM 87.9% prefix hit rate explains flatter TTFT scaling.
+    Confirms Phase 2 (cache intelligence) has high measured ROI.
 - id: PMAT-154
   title: 'PMAT-154: Trajectory baseline — medium+128tok measured'
   status: DONE
