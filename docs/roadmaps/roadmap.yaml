@@ -2247,3 +2247,24 @@ roadmap:
     2242 tok/s is the highest realizr aggregate ever measured on RTX 4060L.
     Production workloads (100-200 tok output) favor realizr more than
     synthetic 32-tok benchmarks suggest.
+- id: PMAT-134
+  title: 'PMAT-134: realizr output saturation curve (32→512 tokens)'
+  status: DONE
+  priority: P2
+  spec_version: '2.97.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure aggregate at 32/128/256/512 output tokens at c=32'
+      status: DONE
+      result: 'Peak at 128 tok (2242), 256 tok −1.4% (2210), 512 tok −10.4% (2009)'
+    - criterion: 'Identify peak output length and decline rate'
+      status: DONE
+      result: 'Peak at 128 tok. Decline 4x faster than vLLM (−10.4% vs −2.5% at 512)'
+    - criterion: 'Root cause the faster decline vs vLLM'
+      status: DONE
+      result: 'Linear KV scan at 32 concurrent sequences. No PagedAttention block-indexed access'
+  notes: |
+    128 tokens is the optimal output length for maximum aggregate throughput.
+    Beyond 256 tokens, KV attention bandwidth dominates. PagedAttention
+    (PMAT-052) would improve long-output performance via block-indexed access.
+    Production workloads (100-200 tok) are at or near the peak, which is good.
