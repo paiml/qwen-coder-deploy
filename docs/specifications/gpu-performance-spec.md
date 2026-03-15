@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.34.0
+**Version:** 3.35.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -51,7 +51,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 4 | 216.1 | 354.4 | **587.4** | 160.1 | 0.37× | realizr 58 C |
 | 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
 | 16 | 586.5 | 896.6 | **1982.9** | ~160 | 0.30× | realizr 71 B |
-| 32 | 931.2 | 924.4 | **2847.5** | ~160 | 0.33× | — |
+| 32 | 944.7 | 943.2 | **2757.6** | ~160 | 0.34× | — |
 
 **Scorecards (probador llm score, PMAT-177):**
 
@@ -1182,11 +1182,13 @@ c=1 medium+hetero baselines: realizr 146.4, llama.cpp 158.1, vLLM 152.4 tok/s. *
 
 | Runtime | c=1 | c=4 | c=4 eff | c=8 | c=8 eff | c=16 | c=16 eff | c=32 | c=32 eff |
 |---------|------|------|---------|------|---------|-------|----------|-------|----------|
-| realizr | 146.4 | 216.1 | **36.9%** | 355.1 | **30.3%** | 586.5 | **25.0%** | 931.2 | **19.9%** |
-| vLLM | 152.4 | 587.4 | **96.3%** | 1115.2 | **91.4%** | 1982.9 | **81.3%** | 2847.5 | **58.4%** |
-| llama.cpp | 158.1 | 354.4 | **56.1%** | 420.1 | **33.2%** | 896.6 | **35.5%** | 924.4 | **18.3%** |
+| realizr | 146.4 | 216.1 | **36.9%** | 355.1 | **30.3%** | 586.5 | **25.0%** | 944.7 | **20.2%** |
+| vLLM | 152.4 | 587.4 | **96.3%** | 1115.2 | **91.4%** | 1982.9 | **81.3%** | 2757.6 | **56.5%** |
+| llama.cpp | 158.1 | 354.4 | **56.1%** | 420.1 | **33.2%** | 896.6 | **35.5%** | 943.2 | **18.6%** |
 
-*Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling. c=1 through c=16 from PMAT-177; c=32 from PMAT-168 (not re-measured — vLLM c=32 efficiency recalculated against PMAT-177 c=1 baseline).*
+*Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling. All data from PMAT-177/183 production methodology (medium + uniform:16,256, 60s, streaming).*
+
+**vLLM asymptote (PMAT-183):** c=64 → 3036, c=128 → 3049 tok/s. vLLM saturates at **~3050 tok/s** on the 4060L. Per-request decode: 89→49→24 tok/s at c=32/64/128. The GPU is compute-saturated at c=64; additional concurrency adds latency without throughput.
 
 **Per-request decode degradation (decode_cN / decode_c1):**
 
@@ -1491,7 +1493,7 @@ Per-request decode rates across c=1→32 (heterogeneous output, medium prompt). 
 | 4 | 81.7 | 149.6 | 89.4 | **161.0** | 0.55× | 55% |
 | 8 | 74.9 | 142.8 | 53.4 | **160.3** | 0.52× | 51% |
 | 16 | 72.2 | 127.3 | 59.0 | ~160 | 0.57× | 49% |
-| 32 | 69.6 | 92.9 | 61.6 | ~160 | 0.75× | 47% |
+| 32 | 69.7 | 89.4 | 60.5 | ~160 | 0.78× | 47% |
 
 **Key findings:**
 
@@ -3225,6 +3227,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.35.0 | 2026-03-15 | **PMAT-183: c=32/64/128 production sweep + vLLM asymptote.** Fresh c=32 data for all runtimes: realizr 944.7 (was 931.2, +1.5%), llama.cpp 943.2 (was 924.4, +2.0%), vLLM 2757.6 (was 2847.5, -3.2%, within scheduler variance). realizr and llama.cpp at exact parity (1.002×). vLLM c=64: 3036 (+10%), c=128: 3049 (+0.4%). **vLLM asymptotes at ~3050 tok/s on RTX 4060L** — GPU compute-saturated at c=64. Per-request decode: 89→49→24 at c=32/64/128. Scaling efficiency c=32: realizr 20.2%, llama.cpp 18.6%, vLLM 56.5%. All c=32 data now from single session with consistent methodology. |
 | 3.34.0 | 2026-03-15 | **PMAT-182: Ollama production benchmarks — M=1 decode ceiling.** Added ollama to PMAT-177 production sweep (medium + uniform:16,256, 60s, streaming). c=1: agg 151.8, decode **163.5** (best of all runtimes), ITL 6.1ms (best), TTFT 70.6ms. c=4: agg 160.1 (serial, flat). c=8: agg 159.4. Ollama proves Q4K kernel ceiling is 163.5 tok/s with zero scheduling overhead — 10% above realizr's 148.3 (realizr's scheduler costs ~10% at c=1). Per-request decode retention: 98.5% at c=4, 98.0% at c=8 (serial processing = immune to concurrency). Added to exec summary table, PMAT-172 decode table, and scaling efficiency findings. |
 | 3.33.0 | 2026-03-15 | **PMAT-181: Projected composite scores with Phase 1+CB.** Applied scoring contract (v3.0.0 absolute thresholds) to PMAT-180 throughput projections. Phase 1+CB lifts realizr from 62-71 (C+/B) to 87-95 (A-/A). Adding Phase 0 reaches 92-98 (A/A+), matching vLLM 96 A+. The 90→96 gap at c=8 is entirely TTFT (80ms vs 29ms). Falsification conditions defined: ≥85 A- = pass, <70 B = fail (decode rate didn't restore). |
 | 3.32.0 | 2026-03-15 | **PMAT-180: Corrected phase projections — continuous batching is the binding fix.** Using the PMAT-179 2-factor decomposition to project Phase 0/1/CB impact: paged KV + continuous batching reaches 0.97× vLLM at ALL concurrency levels (c=4,8,16). Phase 0 adds zero additional throughput once CB is present — its value is c=1 latency only. Phase 1 without CB gets only 0.50× vLLM at c=8 (fixes hetero penalty but not decode degradation). This corrects PMAT-173's c=16 projection from 0.80× to 0.97× — the 23% model gap was the 3-factor model's concurrency-invariance assumption, not a fundamental ceiling. Per-request decode with CB tracks vLLM's curve × 0.97 (Q4K vs AWQ c=1 ratio). |
