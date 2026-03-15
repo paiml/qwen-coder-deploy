@@ -85,10 +85,10 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **c=8 aggregate:** **637.8** vs 430.0 (**1.48x WINS**) — FP8 tensor cores at M>=5. ⚠️ Disappears with heterogeneous output (0.84×)
 - **c=16 aggregate:** **1139.5** vs 1000.4 (**1.14x**) — 0% errors vs 2.2%. Medium prompt: 0.72× (TTFT dominates)
 - **vLLM reference:** c=4 551, c=8 1023, c=16 1779 — dominates all configs. Prompt-invariant (±6%).
-- **High-concurrency (PMAT-127):** batch=32 unlocks 1850 tok/s at c=32. Gap to vLLM: 0.40×→0.65×. batch=64 OOMs.
+- **High-concurrency (PMAT-192):** batch=32 saturates at ~1500 tok/s (c=64/128). Gap to vLLM: 0.49× constant at saturation. Quality crossover at c=128 (realizr 66 C+ > vLLM 63 C+).
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
-**Roadmap:** Phase 1 (paged KV + continuous batching) is the **single critical investment** → Phase 0 (fused Q4K GEMM) is optional for c=1 latency → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179):** gap = decode_rate(0.52-0.57) × scheduling_utilization(0.52-0.67). **Phase projections (PMAT-180):** paged KV + continuous batching → 0.97× vLLM at all c. **Iso-quality gap (PMAT-187/188):** 12.8× at ITL≤12ms → 1.4× after Phase 1+CB. realizr's ITL consistency (jitter ≤1.08) is an architectural advantage to preserve. Target: ≥0.90× vLLM at c=8 after Phase 1.
+**Roadmap:** Phase 1 (paged KV + continuous batching) is the **single critical investment** → Phase 0 (fused Q4K GEMM) is optional for c=1 latency → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179):** gap = decode_rate(0.52-0.57) × scheduling_utilization(0.52-0.67). **Phase projections (PMAT-180):** paged KV + continuous batching → 0.97× vLLM at all c. **Iso-quality gap (PMAT-187/193):** 12.8× at ITL≤12ms, **2.0× at ITL≤21ms** → 1.4× after Phase 1+CB. **Quality crossover (PMAT-192):** realizr BEATS vLLM at c=128 (66 vs 63 C+) — batch=32 caps decode degradation while vLLM's per-request quality collapses. realizr's ITL consistency (jitter ≤1.11) is an architectural advantage to preserve. Target: ≥0.90× vLLM at c=8 after Phase 1.
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
