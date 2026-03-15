@@ -52,10 +52,10 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 16 | 585.9 | 914.9 | **1528.2** | 0.64× L | 0.38× | realizr 56 C |
 | 32 | 931.2 | 924.4 | **2847.5** | **1.01× L** | 0.33× | — |
 
-**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits:
-1. **TTFT penalty** (FP8 2-step prefill, 4-9× slower than llama.cpp) → fused Q4K GEMM (PMAT-054)
-2. **Output heterogeneity** (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171) → paged KV (PMAT-052)
-3. **Scaling efficiency** (25-37% vs vLLM's 75-94%, PMAT-163) → paged KV enables per-token allocation
+**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits (PMAT-173 multiplicative decomposition, 99% model fit):
+1. **Decode rate degradation** (0.52× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching
+2. **Output heterogeneity** (0.66× factor — contiguous KV wastes 36% vs vLLM's 3%, PMAT-171) → paged KV (PMAT-052)
+3. **TTFT penalty** (0.95× factor at 130-tok avg output — FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
 
 **The gap is NOT kernel speed — realizr is 15% faster than vLLM at c=1** (146 vs 127 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~3. *(Note: vLLM has ±10-15% run-to-run variance from scheduler timing; PMAT-170 A/B measured 587-1905 tok/s vs PMAT-157 baseline 476-1528. realizr variance <2%. Competitive conclusions are robust to this variance.)*
 
