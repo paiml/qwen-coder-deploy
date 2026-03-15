@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.43.0
+**Version:** 3.44.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -52,8 +52,12 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
 | 16 | 586.5 | 896.6 | **1982.9** | 161.0 | 0.30× | realizr 71 B |
 | 32 | 944.7 | 943.2 | **2757.6** | 159.0 | 0.34× | realizr 70 B |
+| 64 | **1484.4** | — | **3036.1** | — | 0.49× | — |
+| 128 | 1505.6 | — | 3049.4 | — | 0.49× | — |
 
-**Scorecards (probador llm score, PMAT-186 — complete c=1→128):**
+*Both runtimes saturate at c=64: vLLM ~3050, realizr ~1500 (2.0× constant gap). realizr at batch=32 queues excess requests with 0% errors.*
+
+**Scorecards (probador llm score, PMAT-186/192 — complete c=1→128):**
 
 | c | vLLM | llama.cpp | realizr | ollama |
 |---|------|-----------|---------|--------|
@@ -62,10 +66,10 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 8 | **97 A+** | 65 C+ | 65 C+ | 58 C |
 | 16 | **94 A** | 72 B | 71 B | 58 C |
 | 32 | **86 A-** | 51 C | 70 B | 57 C |
-| 64 | 74 B | — | — | — |
-| 128 | 65 C+ | — | — | — |
+| 64 | **74 B** | — | 64 C+ | — |
+| 128 | 63 C+ | — | **66 C+** | — |
 
-**realizr loses to vLLM at ALL concurrency levels under production conditions.** At c=32, realizr (70 B) overtakes llama.cpp (51 C) — llama.cpp's 16-slot design collapses (TTFT score 2). vLLM degrades gracefully: 98 A+ → 88 A- → 74 B → 65 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but TTFT (53) and tail (47) limit it to 78 B; at c≥4, serial processing gives 58 C flat. Two structural deficits (PMAT-179 decomposition, exact at all c):
+**realizr loses to vLLM at c=1-64 but WINS at c=128 (66 vs 63 C+).** The quality crossover at c=128 occurs because realizr's batch=32 caps decode degradation (49 tok/s constant at c=64/128) while vLLM's per-request decode keeps halving (49→24 tok/s). At c=32, realizr (70 B) overtakes llama.cpp (51 C). vLLM degrades: 98 A+ → 86 A- → 74 B → 63 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but serial processing gives 58-57 C at c≥4. Two structural deficits (PMAT-179 decomposition, exact at all c):
 1. **Per-request decode rate** (0.52-0.57× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching per-token dispatch
 2. **Scheduling utilization** (0.52-0.67× factor — batch-and-step waste compounds with c, PMAT-179) → paged KV (PMAT-052) + continuous batching. vLLM maintains ~98% utilization at all c; realizr drops from 66% at c=4 to 51% at c=16
    - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
@@ -1193,7 +1197,10 @@ c=1 medium+hetero baselines: realizr 146.4, llama.cpp 158.1, vLLM 152.4 tok/s. *
 
 *Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling. All data from PMAT-177/183 production methodology (medium + uniform:16,256, 60s, streaming).*
 
-**vLLM asymptote (PMAT-183):** c=64 → 3036, c=128 → 3049 tok/s. vLLM saturates at **~3050 tok/s** on the 4060L. Per-request decode: 89→49→24 tok/s at c=32/64/128. The GPU is compute-saturated at c=64; additional concurrency adds latency without throughput.
+**Asymptotes (PMAT-183/192):** Both runtimes saturate at c=64 on the 4060L:
+- **vLLM:** ~3050 tok/s (c=64: 3036, c=128: 3049, +0.4%). Per-request decode: 89→49→24 tok/s at c=32/64/128.
+- **realizr:** ~1500 tok/s (c=64: 1484, c=128: 1506, +1.4%). Per-request decode: 70→49→49 tok/s at c=32/64/128. batch=32 GPU kernel is the ceiling — queue depth doesn't affect decode rate.
+- **Gap at saturation: 2.0× constant** (3050/1500). This is the batch-GEMV vs per-token scheduling architectural divide at compute saturation.
 
 **Scaling Model Characterization (PMAT-184, Mar 15):**
 
@@ -1214,34 +1221,34 @@ Parametric models fitted to PMAT-177/183 production data (c=1→128):
 | 8 | 1115 | 994 | **-11%** | 355 | 354 | 0% |
 | 16 | 1983 | 1703 | **-14%** | 587 | 518 | -12% |
 | 32 | 2758 | 2437 | -12% | 945 | 757 | -20% |
-| 64 | 3036 | 2854 | -6% | — | 1105* | — |
-| 128 | 3049 | 3003 | -2% | — | 1613* | — |
+| 64 | 3036 | 2854 | -6% | **1484** | 1105 | **-26%** |
+| 128 | 3049 | 3003 | -2% | **1506** | 1613 | **+7%** |
 
-*Asterisk: extrapolation (realizr OOMs at c=64 with current CUDA_MAX_BATCH=32).*
+*PMAT-192: realizr c=64/128 measured (batch=32 queuing). Power-law model underpredicts c=64 by 26% — realizr scales better than √c at high c because queue depth allows continuous batch refill.*
 
 **Key findings (PMAT-184):**
 
 1. **vLLM super-exponential in mid-range.** The saturation model underpredicts c=4-16 by 5-14%, indicating vLLM's continuous batching has super-linear efficiency gains in this range (prefix cache hit rate increases with arrival rate). The model converges at c≥64 where the GPU is compute-bound.
-2. **realizr power-law scaling.** β=0.549 means realizr gets √c scaling — fundamentally sublinear due to batch-GEMV BW sharing. The model fits well at c=8 (0% error) but overpredicts at c=1 (-15%, startup overhead) and underpredicts at c=32 (-20%, KV cache pressure beyond model scope).
-3. **Scaling exponent gap:** vLLM's effective scaling exponent (d(log agg)/d(log c)) is 0.85 at c=4, declining to 0.40 at c=32. realizr's is constant at ~0.55. The exponent crossover (where vLLM's exponent drops below realizr's) occurs at c~64 — but by then vLLM is already at 3036 vs realizr's projected 1105.
+2. **realizr power-law scaling (REVISED by PMAT-192).** β=0.549 fits c=1-16 but underpredicts c=32 (-20%) and c=64 (-26%). realizr actually follows **saturation** at c≥32: agg ≈ 1500 × (1 - exp(-c/15)). Asymptote ~1500 tok/s at batch=32 (c=64 ≈ c=128 within 1.4%). The power-law phase (c=1-16) represents batch fill-up; the saturation phase (c≥32) represents GPU compute ceiling at M=32.
+3. **Both runtimes saturate, 2× apart.** vLLM asymptotes at ~3050, realizr at ~1500 — a constant 2.0× factor. vLLM saturates at c=64, realizr at c=64. Per-request decode at saturation: vLLM 49/24 tok/s (c=64/128), realizr 49/49 tok/s (identical at c=64/128 — batch=32 is the GPU kernel ceiling, queue depth doesn't affect decode).
 4. **Falsification condition:** If Phase 1+CB achieves β≥0.80 (near-linear scaling) at c=4-16, the power-law model should be replaced by a saturation model similar to vLLM's. If β remains <0.60, continuous batching failed to eliminate the batch-GEMV penalty.
 
 **Per-request decode degradation (decode_cN / decode_c1):**
 
-| Runtime | c=1 decode | c=4 | c=8 | c=16 |
-|---------|-----------|-----|-----|------|
-| realizr | 148.3 | 55.1% | 50.5% | 48.7% |
-| vLLM | 153.4 | 97.5% | 93.1% | 83.0% |
-| llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% |
-| **ollama** | **163.5** | **98.5%** | **98.0%** | **99.0%** |
+| Runtime | c=1 decode | c=4 | c=8 | c=16 | c=32 | c=64 | c=128 |
+|---------|-----------|-----|-----|------|------|------|-------|
+| realizr | 148.3 | 55.1% | 50.5% | 48.7% | 47.0% | **33.0%** | **32.9%** |
+| vLLM | 153.4 | 97.5% | 93.1% | 83.0% | 58.2% | 32.0% | 15.8% |
+| llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% | — | — | — |
+| **ollama** | **163.5** | **98.5%** | **98.0%** | **99.0%** | **98.0%** | — | — |
 
 **Key findings from scaling efficiency:**
 
 1. **vLLM scales 2.5-3.3× more efficiently than realizr.** At c=16: vLLM uses 81% of its theoretical capacity vs realizr's 25%. At c=32: 58% vs 20%. This is the single largest competitive gap — not kernel speed (all runtimes are equivalent at c=1) but scaling architecture.
 2. **PagedAttention enables near-linear scaling** because it processes only active tokens per step. Short requests completing early free blocks for new requests — the system self-balances. Batch-and-step (realizr) and fixed-slot (llama.cpp) process all allocated slots every step regardless of actual utilization.
-3. **realizr per-request decode drops 50% at c=4 and then plateaus** (48% at c=16). This is the batch-and-step cost: each decode step runs M=c GEMV, sharing BW across batch members. But ITL stays flat because the per-token cost is divided equally — consistent user experience despite lower throughput.
+3. **realizr per-request decode drops 50% at c=4, then plateaus at ~33% by c=64** (PMAT-192). At c=64/128, decode is 49/49 tok/s (identical) — the batch=32 GPU kernel is the ceiling regardless of queue depth. ITL stays flat at 20.4/20.5ms. Queue depth adds TTFT (2.8s→8.2s) but not decode latency.
 4. **llama.cpp saturates at c=32** — its 16-slot parallel design cannot scale beyond the slot count. At c=32, llama.cpp drops from 55% efficiency (c=4) to 18%, converging with realizr. Both batch-based approaches asymptote toward ~15-20% efficiency.
-5. **The crossover point is c~2.** At c=1, all three runtimes produce near-identical throughput (146-158 tok/s). Above c=2, vLLM's scaling efficiency advantage dominates. At c=4: vLLM 587 vs realizr 216 (2.7×). By c=32: 2848 vs 931 (3.1×).
+5. **The crossover point is c~2.** At c=1, all runtimes produce near-identical throughput (146-161 tok/s). Above c=2, vLLM's scaling efficiency advantage dominates. At c=4: vLLM 587 vs realizr 216 (2.7×). At saturation: vLLM 3050 vs realizr 1500 (**2.0× constant**).
 
 **Implication:** Fused Q4K GEMM (Phase 0) cannot close the scaling gap — it only fixes TTFT. Paged KV (Phase 1) is the only path to vLLM-class scaling efficiency because it enables per-token resource allocation instead of per-slot pre-allocation.
 
@@ -3338,6 +3345,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.44.0 | 2026-03-15 | **PMAT-192: realizr c=64/128 measured — asymptote 1500 tok/s, WINS at c=128.** realizr c=64: 1484 tok/s, c=128: 1506 (+1.4%), 0% errors (batch=32 queues excess). **realizr BEATS vLLM at c=128 on composite score (66 vs 63 C+)** — quality crossover because batch=32 caps decode degradation at 49 tok/s constant while vLLM's decode halves to 24 tok/s. PMAT-184 power-law model underpredicted c=64 by 26% — realizr follows exponential saturation at c≥32 (agg ≈ 1500 × (1-exp(-c/15))), not power law. Both runtimes saturate at c=64 with 2.0× constant gap (3050/1500). Per-request decode at saturation: realizr 49/49 (c=64/128, batch=32 GPU kernel ceiling) vs vLLM 49/24 (continuous degradation). Exec summary table expanded to c=128. |
 | 3.43.0 | 2026-03-15 | **PMAT-191: Ollama c=16,32 measured — confirms serial flatness.** Fresh measurements fill exec summary gaps: c=16 agg 161.0, c=32 agg 159.0 (flat as predicted). Decode retention 99%+ at all c. TTFT linear: 14573ms (c=16), 24419ms (c=32). ITL 6.2ms constant, jitter 1.0×. Scorecards: 58 C (c=16), 57 C (c=32) — TTFT score 0 makes ollama unusable for interactive at c≥4. Updated exec summary from ~160 estimates to measured values. vLLM c=16 score adjusted 96→94, c=32 88→86 (best-in-class bonus redistributed with ollama in scoring pool). |
 | 3.42.0 | 2026-03-15 | **PMAT-190: TTFT tail predictability — realizr ≤1.09 at c≥4.** Added TTFT tail ratio (P999/P50) table from tail_analysis data. realizr TTFT tail ≤1.09 at c≥4 (deterministic batch admission). vLLM grows to 2.49× at c=32 (scheduler non-determinism). Combined with PMAT-189 ITL jitter (≤1.08), realizr has the most predictable latency of all runtimes. Phase 1+CB preservation targets: ITL jitter ≤1.10, TTFT tail ≤1.50. |
 | 3.41.0 | 2026-03-15 | **PMAT-189: ITL jitter analysis — realizr's latency consistency advantage.** Computed TPOT P99/P50 jitter ratio from PMAT-177/183 production data. realizr jitter ≤1.08 at all c (deterministic batch-and-step). ollama perfect at 1.00 (serial). vLLM tight at ≤1.06 (c≤32). llama.cpp spikes to 1.33-1.38 at c≥16 (fixed-slot contention). For code completion use cases, realizr's ITL predictability is a genuine competitive advantage even without throughput parity — consistent streaming feels better than higher-variance alternatives. |

@@ -2160,6 +2160,38 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-192
+  title: 'PMAT-192: realizr c=64/128 — asymptote 1500 tok/s, quality crossover at c=128'
+  status: DONE
+  priority: P1
+  spec_version: '3.44.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure realizr at c=64 with batch=32 queuing'
+      status: DONE
+      result: 'agg 1484, decode 48.9, ITL 20.4ms, TTFT 2813ms, 0% errors'
+    - criterion: 'Measure realizr at c=128 with batch=32 queuing'
+      status: DONE
+      result: 'agg 1506 (+1.4%), decode 48.8, ITL 20.5ms, TTFT 8235ms, 0% errors'
+    - criterion: 'Score and compare with vLLM at c=64/128'
+      status: DONE
+      result: 'c=64: vLLM 74B > realizr 64C+. c=128: realizr 66C+ > vLLM 63C+ (QUALITY CROSSOVER)'
+    - criterion: 'Update PMAT-184 scaling model with measured data'
+      status: DONE
+      result: 'Power law underpredicts c=64 by 26%. Realizr follows saturation at c≥32, not power law'
+  notes: |
+    Major finding: realizr BEATS vLLM at c=128 on composite score. The
+    quality crossover happens because batch=32 caps decode degradation
+    (49 tok/s constant at c=64/128) while vLLM's per-request decode keeps
+    halving (49→24). This is an architectural advantage of fixed-batch:
+    each request in the batch gets the same kernel performance regardless
+    of how many requests are queued. vLLM's continuous batching serves more
+    requests but each gets progressively worse service.
+
+    Asymptote comparison: vLLM 3050, realizr 1500 — 2.0× constant gap.
+    Both saturate at c=64. The "OOMs at c=64" note was wrong — that was
+    with CUDA_MAX_BATCH=64 (pre-allocating 64 slots). batch=32 + c=64
+    queues successfully with 0% errors.
 - id: PMAT-191
   title: 'PMAT-191: Ollama c=16,32 measured — confirms serial flatness'
   status: DONE
