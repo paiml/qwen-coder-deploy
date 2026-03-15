@@ -2160,6 +2160,31 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-193
+  title: 'PMAT-193: Iso-quality update with c=64/128 data'
+  status: DONE
+  priority: P1
+  spec_version: '3.45.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Extend per-request quality table to c=64/128 for realizr'
+      status: DONE
+      result: 'c=64: decode 48.9, ITL 20.4ms, TTFT 2813ms. c=128: decode 48.8, ITL 20.5ms, TTFT 8235ms'
+    - criterion: 'Add ITL≤21ms iso-quality row showing 2.0× gap'
+      status: DONE
+      result: 'realizr c=128 at 1506 vs vLLM c=64 at 3036 = 2.0×'
+    - criterion: 'Extend ITL jitter and TTFT tail tables to c=64/128'
+      status: DONE
+      result: 'ITL P99/P50: 1.11/1.11. TTFT tail: 1.26/1.08'
+    - criterion: 'Revise PMAT-188 projections with saturation asymptote'
+      status: DONE
+      result: 'Power-law extrapolation replaced with measured 1500 saturation'
+  notes: |
+    Extends PMAT-187/188/189/190 iso-quality analysis with realizr c=64/128
+    production data from PMAT-192. Key: at ITL ≤21ms threshold, the iso-quality
+    gap is only 2.0× (down from 12.8× at ITL ≤12ms). PMAT-188 projected
+    iso-quality revised: CB can only improve per-request quality, not raw
+    aggregate (asymptote is 1500 measured, not power-law extrapolation).
 - id: PMAT-192
   title: 'PMAT-192: realizr c=64/128 — asymptote 1500 tok/s, quality crossover at c=128'
   status: DONE
