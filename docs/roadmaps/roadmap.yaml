@@ -2160,6 +2160,30 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-173
+  title: 'PMAT-173: Multiplicative gap decomposition (c=8 heterogeneous)'
+  status: DONE
+  priority: P1
+  spec_version: '3.24.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Decompose realizr/vLLM gap into independent multiplicative factors'
+      status: DONE
+      result: 'decode(0.52) × hetero(0.66) × TTFT(0.95) = 0.33×, 99% model fit'
+    - criterion: 'Project throughput impact of each Phase fix at c=8'
+      status: DONE
+      result: 'Phase 0 +7%, Phase 1 +52%, Phase 0+1 +63%, all three +204% (0.99× vLLM)'
+    - criterion: 'Identify dominant bottleneck'
+      status: DONE
+      result: 'Per-request decode rate (0.52) from batch-GEMV KV scan. Continuous batching required'
+  notes: |
+    This reframes optimization priorities. Phase 0 (TTFT fix) has minimal throughput
+    impact at c=8 (+7%) because TTFT is only 8% of request time at 130 avg output.
+    Phase 0's real value is latency for interactive single-request use, not aggregate
+    throughput. Phase 1 (paged KV) alone adds +52% but reaches only 0.50× vLLM.
+    Full parity (0.99×) requires all three: fused Q4K + paged KV + continuous batching.
+    The decode rate gap (0.52) is the largest factor and requires continuous batching
+    (per-token dispatch) to eliminate batch-GEMV KV scan penalty.
 - id: PMAT-172
   title: 'PMAT-172: Per-request decode rate scaling (c=1→32)'
   status: DONE
