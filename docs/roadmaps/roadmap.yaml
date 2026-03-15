@@ -2160,6 +2160,29 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-174
+  title: 'PMAT-174: Cross-concurrency gap decomposition validation'
+  status: DONE
+  priority: P1
+  spec_version: '3.25.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure fixed:128 at c=4,16 for all 3 runtimes'
+      status: DONE
+      result: 'realizr c=4 314.7, c=16 1003.3. vLLM c=4 588.9, c=16 2001.6. llama.cpp c=4 372.6, c=16 1137.0'
+    - criterion: 'Validate 3-factor model at c=4,8,16'
+      status: DONE
+      result: 'c=4 +6%, c=8 -1%, c=16 +23%. 4th factor at high c'
+    - criterion: 'Project all-fixes throughput at each c level'
+      status: DONE
+      result: 'c=4 0.93× vLLM, c=8 0.99×, c=16 0.80×'
+  notes: |
+    Three-factor model (decode × hetero × TTFT) captures 77-101% of the gap.
+    The 23% c=16 overprediction reveals a 4th factor — likely batch formation
+    overhead or CUDA kernel launch cost that scales super-linearly with M=16.
+    Phase 0 TTFT value grows with concurrency: +2% at c=4, +7% at c=8, +13%
+    at c=16. Phase 1 paged KV is consistently the larger fix (+35-52%).
+    All 3 fixes project to 0.80-0.99× vLLM across c=4-16.
 - id: PMAT-173
   title: 'PMAT-173: Multiplicative gap decomposition (c=8 heterogeneous)'
   status: DONE

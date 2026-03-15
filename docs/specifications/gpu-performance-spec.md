@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.24.0
+**Version:** 3.25.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1354,6 +1354,26 @@ Prediction accuracy: 352 predicted vs 357 actual = **99% model fit**. The three 
 
 **This reframes Phase 0 ROI:** At c=8 medium output, Phase 0 adds only 25 tok/s. At c=1 or short output, TTFT dominates and Phase 0 is critical. The fix is more valuable for latency-sensitive single-request use cases than for throughput at concurrency. **Phase 0's real value is TTFT, not aggregate throughput.**
 
+**Cross-concurrency validation (PMAT-174):**
+
+| c | Decode | Hetero | TTFT | Predicted | Actual | Error |
+|---|--------|--------|------|-----------|--------|-------|
+| 4 | 0.57 | 0.74 | 1.00 | 230 | 218 | +6% |
+| 8 | 0.52 | 0.66 | 0.95 | 352 | 357 | **-1%** |
+| 16 | 0.69 | 0.86 | 0.90 | 824 | 668 | +23% |
+
+The model fits c=4 and c=8 (≤6% error) but **overpredicts c=16 by 23%** — a 4th factor emerges at high concurrency. Likely candidates: batch formation overhead, CUDA kernel launch cost scaling super-linearly with M, or TTFT queuing delays. The model captures 77-101% of the gap.
+
+**Phase impact projections across concurrency (all fixes = fused Q4K + paged KV + continuous batching):**
+
+| c | Current | Phase 0 | Phase 1 | Phase 0+1 | All 3 fixes | vs vLLM |
+|---|---------|---------|---------|-----------|-------------|---------|
+| 4 | 218 | 223 (+2%) | 293 (+35%) | 299 (+37%) | **509** | **0.93×** |
+| 8 | 357 | 382 (+7%) | 543 (+52%) | 581 (+63%) | **1081** | **0.99×** |
+| 16 | 668 | 754 (+13%) | 776 (+16%) | 875 (+31%) | **1235** | **0.80×** |
+
+**Phase 0's TTFT fix grows in value with concurrency** — +2% at c=4, +7% at c=8, +13% at c=16 — because TTFT is a larger fraction of total time when batch prefill processes more tokens. But Phase 1 (paged KV) is consistently the larger individual fix (+35-52%). The c=16 all-fixes projection (0.80× vLLM) has a 23% model gap suggesting a 4th factor caps scaling.
+
 **Falsification:** If Phase 1 (paged KV + continuous batching) achieves <0.80× vLLM at c=8, the remaining gap is in the decode kernel itself (not scheduling). If it achieves >0.95×, the decode kernel is competitive and the gap was purely architectural.
 
 **Per-Request Decode Rate Scaling (PMAT-172, Mar 15):**
@@ -2687,6 +2707,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-174** | **Cross-concurrency gap decomposition validation (c=4,8,16)** | **Model fits c=4,8 (≤6% error), overpredicts c=16 by 23% — 4th factor** | ✅ MEASURED + DERIVED. Fixed:128 benchmarks at c=4,16 for all 3 runtimes to provide heterogeneity baselines. Model: c=4 predicted 230 vs actual 218 (+6%), c=8 predicted 352 vs 357 (-1%), c=16 predicted 824 vs 668 (+23%). The 23% c=16 error reveals a 4th factor (batch formation or kernel launch overhead) at high concurrency. Phase projections: all 3 fixes give 0.93× vLLM at c=4, 0.99× at c=8, 0.80× at c=16. Phase 0 value grows with c (+2% at c=4, +13% at c=16). |
 | **PMAT-173** | **Multiplicative gap decomposition (c=8)** | **Gap = decode(0.52) × hetero(0.66) × TTFT(0.95) = 0.33×, 99% model fit** | ✅ DERIVED. Three independent factors fully explain realizr/vLLM gap at c=8 hetero: per-request decode rate (0.52, batch-GEMV scaling), output heterogeneity (0.66, contiguous KV), TTFT overhead (0.95, FP8 2-step). Combined prediction: 1093×0.52×0.66×0.95 = 352 vs actual 357 (99% fit). Phase projections: Phase 0 alone +7% (TTFT is only 8% of request time), Phase 1 alone +52%, Phase 0+1 +63% (0.53× vLLM, insufficient), all three +204% (0.99× vLLM). Continuous batching is the dominant fix. TTFT fix has minimal throughput impact at c=8 — its value is latency, not aggregate. |
 | **PMAT-172** | **Per-request decode rate scaling (c=1→32)** | **realizr loses 45% decode by c=4; vLLM maintains 93% through c=8** | ✅ COMPILED from PMAT-166/168/170/171 heterogeneous data. realizr 148→81 tok/s at c=4 (55% retention), plateaus at 70 by c=32 (47%). vLLM 154→143 at c=8 (93%), drops to 93 at c=32 (61%). Batch-GEMV KV scan grows linearly with M — at M=8 the 4060L bandwidth is saturated. vLLM avoids this via per-token scheduling (continuous batching). Paged KV alone insufficient — continuous batching required for decode rate preservation. Architecturally confirms Phase 1 scope = paged KV + continuous batching. |
 | **PMAT-171** | **Output-length isolation (hetero penalty quantification)** | **realizr 36% penalty vs vLLM 3% — contiguous KV is root cause** | ✅ MEASURED. Fixed output (32/128/256) vs heterogeneous (uniform:16,256) at c=8, all 3 runtimes. realizr penalty 36% (558.6→356.7), llama.cpp 6% (446.2→417.1), vLLM 3% (1125.2→1093.2). realizr's contiguous KV pre-allocates max_tokens per slot; short-completing requests waste capacity. vLLM PagedAttention releases blocks on completion — near-zero penalty. Phase 1 paged KV projected to recover ~200 tok/s (+5-7 composite points). Falsification: paged KV must reduce penalty to <10%. |
@@ -3095,6 +3116,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.25.0 | 2026-03-15 | **PMAT-174: Cross-concurrency gap decomposition validation.** Fixed:128 benchmarks at c=4,16 for all 3 runtimes. Three-factor multiplicative model (decode × hetero × TTFT) fits c=4 (+6%), c=8 (-1%), but overpredicts c=16 (+23%) — a 4th factor emerges at high concurrency (batch formation overhead or CUDA kernel launch scaling). Phase projections: all 3 fixes (fused Q4K + paged KV + continuous batching) reach 0.93× vLLM at c=4, 0.99× at c=8, 0.80× at c=16. Phase 0 TTFT value grows with concurrency (+2% at c=4 → +13% at c=16). |
 | 3.24.0 | 2026-03-15 | **PMAT-173: Multiplicative gap decomposition at c=8.** Three independent factors fully explain realizr/vLLM gap (0.33×): per-request decode rate (0.52 — batch-GEMV KV scan scaling), output heterogeneity (0.66 — contiguous KV penalty), TTFT overhead (0.95 — FP8 2-step). Prediction: 1093×0.52×0.66×0.95 = 352 vs actual 357 (99% fit). Phase 0 (TTFT fix) adds only +7% at c=8 because TTFT is 8% of request time at 130 avg output — its value is latency, not throughput. Phase 1 alone +52%. All three fixes (TTFT + paged KV + continuous batching) project to 0.99× vLLM. Reframes optimization priority: continuous batching is the dominant throughput fix; Phase 0 is a latency fix. |
 | 3.23.0 | 2026-03-15 | **PMAT-172: Per-request decode rate scaling (c=1→32).** Compiled from PMAT-166/168/170/171 heterogeneous data. realizr loses 45% of per-request decode by c=4 (148→81 tok/s), plateaus at ~70 by c=32. vLLM maintains 93% through c=8 (154→143), only drops at c≥16 when GPU compute saturates. Batch-GEMV KV scan grows linearly with batch size — at M=8 the 4060L's 256 GB/s is saturated. vLLM's per-token scheduling avoids the batch-GEMV penalty entirely. Architecturally confirms Phase 1 scope must include continuous batching, not just paged KV — either alone is insufficient. |
 | 3.22.0 | 2026-03-15 | **PMAT-171: Output-length isolation — heterogeneous penalty quantification.** Fixed output (32/128/256 tok) vs heterogeneous (uniform:16,256) at c=8 for all 3 runtimes. realizr suffers 36% penalty (558.6→356.7 tok/s) from contiguous KV pre-allocation. vLLM near-immune at 3% (PagedAttention releases blocks on completion). llama.cpp modest 6% (fixed-slot even allocation). This directly quantifies Phase 1 (paged KV) production value: ~200 tok/s recovery, +5-7 composite points. realizr peaks at fixed:128 (558.6), not fixed:256 — TTFT amortization vs KV scan cost tradeoff. Falsification: Phase 1 must reduce penalty to <10%. |
