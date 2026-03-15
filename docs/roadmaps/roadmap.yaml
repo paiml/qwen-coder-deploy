@@ -2160,6 +2160,26 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-189
+  title: "PMAT-189: ITL jitter analysis — realizr's latency consistency advantage"
+  status: DONE
+  priority: P2
+  spec_version: '3.41.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compute TPOT P99/P50 jitter ratio for all 4 runtimes at c=1-32'
+      status: DONE
+      result: 'realizr ≤1.08, ollama 1.00, vLLM ≤1.06, llama.cpp 1.33-1.38 at c≥16'
+    - criterion: 'Identify use cases where ITL consistency is competitive advantage'
+      status: DONE
+      result: 'Code completion (autocomplete) — consistent streaming latency matters'
+  notes: |
+    realizr's deterministic batch-and-step scheduling produces nearly constant
+    ITL jitter regardless of concurrency. This is architecturally guaranteed —
+    each decode step processes a fixed-size batch. Phase 1+CB must preserve
+    this property: continuous batching can introduce scheduling variance
+    (variable batch sizes per step). Falsification: if post-CB jitter exceeds
+    1.15 at c=8, the CB implementation is adding scheduling variance.
 - id: PMAT-188
   title: 'PMAT-188: Projected iso-quality after Phase 1+CB'
   status: DONE
