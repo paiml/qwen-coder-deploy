@@ -55,7 +55,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 64 | **1484.4** | 1140.6* | **3036.1** | — | 0.49× | vLLM 74 B |
 | 128 | 1505.6 | 1131.2* | 3049.4 | — | 0.49× | **realizr 66 C+** |
 
-*All 3 batching runtimes saturate at c=64: vLLM ~3050, realizr ~1500 (2.0× gap), llama.cpp* ~1141* (1.32× behind realizr). realizr at batch=32 queues excess requests with 0% errors. *llama.cpp c=64/128 measured with --parallel 32 (PMAT-197).*
+*All 3 batching runtimes saturate at c=64: vLLM ~3050, realizr ~1500 (2.0× gap), llama.cpp ~1141 (1.32× behind realizr). realizr at batch=32 queues excess requests with 0% errors. \*llama.cpp c=64/128 values measured with --parallel 32 (PMAT-197), scores with 3-runtime pool.*
 
 **Scorecards (probador llm score, PMAT-186/192 — complete c=1→128):**
 
@@ -66,8 +66,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 8 | **97 A+** | 65 C+ | 65 C+ | 58 C |
 | 16 | **94 A** | 72 B | 71 B | 58 C |
 | 32 | **86 A-** | 51 C | 70 B | 57 C |
-| 64 | **74 B** | — | 64 C+ | — |
-| 128 | 63 C+ | — | **66 C+** | — |
+| 64 | **74 B** | 45 D* | 64 C+ | — |
+| 128 | 63 C+ | 44 D* | **66 C+** | — |
 
 **realizr loses to vLLM at c=1-64 but WINS at c=128 (66 vs 63 C+).** The quality crossover at c=128 occurs because realizr's batch=32 caps decode degradation (49 tok/s constant at c=64/128) while vLLM's per-request decode keeps halving (49→24 tok/s). At c=32, realizr (70 B) overtakes llama.cpp (51 C). vLLM degrades: 98 A+ → 86 A- → 74 B → 63 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but serial processing gives 58-57 C at c≥4. Two structural deficits (PMAT-179 decomposition, exact at all c):
 1. **Per-request decode rate** (0.52-0.57× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching per-token dispatch
