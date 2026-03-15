@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.47.0
+**Version:** 3.48.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1414,6 +1414,26 @@ Per-request quality metrics degrade as concurrency increases. The key question f
 | llama.cpp | 1.47 | 1.28 | 1.57 | 1.18 | — | — |
 
 **realizr has the most predictable latency across both ITL and TTFT up to c=32.** ITL jitter ≤1.08 (c≤32), rising to 1.11 at c=64/128. TTFT tail ratio ≤1.09 (c≤32), rising to 1.26 at c=64 but dropping back to 1.08 at c=128 (stabilized queue). vLLM's TTFT tail grows to 2.49× at c=32 (90ms P999 vs 36ms P50) because continuous batching makes non-deterministic admission decisions. llama.cpp ITL spikes 33-38% at c≥16 from fixed-slot contention. **For code completion (autocomplete latency consistency), realizr's predictable latency is a genuine advantage** even without throughput parity. Phase 1+CB should preserve ITL jitter ≤1.10 and TTFT tail ratio ≤1.50.
+
+**4-Runtime Architecture Taxonomy (PMAT-196, Mar 15):**
+
+*Unified summary of architectural tradeoffs measured across PMAT-177→195:*
+
+| Property | vLLM (PagedAttention) | realizr (batch-and-step) | llama.cpp (fixed-slot) | ollama (serial) |
+|----------|----------------------|------------------------|----------------------|----------------|
+| **Scheduling** | Continuous batching, per-token | Batch-and-step, queue+batch=32 | Fixed 16 slots, all processed | Serial FIFO, one at a time |
+| **KV cache** | Paged blocks, <4% waste | Contiguous, 36% waste | Quantized Q4K, 16 fixed | Contiguous, single request |
+| **Decode kernel** | cuBLAS FP16/INT8, per-token | DP4A Q4K GEMV batch, FP8 M≥5 | cuBLAS Q4K fused GEMM | cuBLAS (same as llama.cpp) |
+| **c=1 decode** | 153 tok/s | 148 tok/s | 159 tok/s | **164 tok/s** |
+| **Asymptote** | **3050 tok/s** | 1500 tok/s | 943 tok/s | 160 tok/s |
+| **Scaling eff (c=16)** | **81%** | 25% | 36% | 7% |
+| **Decode preservation** | Degrades to 16% at c=128 | Caps at 33% at c=64+ | Caps at 38% at c=32 | **98%** invariant |
+| **ITL jitter (P99/P50)** | ≤1.06 | ≤1.11 | ≤**1.38** | ≤**1.00** |
+| **TTFT at c=32** | 36ms | 519ms | 1562ms | 24419ms |
+| **Best score c** | c=1-64 | c=128 (crossover) | c=1 only | c=1 only |
+| **VRAM** | 7640 MiB | 7544 MiB | 1470 MiB | ~1500 MiB |
+
+**Architectural insight:** The 4 runtimes form a spectrum from maximum throughput (vLLM) to maximum per-request quality (ollama). realizr and llama.cpp are intermediate — realizr trades TTFT for ITL predictability and higher aggregate at c≥8, while llama.cpp trades aggregate for lower TTFT. The "best runtime" depends entirely on the deployment constraint: single-user interactive → ollama; multi-user throughput → vLLM; latency-predictable batch → realizr; low-memory edge → llama.cpp.
 
 **Prompt-Length Impact on Competitive Position (PMAT-169, Mar 15):**
 
@@ -3353,6 +3373,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.48.0 | 2026-03-15 | **PMAT-196: 4-runtime architecture taxonomy.** Unified comparison table: scheduling, KV cache, decode kernel, c=1 decode, asymptote, scaling efficiency, decode preservation, ITL jitter, TTFT, VRAM. Key insight: spectrum from max throughput (vLLM 3050, 81% eff) to max per-request quality (ollama 164 c=1, 98% decode preservation). realizr and llama.cpp intermediate with different tradeoffs (ITL predictability vs low TTFT). "Best runtime" depends on deployment constraint. |
 | 3.47.0 | 2026-03-15 | **PMAT-195: Complete 4-runtime scaling characterization.** Added ollama to scaling efficiency table (26.4%→3.3%, serial processing). Ollama scaling model: constant ~160 tok/s regardless of c (queue-only, no batching). Ollama c=16/32 added to per-request quality table (decode invariant 161.8/160.1, TTFT 14.6s/24.4s). llama.cpp c=32 decode ratio added (38.0%). Asymptotes section expanded to all 4 runtimes: vLLM 3050 > realizr 1500 (2.0×) > llama.cpp 943 (3.2×) > ollama 160 (19×). |
 | 3.46.0 | 2026-03-15 | **PMAT-194: 4-runtime per-request quality table.** Expanded quality degradation table from 2 runtimes (vLLM, realizr) to all 4 (+ llama.cpp, ollama). Iso-quality table adds llama.cpp column. Key findings: llama.cpp ITL non-monotonic (peaks 18.7ms at c=8, recovers to 16.5ms at c=32), TTFT collapse at c=32 (1562ms). Ollama decode invariant (163→160, 1.9% drop c=1→8) but serial TTFT 70→6394ms. llama.cpp at TTFT≤100ms serves c=16 (897 agg) — 4.2× realizr, 0.30× vLLM. |
 | 3.45.0 | 2026-03-15 | **PMAT-193: Iso-quality update with c=64/128 data.** Per-request quality table now has realizr at all c levels (1→128). ITL jitter and TTFT tail tables extended to c=64/128. New iso-quality row: ITL≤21ms gap is **2.0×** (realizr c=128 at 1506 vs vLLM c=64 at 3036). ITL stays flat at 20.4-20.5ms for c=64/128 (batch=32 GPU ceiling). PMAT-188 projected iso-quality revised: power-law extrapolation replaced with measured 1500 saturation asymptote. Key finding #5 updated: realizr BEATS vLLM at c=128 on composite score (66 vs 63 C+). |
