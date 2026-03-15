@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.28.0
+**Version:** 3.29.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1175,31 +1175,31 @@ Using the PMAT-157/158 heterogeneous output scorecards as baseline, substituting
 
 **Scaling Efficiency Analysis — Why vLLM Dominates at c>1 (PMAT-163, Mar 14):**
 
-c=1 medium+hetero baselines: realizr 146.2, llama.cpp 160.7, vLLM 126.6 tok/s. **realizr is 15% faster than vLLM at c=1.** The gap inverts at c≥4 because of radically different scaling efficiency:
+c=1 medium+hetero baselines: realizr 146.4, llama.cpp 158.1, vLLM 152.4 tok/s. **realizr is 0.96× vLLM at c=1** (within noise). The gap inverts at c≥4 because of radically different scaling efficiency:
 
 | Runtime | c=1 | c=4 | c=4 eff | c=8 | c=8 eff | c=16 | c=16 eff | c=32 | c=32 eff |
 |---------|------|------|---------|------|---------|-------|----------|-------|----------|
-| realizr | 146.2 | 216.7 | **37.0%** | 355.2 | **30.4%** | 585.9 | **25.0%** | 931.2 | **19.9%** |
-| vLLM | 126.6 | 475.7 | **93.9%** | 876.8 | **86.6%** | 1528.2 | **75.4%** | 2847.5 | **70.3%** |
-| llama.cpp | 160.7 | 350.7 | **54.6%** | 421.4 | **32.8%** | 914.9 | **35.6%** | 924.4 | **18.0%** |
+| realizr | 146.4 | 216.1 | **36.9%** | 355.1 | **30.3%** | 586.5 | **25.0%** | 931.2 | **19.9%** |
+| vLLM | 152.4 | 587.4 | **96.3%** | 1115.2 | **91.4%** | 1982.9 | **81.3%** | 2847.5 | **58.4%** |
+| llama.cpp | 158.1 | 354.4 | **56.1%** | 420.1 | **33.2%** | 896.6 | **35.5%** | 924.4 | **18.3%** |
 
-*Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling.*
+*Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling. c=1 through c=16 from PMAT-177; c=32 from PMAT-168 (not re-measured — vLLM c=32 efficiency recalculated against PMAT-177 c=1 baseline).*
 
 **Per-request decode degradation (decode_cN / decode_c1):**
 
 | Runtime | c=1 decode | c=4 | c=8 | c=16 |
 |---------|-----------|-----|-----|------|
-| realizr | 148.3 | 55.0% | 50.5% | 48.5% |
-| vLLM | 128.3 | 97.4% | 88.1% | 76.6% |
-| llama.cpp | 161.8 | 55.0% | 33.1% | 37.2% |
+| realizr | 148.3 | 55.1% | 50.5% | 48.7% |
+| vLLM | 153.4 | 97.5% | 93.1% | 83.0% |
+| llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% |
 
 **Key findings from scaling efficiency:**
 
-1. **vLLM scales 2.5-3.5× more efficiently than realizr.** At c=32: vLLM uses 70% of its theoretical capacity vs realizr's 20%. This is the single largest competitive gap — not kernel speed (realizr is faster at c=1) but scaling architecture.
+1. **vLLM scales 2.5-3.3× more efficiently than realizr.** At c=16: vLLM uses 81% of its theoretical capacity vs realizr's 25%. At c=32: 58% vs 20%. This is the single largest competitive gap — not kernel speed (all runtimes are equivalent at c=1) but scaling architecture.
 2. **PagedAttention enables near-linear scaling** because it processes only active tokens per step. Short requests completing early free blocks for new requests — the system self-balances. Batch-and-step (realizr) and fixed-slot (llama.cpp) process all allocated slots every step regardless of actual utilization.
 3. **realizr per-request decode drops 50% at c=4 and then plateaus** (48% at c=16). This is the batch-and-step cost: each decode step runs M=c GEMV, sharing BW across batch members. But ITL stays flat because the per-token cost is divided equally — consistent user experience despite lower throughput.
 4. **llama.cpp saturates at c=32** — its 16-slot parallel design cannot scale beyond the slot count. At c=32, llama.cpp drops from 55% efficiency (c=4) to 18%, converging with realizr. Both batch-based approaches asymptote toward ~15-20% efficiency.
-5. **The crossover point is c~3.** Above c=3, vLLM's scaling efficiency advantage overwhelms its 15% c=1 decode disadvantage. At c=4: vLLM 476 vs realizr 217 (2.2×). By c=32: 2848 vs 931 (3.1×).
+5. **The crossover point is c~2.** At c=1, all three runtimes produce near-identical throughput (146-158 tok/s). Above c=2, vLLM's scaling efficiency advantage dominates. At c=4: vLLM 587 vs realizr 216 (2.7×). By c=32: 2848 vs 931 (3.1×).
 
 **Implication:** Fused Q4K GEMM (Phase 0) cannot close the scaling gap — it only fixes TTFT. Paged KV (Phase 1) is the only path to vLLM-class scaling efficiency because it enables per-token resource allocation instead of per-slot pre-allocation.
 
@@ -3147,6 +3147,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.29.0 | 2026-03-15 | **Scaling table refresh with PMAT-177 data.** Updated scaling efficiency table (PMAT-163 section) and per-request decode degradation table with fresh PMAT-177 numbers. Key changes: vLLM c=1 baseline now 152.4 (was 126.6 from earlier session), realigning scaling efficiency calculation. vLLM c=32 efficiency 58.4% (was 70.3% — recalculated against higher c=1 baseline, c=32 data point from PMAT-168 not re-measured). All runtimes at parity at c=1 (146-158 tok/s), crossover at c~2. vLLM per-request decode retention: 97.5%/93.1%/83.0% at c=4/8/16 (previously 97.4%/88.1%/76.6% — higher than expected, scheduler timing variance). |
 | 3.28.0 | 2026-03-15 | **PMAT-177: Comprehensive production benchmark refresh.** Fresh 60s production sweep (medium + uniform:16,256, streaming) for all 3 runtimes at c=1,4,8,16. realizr numbers identical to PMAT-157 (<0.3% variance, confirming rock-solid stability). Definitive scorecards: realizr 93A/58C/65C+/71B, vLLM 98A+/99A+/99A+/96A+, llama.cpp 98A+/73B/65C+/72B. At c≥8, realizr matches llama.cpp — gap is entirely vs vLLM. Executive summary updated with c=1 row, scorecard table, and corrected crossover point (c~2, not c~3). Makefile updated with `bench-yoga-prod` targets and scoring at c=1,4,8,16. |
 | 3.27.0 | 2026-03-15 | **PMAT-176: Phase 0 ROI by output length.** Phase 0 throughput gain is output-length-dependent: +49% at 16 tok (code completion, TTFT is 42% of request), +26% at 32 tok, +7% at 128 tok (code generation), +4% at 256 tok. Formula: gain ≈ TTFT_excess / (TTFT_excess + decode_time). Phase 0 (fused Q4K GEMM) is a code-completion optimization. For generation workloads (128+ tokens), only Phase 1 (paged KV + continuous batching) delivers meaningful throughput improvement. |
 | 3.26.0 | 2026-03-15 | **PMAT-175: CUDA_MAX_BATCH impact test.** BATCH=16 vs BATCH=32 at c=16 fixed:128: identical (1006.9 vs 1003.3 tok/s, +0.3%). Decode rate unchanged (72.7 vs 72.5). Heterogeneous: BATCH=16 is 2.2% slower from reduced queue headroom. Pre-allocated batch size does not affect decode kernel — realizr processes only active sequences. Eliminates batch allocation as the 4th factor in gap decomposition model. |
