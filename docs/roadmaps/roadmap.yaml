@@ -2160,6 +2160,31 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-172
+  title: 'PMAT-172: Per-request decode rate scaling (c=1→32)'
+  status: DONE
+  priority: P1
+  spec_version: '3.23.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compile per-request decode rates across c=1-32 from existing data'
+      status: DONE
+      result: 'realizr 148→70 (47% retention), vLLM 154→93 (61%), llama.cpp 161→62 (38%)'
+    - criterion: 'Identify root cause of realizr decode degradation with concurrency'
+      status: DONE
+      result: 'Batch-GEMV KV scan grows linearly with M — at M=8 bandwidth saturated'
+    - criterion: 'Validate Phase 1 scope (paged KV + continuous batching)'
+      status: DONE
+      result: 'vLLM per-token scheduling avoids batch-GEMV penalty. Either alone insufficient'
+  notes: |
+    This is a compilation analysis — no new measurements, derived from existing
+    PMAT-166/168/170/171 data. Key insight: vLLM maintains near-constant decode
+    through c=8 (93% retention) because PagedAttention processes one token per
+    request with pipelined scheduling. realizr's batch-and-step processes M tokens
+    simultaneously, but KV scan is M× larger. The 4060L's 256 GB/s saturates at
+    M=8. realizr decode plateaus at c≥8 (74→70 tok/s, only 5% drop c=8→32) —
+    bandwidth-limited. Phase 1 must include continuous batching for decode rate
+    preservation, not just paged KV for memory management.
 - id: PMAT-171
   title: 'PMAT-171: Output-length isolation — heterogeneous penalty quantification'
   status: DONE
