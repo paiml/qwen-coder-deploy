@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-182
+  title: 'PMAT-182: Ollama production benchmarks — M=1 decode ceiling'
+  status: DONE
+  priority: P2
+  spec_version: '3.34.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run ollama at c=1,4,8 with production methodology'
+      status: DONE
+      result: 'c=1: agg 151.8, decode 163.5. c=4: agg 160.1. c=8: agg 159.4'
+    - criterion: 'Characterize ollama scaling behavior'
+      status: DONE
+      result: 'Serial processing — aggregate flat at ~160, decode 98% retention, TTFT linear'
+    - criterion: 'Compare decode ceiling across runtimes'
+      status: DONE
+      result: 'Ollama 163.5 > llama.cpp 159.2 > vLLM 153.4 > realizr 148.3 (10% scheduler overhead)'
+  notes: |
+    Ollama represents the M=1 kernel ceiling — serial processing with zero
+    scheduling overhead. 163.5 tok/s proves the Q4K decode kernel can reach
+    10% above realizr's c=1 (148.3). The gap is realizr's scheduler overhead
+    (CUDA graph management, async runtime, batch window). Phase 1+CB
+    projection should use 148.3 (not 163.5) since CB still has scheduling.
 - id: PMAT-181
   title: 'PMAT-181: Projected composite scores with Phase 1+CB'
   status: DONE

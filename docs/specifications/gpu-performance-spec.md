@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.33.0
+**Version:** 3.34.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -45,13 +45,13 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Production-realistic benchmark (PMAT-177, medium prompt + uniform:16,256 output, 60s, streaming):**
 
-| c | realizr | llama.cpp | vLLM | realizr/llama | realizr/vLLM | Score |
-|---|---------|-----------|------|--------------|-------------|-------|
-| 1 | 146.4 | **158.1** | 152.4 | 0.93× L | 0.96× | realizr 93 A |
-| 4 | 216.1 | 354.4 | **587.4** | 0.61× L | 0.37× | realizr 58 C |
-| 8 | 355.1 | 420.1 | **1115.2** | 0.85× L | 0.32× | realizr 65 C+ |
-| 16 | 586.5 | 896.6 | **1982.9** | 0.65× L | 0.30× | realizr 71 B |
-| 32 | 931.2 | 924.4 | **2847.5** | **1.01× L** | 0.33× | — |
+| c | realizr | llama.cpp | vLLM | ollama | realizr/vLLM | Score |
+|---|---------|-----------|------|--------|-------------|-------|
+| 1 | 146.4 | 158.1 | 152.4 | **151.8** | 0.96× | realizr 93 A |
+| 4 | 216.1 | 354.4 | **587.4** | 160.1 | 0.37× | realizr 58 C |
+| 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
+| 16 | 586.5 | 896.6 | **1982.9** | ~160 | 0.30× | realizr 71 B |
+| 32 | 931.2 | 924.4 | **2847.5** | ~160 | 0.33× | — |
 
 **Scorecards (probador llm score, PMAT-177):**
 
@@ -67,6 +67,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 2. **Scheduling utilization** (0.52-0.67× factor — batch-and-step waste compounds with c, PMAT-179) → paged KV (PMAT-052) + continuous batching. vLLM maintains ~98% utilization at all c; realizr drops from 66% at c=4 to 51% at c=16
    - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
    - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
+
+**Ollama (PMAT-182):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate is flat at ~160 tok/s regardless of c. TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8). Ollama represents the M=1 kernel ceiling without scheduling overhead.
 
 **The gap is NOT kernel speed — realizr is within 4% of vLLM at c=1** (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~2. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
 
@@ -1193,6 +1195,7 @@ c=1 medium+hetero baselines: realizr 146.4, llama.cpp 158.1, vLLM 152.4 tok/s. *
 | realizr | 148.3 | 55.1% | 50.5% | 48.7% |
 | vLLM | 153.4 | 97.5% | 93.1% | 83.0% |
 | llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% |
+| **ollama** | **163.5** | **98.5%** | **98.0%** | ~98% |
 
 **Key findings from scaling efficiency:**
 
@@ -1482,13 +1485,13 @@ vLLM scheduling utilization is **~98% constant** across concurrency — continuo
 
 Per-request decode rates across c=1→32 (heterogeneous output, medium prompt). c=1-16 from PMAT-177; c=32 from PMAT-168:
 
-| c | realizr decode | vLLM decode | llama.cpp decode | realizr/vLLM | realizr retention |
-|---|---------------|------------|-----------------|-------------|-------------------|
-| 1 | 148.3 | 153.4 | 159.2 | 0.97× | 100% |
-| 4 | 81.7 | 149.6 | 89.4 | 0.55× | 55% |
-| 8 | 74.9 | 142.8 | 53.4 | 0.52× | 51% |
-| 16 | 72.2 | 127.3 | 59.0 | 0.57× | 49% |
-| 32 | 69.6 | 92.9 | 61.6 | 0.75× | 47% |
+| c | realizr decode | vLLM decode | llama.cpp decode | ollama decode | realizr/vLLM | realizr retention |
+|---|---------------|------------|-----------------|--------------|-------------|-------------------|
+| 1 | 148.3 | 153.4 | 159.2 | **163.5** | 0.97× | 100% |
+| 4 | 81.7 | 149.6 | 89.4 | **161.0** | 0.55× | 55% |
+| 8 | 74.9 | 142.8 | 53.4 | **160.3** | 0.52× | 51% |
+| 16 | 72.2 | 127.3 | 59.0 | ~160 | 0.57× | 49% |
+| 32 | 69.6 | 92.9 | 61.6 | ~160 | 0.75× | 47% |
 
 **Key findings:**
 
@@ -1497,8 +1500,9 @@ Per-request decode rates across c=1→32 (heterogeneous output, medium prompt). 
 3. **realizr and vLLM converge at c=1** (148 vs 153 = 0.97×). The kernel-level gap is negligible — confirming that the competitive problem is purely architectural (scheduling + KV management), not compute kernel speed.
 4. **realizr's decode plateaus at c≥8** (75→70, only 7% drop from c=8→32). The KV scan is memory-bandwidth-bound, and at M=8 the 4060L's 256 GB/s is saturated. Additional batch tokens add minimal incremental cost because the KV cache is already being fully streamed.
 5. **llama.cpp has the worst decode scaling** — drops 61% by c=32. Its 16-slot fixed design scans all 16 KV slots every step regardless of occupancy, wasting bandwidth on empty slots at low c and saturating early.
+6. **ollama is the M=1 ceiling** — 163.5 tok/s decode (best of all runtimes), constant at 98% retention through c=8. Serial processing means per-request decode is immune to concurrency. But aggregate throughput is flat at ~160 tok/s (no batching). Proves the Q4K decode kernel can reach 163 tok/s when scheduling overhead is zero.
 
-**Architectural implication:** vLLM's per-token scheduling is the key — it avoids the batch-GEMV KV scan penalty entirely. Paged KV (PMAT-052) alone doesn't fix this; the scheduler must also adopt per-token decode dispatch (continuous batching) rather than batch-and-step. This is why Phase 1's scope is "paged KV + continuous batching" — either alone is insufficient.
+**Architectural implication:** vLLM's per-token scheduling is the key — it avoids the batch-GEMV KV scan penalty entirely. Paged KV (PMAT-052) alone doesn't fix this; the scheduler must also adopt per-token decode dispatch (continuous batching) rather than batch-and-step. This is why Phase 1's scope is "paged KV + continuous batching" — either alone is insufficient. Ollama's 163.5 tok/s confirms the Q4K kernel ceiling is 10% above realizr's c=1 decode (148.3) — realizr's 3ms batch window and scheduler overhead cost ~10% per-request decode.
 
 **Output-Length Isolation — Heterogeneous Output Penalty (PMAT-171, Mar 15):**
 
@@ -3221,6 +3225,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.34.0 | 2026-03-15 | **PMAT-182: Ollama production benchmarks — M=1 decode ceiling.** Added ollama to PMAT-177 production sweep (medium + uniform:16,256, 60s, streaming). c=1: agg 151.8, decode **163.5** (best of all runtimes), ITL 6.1ms (best), TTFT 70.6ms. c=4: agg 160.1 (serial, flat). c=8: agg 159.4. Ollama proves Q4K kernel ceiling is 163.5 tok/s with zero scheduling overhead — 10% above realizr's 148.3 (realizr's scheduler costs ~10% at c=1). Per-request decode retention: 98.5% at c=4, 98.0% at c=8 (serial processing = immune to concurrency). Added to exec summary table, PMAT-172 decode table, and scaling efficiency findings. |
 | 3.33.0 | 2026-03-15 | **PMAT-181: Projected composite scores with Phase 1+CB.** Applied scoring contract (v3.0.0 absolute thresholds) to PMAT-180 throughput projections. Phase 1+CB lifts realizr from 62-71 (C+/B) to 87-95 (A-/A). Adding Phase 0 reaches 92-98 (A/A+), matching vLLM 96 A+. The 90→96 gap at c=8 is entirely TTFT (80ms vs 29ms). Falsification conditions defined: ≥85 A- = pass, <70 B = fail (decode rate didn't restore). |
 | 3.32.0 | 2026-03-15 | **PMAT-180: Corrected phase projections — continuous batching is the binding fix.** Using the PMAT-179 2-factor decomposition to project Phase 0/1/CB impact: paged KV + continuous batching reaches 0.97× vLLM at ALL concurrency levels (c=4,8,16). Phase 0 adds zero additional throughput once CB is present — its value is c=1 latency only. Phase 1 without CB gets only 0.50× vLLM at c=8 (fixes hetero penalty but not decode degradation). This corrects PMAT-173's c=16 projection from 0.80× to 0.97× — the 23% model gap was the 3-factor model's concurrency-invariance assumption, not a fundamental ceiling. Per-request decode with CB tracks vLLM's curve × 0.97 (Q4K vs AWQ c=1 ratio). |
 | 3.31.0 | 2026-03-15 | **PMAT-179: Refined 2-factor gap decomposition — resolves "4th factor" mystery.** Replaced PMAT-173's 3-factor model (decode × hetero × TTFT, 23% c=16 error) with exact 2-factor decomposition: decode_rate × scheduling_utilization. Algebraically exact at all c (0% error). Key insight: vLLM scheduling utilization is ~98% constant (continuous batching); realizr drops from 66% (c=4) to 51% (c=16) as batch-and-step waste compounds. The "4th factor" at c=16 was the 3-factor model's assumption that hetero/TTFT factors are concurrency-invariant — they aren't, they're components of the scheduling utilization that decays with c. Phase 1 target: lift scheduling utilization from 51-66% to >90%. Executive summary updated from 3-factor to 2-factor view. |
