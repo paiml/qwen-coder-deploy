@@ -2160,6 +2160,31 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-177
+  title: 'PMAT-177: Comprehensive production benchmark refresh (c=1-16)'
+  status: DONE
+  priority: P1
+  spec_version: '3.28.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run all 3 runtimes at c=1,4,8,16 with production methodology (60s, medium, hetero)'
+      status: DONE
+      result: 'realizr 146/216/355/587, llama.cpp 158/354/420/897, vLLM 152/587/1115/1983'
+    - criterion: 'Generate definitive scorecards'
+      status: DONE
+      result: 'realizr 93A/58C/65C+/71B. vLLM 98A+/99A+/99A+/96A+. llama.cpp 98A+/73B/65C+/72B'
+    - criterion: 'Validate reproducibility vs PMAT-157'
+      status: DONE
+      result: 'realizr c=4: 216.7 → 216.1 (-0.3%), c=8: 355.2 → 355.1 (-0.0%)'
+    - criterion: 'Add bench-yoga-prod Make targets'
+      status: DONE
+      result: 'bench-yoga-prod, bench-yoga-prod-realizr/llamacpp/vllm targets added'
+  notes: |
+    Definitive production baseline. realizr is rock-solid (<0.3% variance across
+    sessions). At c≥8, realizr matches llama.cpp in composite score — the gap is
+    entirely vs vLLM. c=1 scores: all three runtimes within 5 points (93-98).
+    Makefile now has production-realistic benchmark targets with medium prompt,
+    heterogeneous output, and c=1,4,8,16 sweep. Scoring updated for c=8/16.
 - id: PMAT-176
   title: 'PMAT-176: Phase 0 ROI by output length (16-256 tokens)'
   status: DONE

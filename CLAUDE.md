@@ -31,11 +31,15 @@ Jetson Orin (secondary load testing)     CPU (intel, 192.168.50.100)
 
 ```bash
 # Yoga deployment (PRIMARY — serial isolated benchmarks)
-make bench-yoga-serial   # All 4 runtimes, c=1 and c=4 (isolated)
-make bench-yoga-realizr  # realizr only (isolated)
-make bench-yoga-llamacpp # llama.cpp only (isolated)
-make bench-yoga-ollama   # ollama only (isolated)
-make bench-yoga-vllm     # vLLM only (isolated)
+make bench-yoga-serial   # All 4 runtimes, c=1 and c=4 (short prompt, isolated)
+make bench-yoga-prod     # All 3 runtimes, c=1,4,8,16 (production-realistic)
+make bench-yoga-prod-realizr   # realizr only (medium + hetero output, c=1-16)
+make bench-yoga-prod-llamacpp  # llama.cpp only
+make bench-yoga-prod-vllm     # vLLM only
+make bench-yoga-realizr  # realizr only (short prompt, c=1,4)
+make bench-yoga-llamacpp # llama.cpp only (short prompt, c=1,4)
+make bench-yoga-ollama   # ollama only (short prompt, c=1,4)
+make bench-yoga-vllm     # vLLM only (short prompt, c=1,4)
 make teardown-yoga       # Stop all services
 
 # Jetson deployment (secondary load testing)

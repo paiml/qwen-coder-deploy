@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.27.0
+**Version:** 3.28.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -41,23 +41,33 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 14, 2026 — yoga RTX 4060L @ 1900MHz):**
+**Competition Reality (Mar 15, 2026 — yoga RTX 4060L @ 1900MHz):**
 
-**Production-realistic benchmark (PMAT-157/158/159, medium prompt + uniform:16,256 output, 60s, streaming):**
+**Production-realistic benchmark (PMAT-177, medium prompt + uniform:16,256 output, 60s, streaming):**
 
 | c | realizr | llama.cpp | vLLM | realizr/llama | realizr/vLLM | Score |
 |---|---------|-----------|------|--------------|-------------|-------|
-| 4 | 216.7 | 350.7 | **475.7** | 0.62× L | 0.46× | realizr 50 C |
-| 8 | 355.2 | 421.4 | **876.8** | 0.84× L | 0.41× | realizr 53 C |
-| 16 | 585.9 | 914.9 | **1528.2** | 0.64× L | 0.38× | realizr 56 C |
+| 1 | 146.4 | **158.1** | 152.4 | 0.93× L | 0.96× | realizr 93 A |
+| 4 | 216.1 | 354.4 | **587.4** | 0.61× L | 0.37× | realizr 58 C |
+| 8 | 355.1 | 420.1 | **1115.2** | 0.85× L | 0.32× | realizr 65 C+ |
+| 16 | 586.5 | 896.6 | **1982.9** | 0.65× L | 0.30× | realizr 71 B |
 | 32 | 931.2 | 924.4 | **2847.5** | **1.01× L** | 0.33× | — |
 
-**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits (PMAT-173 multiplicative decomposition, 99% model fit):
+**Scorecards (probador llm score, PMAT-177):**
+
+| c | vLLM | llama.cpp | realizr |
+|---|------|-----------|---------|
+| 1 | **98 A+** | **98 A+** | 93 A |
+| 4 | **99 A+** | 73 B | 58 C |
+| 8 | **99 A+** | 65 C+ | 65 C+ |
+| 16 | **96 A+** | 72 B | 71 B |
+
+**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** At c=8 and c=16, realizr matches llama.cpp (65 C+ / 71 B) — the gap is now entirely vs vLLM. Three structural deficits (PMAT-173 multiplicative decomposition, 99% model fit):
 1. **Decode rate degradation** (0.52× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching
 2. **Output heterogeneity** (0.66× factor — contiguous KV wastes 36% vs vLLM's 3%, PMAT-171) → paged KV (PMAT-052)
 3. **TTFT penalty** (0.95× factor at 130-tok avg output — FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
 
-**The gap is NOT kernel speed — realizr is 15% faster than vLLM at c=1** (146 vs 127 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~3. *(Note: vLLM has ±10-15% run-to-run variance from scheduler timing; PMAT-170 A/B measured 587-1905 tok/s vs PMAT-157 baseline 476-1528. realizr variance <2%. Competitive conclusions are robust to this variance.)*
+**The gap is NOT kernel speed — realizr is within 4% of vLLM at c=1** (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~2. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM variance ±10-15% from scheduler timing.)*
 
 **Historical short-prompt results (PMAT-109/113, short prompt + fixed 32 tok) — favorable conditions for realizr:**
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms. TTFT P99 14.2ms (bimodal tail eliminated by PMAT-109)
@@ -2725,6 +2735,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-177** | **Comprehensive production benchmark refresh (c=1-16, 60s)** | **Baseline confirmed: realizr 93A/58C/65C+/71B, vLLM 98A+/99A+/99A+/96A+** | ✅ MEASURED. Fresh 60s production sweep (medium + uniform:16,256) for all 3 runtimes at c=1,4,8,16. realizr numbers identical to PMAT-157 (<0.3% variance). Scorecards via probador llm score: realizr 93→71 (A→B), vLLM 98→96 (A+→A+), llama.cpp 98→72 (A+→B). At c=8/16, realizr matches llama.cpp (65/71 vs 65/72). Gap is entirely vs vLLM. Makefile updated with `bench-yoga-prod` targets for production-realistic methodology. |
 | **PMAT-176** | **Phase 0 ROI by output length (16-256 tokens)** | **Phase 0 gain = +49% at 16 tok, +7% at 128, +4% at 256 — code completion optimization** | ✅ DERIVED from PMAT-171/173 data. Phase 0 throughput gain depends entirely on TTFT's share of total request time. At 16-token output (code completion), TTFT is 42% of request → +49% gain. At 128 tokens, only 8% → +7%. At 256 tokens, 4% → +4%. Formula: gain ≈ TTFT_excess / (TTFT_excess + decode_time). Phase 0 is a code-completion optimization, not a generation optimization. For generation workloads, only Phase 1 matters. |
 | **PMAT-175** | **CUDA_MAX_BATCH impact test (BATCH=16 vs 32 at c=16)** | **No impact — BATCH=16 identical to BATCH=32 (0.3% diff)** | ✅ MEASURED. BATCH=16 vs BATCH=32 at c=16 fixed:128: 1006.9 vs 1003.3 tok/s (+0.3%), decode 72.7 vs 72.5. Heterogeneous: BATCH=16 is 2.2% slower (653.7 vs 668.5) from reduced queue headroom. Pre-allocated batch size does NOT affect decode kernel — realizr processes only active sequences. Eliminates batch allocation as the 4th factor in gap decomposition. The c=16 model overprediction is from TTFT queueing interaction with decode pipeline overlap. |
 | **PMAT-174** | **Cross-concurrency gap decomposition validation (c=4,8,16)** | **Model fits c=4,8 (≤6% error), overpredicts c=16 by 23% — 4th factor** | ✅ MEASURED + DERIVED. Fixed:128 benchmarks at c=4,16 for all 3 runtimes to provide heterogeneity baselines. Model: c=4 predicted 230 vs actual 218 (+6%), c=8 predicted 352 vs 357 (-1%), c=16 predicted 824 vs 668 (+23%). The 23% c=16 error reveals a 4th factor (batch formation or kernel launch overhead) at high concurrency. Phase projections: all 3 fixes give 0.93× vLLM at c=4, 0.99× at c=8, 0.80× at c=16. Phase 0 value grows with c (+2% at c=4, +13% at c=16). |
@@ -3136,6 +3147,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.28.0 | 2026-03-15 | **PMAT-177: Comprehensive production benchmark refresh.** Fresh 60s production sweep (medium + uniform:16,256, streaming) for all 3 runtimes at c=1,4,8,16. realizr numbers identical to PMAT-157 (<0.3% variance, confirming rock-solid stability). Definitive scorecards: realizr 93A/58C/65C+/71B, vLLM 98A+/99A+/99A+/96A+, llama.cpp 98A+/73B/65C+/72B. At c≥8, realizr matches llama.cpp — gap is entirely vs vLLM. Executive summary updated with c=1 row, scorecard table, and corrected crossover point (c~2, not c~3). Makefile updated with `bench-yoga-prod` targets and scoring at c=1,4,8,16. |
 | 3.27.0 | 2026-03-15 | **PMAT-176: Phase 0 ROI by output length.** Phase 0 throughput gain is output-length-dependent: +49% at 16 tok (code completion, TTFT is 42% of request), +26% at 32 tok, +7% at 128 tok (code generation), +4% at 256 tok. Formula: gain ≈ TTFT_excess / (TTFT_excess + decode_time). Phase 0 (fused Q4K GEMM) is a code-completion optimization. For generation workloads (128+ tokens), only Phase 1 (paged KV + continuous batching) delivers meaningful throughput improvement. |
 | 3.26.0 | 2026-03-15 | **PMAT-175: CUDA_MAX_BATCH impact test.** BATCH=16 vs BATCH=32 at c=16 fixed:128: identical (1006.9 vs 1003.3 tok/s, +0.3%). Decode rate unchanged (72.7 vs 72.5). Heterogeneous: BATCH=16 is 2.2% slower from reduced queue headroom. Pre-allocated batch size does not affect decode kernel — realizr processes only active sequences. Eliminates batch allocation as the 4th factor in gap decomposition model. |
 | 3.25.0 | 2026-03-15 | **PMAT-174: Cross-concurrency gap decomposition validation.** Fixed:128 benchmarks at c=4,16 for all 3 runtimes. Three-factor multiplicative model (decode × hetero × TTFT) fits c=4 (+6%), c=8 (-1%), but overpredicts c=16 (+23%) — a 4th factor emerges at high concurrency (batch formation overhead or CUDA kernel launch scaling). Phase projections: all 3 fixes (fused Q4K + paged KV + continuous batching) reach 0.93× vLLM at c=4, 0.99× at c=8, 0.80× at c=16. Phase 0 TTFT value grows with concurrency (+2% at c=4 → +13% at c=16). |
