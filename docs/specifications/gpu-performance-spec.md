@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.42.0
+**Version:** 3.43.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -50,8 +50,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 1 | 146.4 | 158.1 | 152.4 | **151.8** | 0.96× | realizr 93 A |
 | 4 | 216.1 | 354.4 | **587.4** | 160.1 | 0.37× | realizr 58 C |
 | 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
-| 16 | 586.5 | 896.6 | **1982.9** | ~160 | 0.30× | realizr 71 B |
-| 32 | 944.7 | 943.2 | **2757.6** | ~160 | 0.34× | realizr 70 B |
+| 16 | 586.5 | 896.6 | **1982.9** | 161.0 | 0.30× | realizr 71 B |
+| 32 | 944.7 | 943.2 | **2757.6** | 159.0 | 0.34× | realizr 70 B |
 
 **Scorecards (probador llm score, PMAT-186 — complete c=1→128):**
 
@@ -60,8 +60,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 1 | **98 A+** | 97 A+ | 93 A | 78 B |
 | 4 | **98 A+** | 73 B | 58 C | 58 C |
 | 8 | **97 A+** | 65 C+ | 65 C+ | 58 C |
-| 16 | **96 A+** | 72 B | 71 B | — |
-| 32 | **88 A-** | 51 C | 70 B | — |
+| 16 | **94 A** | 72 B | 71 B | 58 C |
+| 32 | **86 A-** | 51 C | 70 B | 57 C |
 | 64 | 74 B | — | — | — |
 | 128 | 65 C+ | — | — | — |
 
@@ -71,7 +71,7 @@ This specification consolidates all GPU decoder throughput optimization work for
    - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
    - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
 
-**Ollama (PMAT-182):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate is flat at ~160 tok/s regardless of c. TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8). Ollama represents the M=1 kernel ceiling without scheduling overhead.
+**Ollama (PMAT-182/191):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate flat at 159-161 tok/s regardless of c (confirmed c=1→32). TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8), **14573ms (c=16), 24419ms (c=32)** — linear with c. Ollama represents the M=1 kernel ceiling without scheduling overhead.
 
 **The gap is NOT kernel speed — realizr is within 4% of vLLM at c=1** (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~2. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
 
@@ -1233,7 +1233,7 @@ Parametric models fitted to PMAT-177/183 production data (c=1→128):
 | realizr | 148.3 | 55.1% | 50.5% | 48.7% |
 | vLLM | 153.4 | 97.5% | 93.1% | 83.0% |
 | llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% |
-| **ollama** | **163.5** | **98.5%** | **98.0%** | ~98% |
+| **ollama** | **163.5** | **98.5%** | **98.0%** | **99.0%** |
 
 **Key findings from scaling efficiency:**
 
@@ -3338,6 +3338,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.43.0 | 2026-03-15 | **PMAT-191: Ollama c=16,32 measured — confirms serial flatness.** Fresh measurements fill exec summary gaps: c=16 agg 161.0, c=32 agg 159.0 (flat as predicted). Decode retention 99%+ at all c. TTFT linear: 14573ms (c=16), 24419ms (c=32). ITL 6.2ms constant, jitter 1.0×. Scorecards: 58 C (c=16), 57 C (c=32) — TTFT score 0 makes ollama unusable for interactive at c≥4. Updated exec summary from ~160 estimates to measured values. vLLM c=16 score adjusted 96→94, c=32 88→86 (best-in-class bonus redistributed with ollama in scoring pool). |
 | 3.42.0 | 2026-03-15 | **PMAT-190: TTFT tail predictability — realizr ≤1.09 at c≥4.** Added TTFT tail ratio (P999/P50) table from tail_analysis data. realizr TTFT tail ≤1.09 at c≥4 (deterministic batch admission). vLLM grows to 2.49× at c=32 (scheduler non-determinism). Combined with PMAT-189 ITL jitter (≤1.08), realizr has the most predictable latency of all runtimes. Phase 1+CB preservation targets: ITL jitter ≤1.10, TTFT tail ≤1.50. |
 | 3.41.0 | 2026-03-15 | **PMAT-189: ITL jitter analysis — realizr's latency consistency advantage.** Computed TPOT P99/P50 jitter ratio from PMAT-177/183 production data. realizr jitter ≤1.08 at all c (deterministic batch-and-step). ollama perfect at 1.00 (serial). vLLM tight at ≤1.06 (c≤32). llama.cpp spikes to 1.33-1.38 at c≥16 (fixed-slot contention). For code completion use cases, realizr's ITL predictability is a genuine competitive advantage even without throughput parity — consistent streaming feels better than higher-variance alternatives. |
 | 3.40.0 | 2026-03-15 | **PMAT-188: Projected iso-quality after Phase 1+CB.** Using PMAT-180 aggregate projections + quality assumptions (decode→144, ITL→6.8ms), the iso-quality gap vs vLLM shrinks from 12.8× to ~1.4× at ITL≤12ms (realizr c=16 at 1918 vs vLLM c=32 at 2758). Current: realizr can only serve c=4 at ITL≤12ms. Post Phase 1+CB: c=16 at same quality — 8.9× more throughput capacity. After Phase 0+1+CB, TTFT≤100ms achievable at c=32+ → iso-quality gap essentially eliminated. Added iso-quality falsification test: ITL≤12ms at c≥8 = PASS. |

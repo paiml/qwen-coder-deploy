@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-191
+  title: 'PMAT-191: Ollama c=16,32 measured — confirms serial flatness'
+  status: DONE
+  priority: P3
+  spec_version: '3.43.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure ollama at c=16 with production methodology'
+      status: DONE
+      result: 'agg 161.0, decode 161.8 (99.0% retention), TTFT 14573ms, ITL 6.2ms'
+    - criterion: 'Measure ollama at c=32 with production methodology'
+      status: DONE
+      result: 'agg 159.0, decode 160.1 (98.0% retention), TTFT 24419ms, ITL 6.2ms'
+    - criterion: 'Replace ~160 estimates in exec summary with measured values'
+      status: DONE
+      result: 'c=16: 161.0, c=32: 159.0 (was ~160 for both)'
+  notes: |
+    Confirms serial processing model: aggregate = c=1 throughput constant,
+    TTFT = c × avg_request_time, ITL = c=1 ITL constant, decode retention
+    ≥98% at all c. Ollama is the purest M=1 kernel benchmark — no scheduler
+    overhead, no batching, no shared resources. Score 57-58 C at c≥4 because
+    TTFT score = 0 (14-24 seconds is unusable for interactive workloads).
 - id: PMAT-190
   title: "PMAT-190: TTFT tail predictability — realizr ≤1.09 at c≥4"
   status: DONE
