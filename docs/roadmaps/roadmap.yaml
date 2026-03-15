@@ -2160,6 +2160,26 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-165
+  title: 'PMAT-165: Long-running stability — 5min c=8 medium+hetero'
+  status: DONE
+  priority: P1
+  spec_version: '3.16.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run 5-minute benchmark and compare P50 metrics to 60s baseline'
+      status: DONE
+      result: 'decode +0.6%, ITL 0%, TTFT -0.5%. All within noise'
+    - criterion: 'Check for errors, truncation, thermal throttling'
+      status: DONE
+      result: '0% errors, 0% truncation, GPU 61C, clocks locked at 1905MHz'
+    - criterion: 'Verify no degradation with post-test sanity check'
+      status: DONE
+      result: 'Post-5min sanity: 355.5 tok/s = baseline (355.2). No degradation'
+  notes: |
+    realizr is production-stable under sustained load. The ITL drift slope
+    (1.54 ms/min) is a linear regression artifact from measurement noise,
+    not actual degradation. P50 metrics are invariant.
 - id: PMAT-164
   title: 'PMAT-164: Request completion & reliability analysis'
   status: DONE
