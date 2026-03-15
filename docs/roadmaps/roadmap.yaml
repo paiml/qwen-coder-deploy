@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-175
+  title: 'PMAT-175: CUDA_MAX_BATCH impact test (BATCH=16 vs 32 at c=16)'
+  status: DONE
+  priority: P2
+  spec_version: '3.26.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run realizr with CUDA_MAX_BATCH=16 at c=16 fixed:128 and hetero'
+      status: DONE
+      result: 'Fixed:128 1006.9 vs 1003.3 tok/s (+0.3%). Hetero 653.7 vs 668.5 (-2.2%)'
+    - criterion: 'Determine if batch pre-allocation size affects decode rate'
+      status: DONE
+      result: 'No — decode 72.7 vs 72.5 tok/s, identical within noise'
+  notes: |
+    Eliminates batch pre-allocation as the 4th factor in the c=16 gap
+    decomposition model. realizr processes only active sequences in the
+    GEMV kernel, not the full pre-allocated batch. The 2.2% hetero slowdown
+    with BATCH=16 is from reduced queue headroom (no slack slots for new
+    requests as others complete). The c=16 model overprediction (23%) is
+    from TTFT queueing interaction with the decode pipeline — not from
+    wasted batch capacity.
 - id: PMAT-174
   title: 'PMAT-174: Cross-concurrency gap decomposition validation'
   status: DONE
