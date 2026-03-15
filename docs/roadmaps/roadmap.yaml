@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-168
+  title: 'PMAT-168: High-concurrency c=32 production benchmark'
+  status: DONE
+  priority: P1
+  spec_version: '3.19.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure all 3 runtimes at c=32 medium+hetero'
+      status: DONE
+      result: 'realizr 931.2, llama.cpp 924.4, vLLM 2847.5 tok/s'
+    - criterion: 'Compare with c=16 ratios to check scaling trends'
+      status: DONE
+      result: 'realizr=llama parity (1.01×). vLLM 3.1× ahead. Scaling eff: vLLM 70%, realizr 20%'
+    - criterion: 'Analyze TTFT at high concurrency'
+      status: DONE
+      result: 'realizr 527ms, llama.cpp 1557ms (3× worse), vLLM 37ms (14× better)'
+  notes: |
+    Key finding: realizr and llama.cpp converge at c=32 because llama.cpp's
+    16-slot parallel design saturates. realizr has 3× better TTFT at c=32.
+    vLLM's 3.1× aggregate lead is concurrency-invariant (0.33-0.46× across c=4-32).
+    This confirms Phase 1 (paged KV) is needed for scaling — batch size alone
+    cannot close the vLLM gap.
 - id: PMAT-167
   title: 'PMAT-167: Prompt-length TTFT sensitivity — FP8 prefill cost function'
   status: DONE

@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.18.0
+**Version:** 3.19.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -50,8 +50,9 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 4 | 216.7 | 350.7 | **475.7** | 0.62× L | 0.46× | realizr 50 C |
 | 8 | 355.2 | 421.4 | **876.8** | 0.84× L | 0.41× | realizr 53 C |
 | 16 | 585.9 | 914.9 | **1528.2** | 0.64× L | 0.38× | realizr 56 C |
+| 32 | 931.2 | 924.4 | **2847.5** | **1.01× L** | 0.33× | — |
 
-**realizr loses at ALL concurrency levels under production conditions.** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits:
+**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits:
 1. **TTFT penalty** (FP8 2-step prefill, 4-9× slower than llama.cpp) → fused Q4K GEMM (PMAT-054)
 2. **Output heterogeneity** (contiguous KV wastes 31-42% on variable-length) → paged KV (PMAT-052)
 3. **Scaling efficiency** (25-37% vs vLLM's 75-94%, PMAT-163) → paged KV enables per-token allocation
@@ -1267,6 +1268,24 @@ GPU memory, power, and temperature profiled via `nvidia-smi` (1s samples) during
 Temperature scales with sustained GPU utilization, not instantaneous throughput. All runtimes stay within the 4060L's 83°C thermal limit. Realizr runs coolest (59-65°C) despite being second in VRAM usage.
 
 **Key insight:** At 1.5B model scale, the contiguous vs paged KV distinction affects **scheduling efficiency**, not memory capacity. Both realizr and vLLM pre-allocate ~7.5GB. The difference is how that memory is utilized under load: vLLM's block allocator frees and recycles blocks on short completions (enabling continuous batching of new requests), while realizr's contiguous slots remain allocated until explicitly released. Phase 1's value is scheduler flexibility, not VRAM savings — at least until model size exceeds ~3B where KV cache competes with model weights for the 8GB budget.
+
+**High-Concurrency Production Benchmark — c=32 Convergence (PMAT-168, Mar 15):**
+
+Extended the PMAT-157 heterogeneous sweep to c=32 (realizr's CUDA_MAX_BATCH=32 maximum):
+
+| Runtime | Aggregate | TTFT P50 | ITL P50 | Errors | Scale eff | vs vLLM |
+|---------|-----------|---------|---------|--------|-----------|---------|
+| vLLM | **2847.5** | **36.7ms** | **10.8ms** | **0%** | **70.3%** | — |
+| realizr | 931.2 | 527.0ms | 14.4ms | **0%** | 19.9% | 0.33× |
+| llama.cpp | 924.4 | 1556.9ms | 16.2ms | 0.3% | 18.0% | 0.32× |
+
+**realizr and llama.cpp CONVERGE at c=32** (931 vs 924 tok/s = 1.01× parity). This is because llama.cpp's 16-slot parallel design saturates (each slot processes all 16 slots per step regardless of c), while realizr's 32-slot batch utilizes all capacity. At c≤16, llama.cpp's fused Q4K prefill gives it the edge; at c=32, realizr's larger batch fills the pipeline.
+
+**But realizr has 3× better TTFT** at c=32 (527ms vs 1557ms). llama.cpp's 16-slot queue creates massive TTFT backlog when c > parallel slots. realizr's batch-and-step processes all 32 requests in one pass — TTFT scales as O(c × prompt_tokens × 0.103ms/tok), which at c=32 is 32 × 102 × 0.103 = ~340ms kernel time + ~190ms overhead.
+
+**vLLM maintains 3.1× aggregate lead** at c=32 (2847 vs 931) with 70% scaling efficiency. This is remarkably consistent — the realizr/vLLM ratio has been 0.33-0.46× across c=4-32. vLLM's architectural advantage (PagedAttention + continuous batching) is concurrency-invariant.
+
+**Scaling efficiency converges for batch-based runtimes:** realizr drops from 37% (c=4) to 20% (c=32), llama.cpp from 55% to 18%. Both asymptote toward ~15-20% as the GPU's memory bandwidth is fully utilized by weight reads. vLLM maintains 70% at c=32 because it processes only active tokens, not full batch matrices.
 
 **Prompt-Length TTFT Sensitivity — FP8 Prefill Cost Function (PMAT-167, Mar 15):**
 
@@ -2537,6 +2556,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-168** | **High-concurrency c=32 production benchmark** | **realizr=llama.cpp parity (931 vs 924), vLLM 3.1× ahead (2847)** | ✅ MEASURED. At c=32 medium+hetero: realizr and llama.cpp converge (1.01× parity, both ~925 tok/s). llama.cpp's 16-slot design saturates while realizr's 32-slot batch fills. But realizr has 3× better TTFT (527ms vs 1557ms). vLLM maintains 3.1× aggregate lead with 70% scaling efficiency. realizr/vLLM ratio consistent 0.33-0.46× across c=4-32 — architectural gap is concurrency-invariant. Scaling efficiency: vLLM 70%, realizr 20%, llama.cpp 18%. |
 | **PMAT-167** | **Prompt-length TTFT sensitivity (FP8 prefill cost function)** | **realizr: 10.2ms + 0.103 ms/token (linear); competitors flat** | ✅ MEASURED. realizr TTFT scales linearly with prompt tokens (R²≈0.99): 11.6ms (7 tok) → 39.6ms (280 tok). llama.cpp constant 9.8-10.1ms (fused Q4K), vLLM constant 12.1-12.5ms (W4A16 Marlin + prefix cache). FP8 2-step dequant adds 0.103 ms/token. At c=4, slope steepens to 0.539 ms/token (5.2×, batch prefill). Phase 0 ROI grows super-linearly: +45% at medium, +87% at c=4 long. llama.cpp fails at long prompts (280 tok > 256 slot cap — 100% errors). Fused Q4K GEMM is the single highest-ROI TTFT optimization. |
 | **PMAT-166** | **GPU resource utilization & energy efficiency (c=1-16)** | **All runtimes pre-allocate; vLLM 2.4× more energy-efficient at c=16** | ✅ MEASURED. VRAM is concurrency-invariant for all 3 runtimes (realizr 7544, vLLM 7640, llama.cpp 1470 MiB constant). Hypothesis "realizr VRAM grows with c" FALSIFIED — CUDA_MAX_BATCH=32 pre-allocates at startup. vLLM KV cache <1% utilized even at c=16 — 1.5B model too small to pressure memory. Power ~constant (42-55W) regardless of c. Energy efficiency (tok/J): vLLM 37.0, llama.cpp 16.9, realizr 15.3 at c=16. vLLM 12× energy scaling (c1→c16) vs realizr 5.3×. Gap is scheduling, not memory. Phase 1 value is scheduler flexibility, not VRAM savings at 1.5B scale. |
 | **PMAT-165** | **Long-running stability (5min c=8 medium+hetero)** | **Stable: decode ±0.6%, ITL 0%, TTFT −0.5%, 0 errors, 61°C** | ✅ MEASURED. 5-minute benchmark confirms realizr stability. P50 metrics invariant: decode 75.3 (was 74.9), ITL 13.3ms (unchanged), TTFT 147.9ms (was 148.6). Zero errors, zero truncation, 744 requests served. GPU 61°C, clocks locked. No memory leaks or thermal throttling. Post-5min sanity check confirms baseline throughput (355.5 tok/s). Drift slope is measurement noise, not degradation. |
@@ -2939,6 +2959,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.19.0 | 2026-03-15 | **PMAT-168: High-concurrency c=32 production benchmark.** realizr and llama.cpp converge at c=32 (931 vs 924 tok/s = 1.01× parity) — llama.cpp's 16-slot design saturates while realizr's 32-slot batch fills. realizr has 3× better TTFT (527ms vs 1557ms). vLLM dominates at 2847 tok/s (3.1× ahead, 70% scaling efficiency). Scaling efficiency: vLLM 70%, realizr 20%, llama.cpp 18%. realizr/vLLM ratio (0.33×) is consistent across c=4-32 — the architectural gap is concurrency-invariant. |
 | 3.18.0 | 2026-03-15 | **PMAT-167: Prompt-length TTFT sensitivity — FP8 prefill cost function.** realizr TTFT = 10.2ms + 0.103 ms/token (linear, R²≈0.99). llama.cpp constant 9.8-10.1ms (fused Q4K absorbs prompt length). vLLM constant 12.1-12.5ms (W4A16 Marlin + 89% prefix cache hit). At c=4, slope steepens to 0.539 ms/token (5.2× vs c=1). Phase 0 TTFT savings: 45% at medium c=1, 87% at long c=4. llama.cpp fails at long prompts (280 tok > 256-token slot cap, 100% errors). The FP8 2-step dequant→cuBLASLt pipeline is the TTFT bottleneck — fused Q4K GEMM eliminates the entire 0.103 ms/token slope. |
 | 3.17.0 | 2026-03-15 | **PMAT-166: GPU resource utilization & energy efficiency.** All 3 runtimes pre-allocate VRAM at startup — memory is concurrency-invariant (falsifies "realizr VRAM grows with c"). realizr 7544, vLLM 7640, llama.cpp 1470 MiB constant across c=1-16. vLLM KV cache <1% utilized even at c=16 — 1.5B model too small to pressure memory. Power ~constant (42-55W). Energy efficiency: vLLM 37.0 tok/J at c=16 (2.4× better than realizr 15.3). vLLM energy scaling 12× (c1→c16) vs realizr 5.3×. The gap is scheduling architecture, not memory — Phase 1's value at 1.5B scale is scheduler flexibility, not VRAM savings. |
 | 3.16.0 | 2026-03-15 | **PMAT-165: Long-running stability — realizr stable across 60s→5min.** P50 decode, ITL, TTFT invariant. Zero errors, zero truncation, 744 requests, GPU 61°C. Drift slope (1.54 ms/min ITL) is measurement noise — post-5min sanity confirms baseline throughput. No memory leaks, thermal throttling, or degradation. |
