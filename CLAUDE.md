@@ -32,10 +32,11 @@ Jetson Orin (secondary load testing)     CPU (intel, 192.168.50.100)
 ```bash
 # Yoga deployment (PRIMARY — serial isolated benchmarks)
 make bench-yoga-serial   # All 4 runtimes, c=1 and c=4 (short prompt, isolated)
-make bench-yoga-prod     # All 3 runtimes, c=1,4,8,16 (production-realistic)
-make bench-yoga-prod-realizr   # realizr only (medium + hetero output, c=1-16)
-make bench-yoga-prod-llamacpp  # llama.cpp only
-make bench-yoga-prod-vllm     # vLLM only
+make bench-yoga-prod     # All 4 runtimes (production-realistic)
+make bench-yoga-prod-realizr   # realizr only (c=1-128, medium + hetero output)
+make bench-yoga-prod-llamacpp  # llama.cpp only (c=1-32)
+make bench-yoga-prod-ollama    # ollama only (c=1-32)
+make bench-yoga-prod-vllm     # vLLM only (c=1-128)
 make bench-yoga-realizr  # realizr only (short prompt, c=1,4)
 make bench-yoga-llamacpp # llama.cpp only (short prompt, c=1,4)
 make bench-yoga-ollama   # ollama only (short prompt, c=1,4)
@@ -63,7 +64,7 @@ make teardown          # Stop services
 make report            # Generate performance.md + update README
 
 # Scoring (probador llm score)
-make score             # Yoga c=1,4,8,16,32 scorecard (table)
+make score             # Yoga c=1,4,8,16,32,64,128 scorecard (table)
 make score-prod        # Production methodology results only (PMAT-177+)
 make score-jetson      # Jetson scorecards
 make score-json        # JSON scorecards to results/
