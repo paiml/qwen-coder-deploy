@@ -1149,7 +1149,9 @@ Using the PMAT-157/158 heterogeneous output scorecards as baseline, substituting
 | **Current** | **50 C** | **53 C** | **56 C** | −19 to −29 |
 | Phase 0 (fused Q4K GEMM) | **56 C** | **61 C+** | **63 C+** | −12 to −23 |
 | Phase 0+1 (+ paged KV) | ~63 C+ | ~69 C+ | ~71 B | −6 to −16 |
-| vLLM baseline | 79 B | 78 B | 75 B | — |
+| vLLM baseline | 79 B | 78 B | 75 B | 73 B | — |
+
+**c=32 scores (PMAT-168):** vLLM 73 B, realizr 55 C, llama.cpp 51 C. realizr improves from 50→55 (aggregate growth offsets TTFT penalty). llama.cpp drops from 60→51 (TTFT collapses to 1.5s at c>16 slots). vLLM drops from 79→73 (TTFT tail ratio grows under high concurrency).
 
 **Methodology:** Phase 0 scores computed by `probador llm score` on synthetic results (realizr aggregate/decode/ITL/errors with llama.cpp TTFT substituted). This accounts for jitter penalties, best-in-class bonuses, and exact weight interactions — more accurate than linear approximation. Phase 1 estimated conservatively as recovering ~50% of the 31-42% aggregate heterogeneity penalty.
 
