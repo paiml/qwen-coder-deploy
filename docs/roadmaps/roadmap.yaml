@@ -2160,6 +2160,30 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-166
+  title: 'PMAT-166: GPU resource utilization & energy efficiency'
+  status: DONE
+  priority: P1
+  spec_version: '3.17.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure VRAM at idle and under c=1,4,8,16 for realizr, llama.cpp, vLLM'
+      status: DONE
+      result: 'realizr 7544, vLLM 7640, llama.cpp 1470 MiB — all constant across c'
+    - criterion: 'Measure power draw and compute tok/watt'
+      status: DONE
+      result: 'Power ~constant (42-55W). vLLM 37.0, realizr 15.3 tok/J at c=16'
+    - criterion: 'Test hypothesis: realizr VRAM grows linearly with c'
+      status: DONE
+      result: 'FALSIFIED — CUDA_MAX_BATCH=32 pre-allocates at startup. VRAM concurrency-invariant'
+    - criterion: 'Analyze vLLM KV cache utilization under load'
+      status: DONE
+      result: 'KV cache <1% at c=16 — 1.5B model too small to pressure memory'
+  notes: |
+    Key insight: at 1.5B model scale, performance gap is purely scheduling architecture,
+    not memory. All runtimes pre-allocate. vLLM 2.4x more energy-efficient at c=16
+    (37.0 vs 15.3 tok/J). Phase 1 value at this scale is scheduler flexibility,
+    not VRAM savings. Gap matters more at 7B+ models.
 - id: PMAT-165
   title: 'PMAT-165: Long-running stability — 5min c=8 medium+hetero'
   status: DONE
