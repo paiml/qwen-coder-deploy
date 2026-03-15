@@ -2160,6 +2160,32 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-197
+  title: 'PMAT-197: llama.cpp --parallel 32 saturation — realizr 1.30× ahead at c=64'
+  status: DONE
+  priority: P1
+  spec_version: '3.49.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp p=32 at c=32/64/128 with production methodology'
+      status: DONE
+      result: 'c=32: 447 agg (p=16 was 943). c=64: 1141. c=128: 1131 (saturated)'
+    - criterion: 'Compare with realizr batch=32 at same c levels'
+      status: DONE
+      result: 'realizr BEATS: 2.11× at c=32, 1.30× at c=64, 1.33× at c=128'
+    - criterion: 'Validate PMAT-130 falsification condition'
+      status: DONE
+      result: '447 tok/s at c=32 well below 1200 threshold — FALSIFIED'
+    - criterion: 'Complete asymptote picture for all runtimes'
+      status: DONE
+      result: 'vLLM 3050 > realizr 1500 > llama.cpp 1141 > ollama 160'
+  notes: |
+    llama.cpp --parallel 32 improves asymptote by 21% over p=16 (1141 vs 943)
+    but realizr still 1.32× ahead. Per-request decode worse with p=32 (36-38
+    vs 53-60 with p=16) because fixed-slot processes all 32 slots per step.
+    c=32 is particularly bad (447 vs 943 with p=16) — partial slot utilization
+    waste is severe. Continuous batching (realizr) definitively outperforms
+    fixed-slot (llama.cpp) at high concurrency.
 - id: PMAT-196
   title: 'PMAT-196: 4-runtime architecture taxonomy'
   status: DONE
