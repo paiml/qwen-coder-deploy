@@ -2160,6 +2160,31 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-171
+  title: 'PMAT-171: Output-length isolation — heterogeneous penalty quantification'
+  status: DONE
+  priority: P1
+  spec_version: '3.22.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure fixed output (32/128/256 tok) vs heterogeneous at c=8 for all 3 runtimes'
+      status: DONE
+      result: 'realizr 36% penalty, llama.cpp 6%, vLLM 3%'
+    - criterion: 'Identify root cause of realizr heterogeneous penalty'
+      status: DONE
+      result: 'Contiguous KV pre-allocates max_tokens per slot — short requests waste capacity'
+    - criterion: 'Quantify Phase 1 paged KV production impact'
+      status: DONE
+      result: '~200 tok/s recovery at c=8 (356.7→~540-560), +5-7 composite score points'
+  notes: |
+    realizr's heterogeneous output penalty (36%) is 12x worse than vLLM (3%).
+    Contiguous KV allocation wastes capacity when output lengths vary. vLLM's
+    PagedAttention releases blocks on completion, maintaining scheduling efficiency.
+    llama.cpp's fixed-slot design has modest 6% penalty (uniform allocation).
+    realizr peaks at fixed:128 (558.6 tok/s), not fixed:256 — TTFT amortization
+    vs KV scan cost tradeoff. Phase 1 (paged KV) is projected to recover
+    ~200 tok/s at c=8, nearly equal to Phase 0 TTFT fix in production impact.
+    Falsification: Phase 1 must reduce penalty to <10%.
 - id: PMAT-170
   title: 'PMAT-170: vLLM prefix cache A/B test'
   status: DONE

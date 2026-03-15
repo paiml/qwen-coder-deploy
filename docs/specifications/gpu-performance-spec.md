@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.21.0
+**Version:** 3.22.0
 **Status:** ACTIVE
-**Date:** 2026-03-14
+**Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -54,10 +54,10 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** The c=8 "invariant win" from PMAT-138 (short-prompt, fixed-output) was falsified by heterogeneous output. Three structural deficits:
 1. **TTFT penalty** (FP8 2-step prefill, 4-9× slower than llama.cpp) → fused Q4K GEMM (PMAT-054)
-2. **Output heterogeneity** (contiguous KV wastes 31-42% on variable-length) → paged KV (PMAT-052)
+2. **Output heterogeneity** (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171) → paged KV (PMAT-052)
 3. **Scaling efficiency** (25-37% vs vLLM's 75-94%, PMAT-163) → paged KV enables per-token allocation
 
-**The gap is NOT kernel speed — realizr is 15% faster than vLLM at c=1** (146 vs 127 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~3.
+**The gap is NOT kernel speed — realizr is 15% faster than vLLM at c=1** (146 vs 127 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~3. *(Note: vLLM has ±10-15% run-to-run variance from scheduler timing; PMAT-170 A/B measured 587-1905 tok/s vs PMAT-157 baseline 476-1528. realizr variance <2%. Competitive conclusions are robust to this variance.)*
 
 **Historical short-prompt results (PMAT-109/113, short prompt + fixed 32 tok) — favorable conditions for realizr:**
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms. TTFT P99 14.2ms (bimodal tail eliminated by PMAT-109)
@@ -1326,6 +1326,28 @@ Direct A/B comparison: vLLM with `--enable-prefix-caching` (default) vs `--no-en
 3. **Without prefix cache, realizr/vLLM gap narrows 3-8pp:** 0.37→0.40× (c=4), 0.33→0.37× (c=8), 0.35→0.43× (c=16). The gap remains large — **prefix caching explains <25% of vLLM's advantage.** The remaining 57-63% gap is from PagedAttention scheduling + W4A16 Marlin kernels.
 4. **In production with diverse prompts, vLLM's prefix cache hit rate would be lower than 89%** (benchmark uses one repeated prompt). The effective throughput for diverse traffic is between the cached and uncached numbers. For code completion (repeated system prompt prefix), cache hit rates of 50-80% are realistic.
 5. **Measurement note:** Today's vLLM with-cache numbers (586.9→1905.3) are ~20% higher than PMAT-157 (475.7→1528.2), same configuration. This is NOT a warmup effect (confirmed by running without `--warmup`). Run-to-run variance of ±10-15% is expected for vLLM on the 4060L — the continuous batching scheduler produces variable batch sizes depending on arrival timing.
+
+**Output-Length Isolation — Heterogeneous Output Penalty (PMAT-171, Mar 15):**
+
+Direct measurement of output-length impact on aggregate throughput at c=8. Each runtime tested with fixed output lengths (32, 128, 256 tokens) vs heterogeneous (uniform:16,256). Medium prompt, 30s duration, 5s warmup, streaming.
+
+| Runtime | fixed:32 | fixed:128 | fixed:256 | hetero | Penalty | Root cause |
+|---------|----------|-----------|-----------|--------|---------|------------|
+| realizr | 474.5 | 558.6 | 546.1 | 356.7 | **36%** | Contiguous KV pre-allocates max_tokens per slot |
+| llama.cpp | 441.9 | 446.2 | 448.5* | 417.1 | **6%** | Fixed slots, but even allocation = even utilization |
+| vLLM | 1027.7 | 1125.2 | 1131.4 | 1093.2 | **3%** | PagedAttention releases blocks on completion |
+
+*llama.cpp fixed:256 produces only 112 tokens/request (slot cap = 4096 ctx / 16 parallel − prompt overhead). Aggregate reflects actual tokens generated, not requested.
+
+**Key findings:**
+
+1. **realizr's heterogeneous penalty is 12× worse than vLLM** (36% vs 3%). When output lengths vary (uniform:16,256), a request generating 16 tokens still holds a KV buffer sized for 256 tokens. The wasted capacity blocks other sequences from filling the batch, reducing GPU utilization. This is the direct cost of contiguous KV allocation (PMAT-052).
+2. **realizr peaks at fixed:128** (558.6 tok/s), not fixed:256 (546.1). At fixed:256, TTFT dilution has diminishing returns as KV scan cost grows — the optimal output length is ~128 tokens where TTFT amortization and KV overhead balance.
+3. **vLLM is output-length invariant** — 1028→1131→1093 tok/s across the range (±5%). PagedAttention allocates KV blocks on demand and releases them on completion. Short-completing requests free blocks immediately for other sequences, maintaining continuous scheduling efficiency.
+4. **llama.cpp's modest 6% penalty** is because its fixed-slot design (16 slots, each with 256-token capacity) creates uniform allocation regardless of actual output length — the waste is constant per slot, so variable output lengths don't change scheduling. The penalty comes from short-completing requests leaving slots idle until the next scheduling cycle.
+5. **This quantifies PMAT-052's production impact:** Paged KV would reduce realizr's heterogeneous penalty from 36% to ~3-6% (vLLM-class), recovering ~200 tok/s at c=8 (356.7 → ~540-560). This is worth ~5-7 composite score points — nearly equal to the Phase 0 TTFT fix.
+
+**Falsification:** If Phase 1 (paged KV) does NOT reduce heterogeneous penalty to <10%, the contiguous allocation is not the root cause and the scheduler's batch formation logic is the bottleneck instead.
 
 **High-Concurrency Production Benchmark — c=32 Convergence (PMAT-168, Mar 15):**
 
@@ -2614,6 +2636,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-171** | **Output-length isolation (hetero penalty quantification)** | **realizr 36% penalty vs vLLM 3% — contiguous KV is root cause** | ✅ MEASURED. Fixed output (32/128/256) vs heterogeneous (uniform:16,256) at c=8, all 3 runtimes. realizr penalty 36% (558.6→356.7), llama.cpp 6% (446.2→417.1), vLLM 3% (1125.2→1093.2). realizr's contiguous KV pre-allocates max_tokens per slot; short-completing requests waste capacity. vLLM PagedAttention releases blocks on completion — near-zero penalty. Phase 1 paged KV projected to recover ~200 tok/s (+5-7 composite points). Falsification: paged KV must reduce penalty to <10%. |
 | **PMAT-170** | **vLLM prefix cache A/B test** | **Cache boosts vLLM 7-23%, halves TTFT; explains <25% of gap** | ✅ MEASURED. Direct A/B: vLLM with vs without `--no-enable-prefix-caching`. Throughput boost: +1.5% (c=1), +7.2% (c=4), +12.8% (c=8), +23.1% (c=16). TTFT halved (12.6 vs 29.2ms at c=1). Without cache, realizr/vLLM improves 3-8pp (0.35→0.43× at c=16). Prefix caching explains <25% of vLLM's advantage — remaining gap is PagedAttention + W4A16 Marlin. Run-to-run variance of ±10-15% observed (PMAT-157 vs today). |
 | **PMAT-169** | **Prompt-length impact on competitive position (micro vs medium)** | **Shorter prompts HELP realizr (+6-34%), HURT vLLM (-13-21%) and llama.cpp (-10-22%)** | ✅ MEASURED. Micro prompt (~7 tok) vs medium (~102 tok) at c=4,8,16. realizr improves because FP8 prefill cost scales linearly with prompt tokens. vLLM degrades because prefix cache hit rate drops (89%→lower). llama.cpp degrades due to slot overflow. At micro c=16: realizr BEATS llama.cpp (1.11×). Competitive gap narrows 11-47pp. Phase 0 max potential = 47pp at c=16. vLLM's measured advantage partly from 89% prefix cache (artificial for diverse production traffic). |
 | **PMAT-168** | **High-concurrency c=32 production benchmark** | **realizr=llama.cpp parity (931 vs 924), vLLM 3.1× ahead (2847)** | ✅ MEASURED. At c=32 medium+hetero: realizr and llama.cpp converge (1.01× parity, both ~925 tok/s). llama.cpp's 16-slot design saturates while realizr's 32-slot batch fills. But realizr has 3× better TTFT (527ms vs 1557ms). vLLM maintains 3.1× aggregate lead with 70% scaling efficiency. realizr/vLLM ratio consistent 0.33-0.46× across c=4-32 — architectural gap is concurrency-invariant. Scaling efficiency: vLLM 70%, realizr 20%, llama.cpp 18%. |
@@ -3019,6 +3042,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.22.0 | 2026-03-15 | **PMAT-171: Output-length isolation — heterogeneous penalty quantification.** Fixed output (32/128/256 tok) vs heterogeneous (uniform:16,256) at c=8 for all 3 runtimes. realizr suffers 36% penalty (558.6→356.7 tok/s) from contiguous KV pre-allocation. vLLM near-immune at 3% (PagedAttention releases blocks on completion). llama.cpp modest 6% (fixed-slot even allocation). This directly quantifies Phase 1 (paged KV) production value: ~200 tok/s recovery, +5-7 composite points. realizr peaks at fixed:128 (558.6), not fixed:256 — TTFT amortization vs KV scan cost tradeoff. Falsification: Phase 1 must reduce penalty to <10%. |
 | 3.21.0 | 2026-03-15 | **PMAT-170: vLLM prefix cache A/B test.** Direct comparison: `--enable-prefix-caching` vs `--no-enable-prefix-caching`. Cache boosts throughput 7-23% (scaling with c), halves TTFT (29→13ms at c=1). Without cache, realizr/vLLM improves 3-8pp (0.35→0.43× at c=16). Prefix caching explains <25% of vLLM's advantage — the remaining gap is PagedAttention scheduling + W4A16 Marlin kernels. Run-to-run variance ±10-15% noted (today's numbers ~20% higher than PMAT-157, same config). |
 | 3.20.0 | 2026-03-15 | **PMAT-169: Prompt-length impact on competitive position.** Micro prompt (~7 tok) vs medium (~102 tok) at c=4,8,16. Shorter prompts help realizr (+6-34%, less FP8 prefill cost) but hurt vLLM (-13-21%, lower prefix cache hit rate) and llama.cpp (-10-22%, more slot overflow). At micro c=16, realizr beats llama.cpp (1.11×). Competitive gap narrows 11-47pp with shorter prompts. Phase 0 maximum potential is 47pp at c=16. vLLM's measured medium-prompt advantage is partly from 89% prefix cache hit rate — diverse production traffic would reduce effective throughput ~20%. |
 | 3.19.0 | 2026-03-15 | **PMAT-168: High-concurrency c=32 production benchmark.** realizr and llama.cpp converge at c=32 (931 vs 924 tok/s = 1.01× parity) — llama.cpp's 16-slot design saturates while realizr's 32-slot batch fills. realizr has 3× better TTFT (527ms vs 1557ms). vLLM dominates at 2847 tok/s (3.1× ahead, 70% scaling efficiency). Scaling efficiency: vLLM 70%, realizr 20%, llama.cpp 18%. realizr/vLLM ratio (0.33×) is consistent across c=4-32 — the architectural gap is concurrency-invariant. |
