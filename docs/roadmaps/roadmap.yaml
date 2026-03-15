@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-185
+  title: 'PMAT-185: Falsification test hygiene — annotate stale claims'
+  status: DONE
+  priority: P3
+  spec_version: '3.37.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Mark PMAT-131 "realizr WINS c≥8" as short-prompt-only, superseded by PMAT-177'
+      status: DONE
+      result: 'Entry annotated with ⚠️ SHORT-PROMPT ONLY + SUPERSEDED note'
+    - criterion: 'Mark PMAT-138 "c=8 invariant win" as falsified by PMAT-157'
+      status: DONE
+      result: 'Entry annotated with ⚠️ FALSIFIED + explanation'
+    - criterion: 'Add cross-reference from PMAT-131 data table to production table'
+      status: DONE
+      result: 'Caveat added pointing to PMAT-177 executive summary table'
+  notes: |
+    Popperian integrity: falsified claims must be visibly marked, not silently
+    superseded. The short-prompt data remains valid for that workload but was
+    being cited without the production-methodology caveat. All three changes
+    ensure readers see the corrected competitive picture immediately.
 - id: PMAT-184
   title: 'PMAT-184: Scaling model characterization — vLLM exponential saturation + realizr power law'
   status: DONE
