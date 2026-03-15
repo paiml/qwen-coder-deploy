@@ -2160,6 +2160,29 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-187
+  title: 'PMAT-187: Quality-throughput tradeoff — iso-quality analysis'
+  status: DONE
+  priority: P1
+  spec_version: '3.39.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compile per-request quality degradation table (decode, ITL, TTFT) across c=1-128'
+      status: DONE
+      result: 'realizr ITL 2.1× growth (flat). vLLM ITL 6.4× growth. vLLM TTFT 10.5× vs realizr 28×'
+    - criterion: 'Compute iso-quality throughput ratios at key constraints'
+      status: DONE
+      result: 'ITL≤12ms: 12.8×. ITL≤15ms: 2.9×. TTFT≤100ms: 14.0×. Score≥70: 3.2×'
+    - criterion: 'Define Phase 1+CB quality targets'
+      status: DONE
+      result: 'Flatten TTFT curve to ≤100ms at c=16 → iso-quality gap shrinks from 14× to ~2×'
+  notes: |
+    Most important finding for architecture: vLLM c=128 gives same user
+    experience as realizr c=8 (both 65 C+) despite 8.6× aggregate throughput.
+    Raw aggregate is not user experience. The scoring system captures this by
+    weighting decode, ITL, TTFT, and errors — not just aggregate. realizr's
+    flat ITL curve is an architectural strength (predictable per-token latency)
+    that Phase 1+CB should preserve while flattening the TTFT curve.
 - id: PMAT-186
   title: 'PMAT-186: Complete scorecard sweep c=1→128, all 4 runtimes'
   status: DONE

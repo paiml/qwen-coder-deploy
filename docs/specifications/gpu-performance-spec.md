@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.38.0
+**Version:** 3.39.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1344,6 +1344,41 @@ GPU memory, power, and temperature profiled via `nvidia-smi` (1s samples) during
 Temperature scales with sustained GPU utilization, not instantaneous throughput. All runtimes stay within the 4060L's 83°C thermal limit. Realizr runs coolest (59-65°C) despite being second in VRAM usage.
 
 **Key insight:** At 1.5B model scale, the contiguous vs paged KV distinction affects **scheduling efficiency**, not memory capacity. Both realizr and vLLM pre-allocate ~7.5GB. The difference is how that memory is utilized under load: vLLM's block allocator frees and recycles blocks on short completions (enabling continuous batching of new requests), while realizr's contiguous slots remain allocated until explicitly released. Phase 1's value is scheduler flexibility, not VRAM savings — at least until model size exceeds ~3B where KV cache competes with model weights for the 8GB budget.
+
+**Quality-Throughput Tradeoff Analysis (PMAT-187, Mar 15):**
+
+Per-request quality metrics degrade as concurrency increases. The key question for production: at what aggregate throughput do runtimes deliver equivalent user experience?
+
+*Per-request quality degradation (PMAT-177/183 production data):*
+
+| c | vLLM decode | vLLM ITL | vLLM TTFT | realizr decode | realizr ITL | realizr TTFT |
+|---|-----------|---------|----------|--------------|------------|-------------|
+| 1 | 153.4 | 6.5ms | 12.5ms | 148.3 | 6.7ms | 18.6ms |
+| 4 | 149.6 | 6.7ms | 21.8ms | 81.7 | 12.2ms | 76.3ms |
+| 8 | 142.8 | 7.0ms | 23.2ms | 74.9 | 13.3ms | 148.2ms |
+| 16 | 127.3 | 7.9ms | 26.1ms | 72.2 | 13.9ms | 281.9ms |
+| 32 | 89.4 | 11.2ms | 36.4ms | 69.7 | 14.3ms | 519.1ms |
+| 64 | 49.0 | 20.4ms | 72.6ms | — | — | — |
+| 128 | 24.2 | 41.4ms | 131.7ms | — | — | — |
+
+*Iso-quality throughput comparison — max aggregate at quality threshold:*
+
+| Quality constraint | realizr max c | realizr agg | vLLM max c | vLLM agg | vLLM/realizr |
+|-------------------|--------------|------------|-----------|---------|-------------|
+| ITL ≤ 12ms | c=4 | 216 | c=32 | 2758 | **12.8×** |
+| ITL ≤ 15ms | c=32 | 945 | c=32 | 2758 | **2.9×** |
+| ITL ≤ 20ms | c=32 | 945 | c=64 | 3036 | **3.2×** |
+| TTFT ≤ 100ms | c=4 | 216 | c=64 | 3036 | **14.0×** |
+| TTFT ≤ 200ms | c=8 | 355 | c=128 | 3049 | **8.6×** |
+| Score ≥ 70 B | c=32 | 945 | c=128 | 3049 | **3.2×** |
+
+**Key findings (PMAT-187):**
+
+1. **realizr ITL is remarkably flat: 6.7→14.3ms (2.1×) over c=1→32.** vLLM's ITL degrades 6.4× (6.5→41.4ms). For ITL-sensitive workloads (code completion, interactive chat), realizr's batch-and-step provides **more predictable** per-token latency than vLLM's continuous batching at high c.
+2. **TTFT is where realizr collapses:** 28× increase (18.6→519ms, c=1→32) vs vLLM's 10.5× (12.5→132ms). Every queued request pays full batch prefill cost. This is the binding quality constraint.
+3. **Iso-quality gap is 3-14× depending on constraint.** For strict ITL (≤12ms): 12.8× — realizr can only serve c=4 while vLLM serves c=32 at the same quality. For relaxed quality (score ≥70): 3.2× — realizr at c=32 matches vLLM at c=128.
+4. **Phase 1+CB target:** Flatten TTFT curve (→vLLM-like sublinear growth) + maintain ITL flatness. If TTFT ≤100ms at c=16, iso-quality gap shrinks from 14× to ~2×.
+5. **vLLM's quality floor is c~32.** Beyond that, per-request quality degrades rapidly (ITL 11→41ms, decode 89→24 tok/s). vLLM at c=128 gives equivalent **user experience** to realizr at c=8 (both score 65 C+), despite 8.6× more aggregate throughput. Raw throughput is not user experience.
 
 **Prompt-Length Impact on Competitive Position (PMAT-169, Mar 15):**
 
@@ -3263,6 +3298,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.39.0 | 2026-03-15 | **PMAT-187: Quality-throughput tradeoff — iso-quality analysis.** Added per-request quality degradation table (decode, ITL, TTFT at c=1→128) and iso-quality throughput comparison. At ITL ≤12ms constraint: vLLM delivers 12.8× more throughput than realizr at equivalent quality (c=32 vs c=4). At score ≥70: 3.2× (c=128 vs c=32). Key: realizr ITL is flat (6.7→14.3ms, 2.1× over c=1-32) while vLLM degrades 6.4× (6.5→41.4ms). TTFT is the binding quality constraint (28× growth vs 10.5×). vLLM c=128 gives same user experience as realizr c=8 (both 65 C+) despite 8.6× aggregate. Phase 1+CB target: flatten TTFT curve to close iso-quality gap from 14× to ~2×. |
 | 3.38.0 | 2026-03-15 | **PMAT-186: Complete scorecard sweep c=1→128, all 4 runtimes.** Scored all PMAT-177/182/183 production results via `probador llm score`. New data: ollama 78 B (c=1, best decode 100 + ITL 100 but TTFT 53/tail 47), 58 C (c=4,8 — serial flat). c=32: realizr 70 B overtakes llama.cpp 51 C (TTFT score 2, 16-slot collapse). vLLM graceful degradation: 98→88→74→65 at c=4/32/64/128. vLLM c=128 at 65 C+ — same as realizr c=8, despite 8.6× more aggregate throughput, because per-request quality (decode 20, ITL 13) degrades sharply. llama.cpp c=1: 97 A+ (corrected from 98 — error rate 2.6% costs 8 points). Exec summary scorecard table expanded to all concurrency levels. |
 | 3.37.0 | 2026-03-15 | **PMAT-185: Falsification test hygiene — annotate stale claims.** PMAT-131 entry now warns "⚠️ SHORT-PROMPT ONLY" — the "realizr WINS c≥8" claim was superseded by PMAT-177 production methodology (realizr loses ALL c). PMAT-138 entry now warns "⚠️ FALSIFIED" — the "c=8 invariant win" was falsified by PMAT-157 (heterogeneous output inverts c=8 from 1.47× WIN to 0.84× LOSS). PMAT-131 data table annotated with cross-reference to production table. Popperian integrity: falsified claims must be visibly marked, not silently superseded. |
 | 3.36.0 | 2026-03-15 | **PMAT-184: Scaling model characterization — vLLM exponential saturation + realizr power law.** Fitted parametric models to PMAT-177/183 production data (c=1→128). vLLM follows exponential saturation `agg = 3050 × (1 - exp(-c/19.5))` — fits well at asymptotes (c≥64) but underpredicts c=4-16 by 5-14% (super-linear continuous batching gains from prefix cache). realizr follows power law `agg = 124.7 × c^0.549` — √c scaling from batch-GEMV BW sharing. Scaling exponent gap: vLLM 0.85→0.40 (declining), realizr constant ~0.55. Phase 1+CB falsification: β≥0.80 = success, β<0.60 = CB didn't fix batch-GEMV. Also: added `bench-yoga-prod-ollama` Makefile target (was missing from production benchmark suite). |
