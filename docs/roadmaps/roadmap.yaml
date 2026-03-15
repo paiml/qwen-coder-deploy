@@ -2160,6 +2160,32 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-195
+  title: 'PMAT-195: Complete 4-runtime scaling characterization'
+  status: DONE
+  priority: P2
+  spec_version: '3.47.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Add ollama to scaling efficiency table'
+      status: DONE
+      result: '26.4%→3.3% c=4→32. Serial processing: aggregate flat at ~160'
+    - criterion: 'Add ollama scaling model (constant)'
+      status: DONE
+      result: 'agg ≈ 160 regardless of c, queue-only architecture'
+    - criterion: 'Complete ollama c=16/32 in quality table'
+      status: DONE
+      result: 'c=16: decode 161.8, TTFT 14.6s. c=32: decode 160.1, TTFT 24.4s'
+    - criterion: 'Expand asymptotes to all 4 runtimes'
+      status: DONE
+      result: 'vLLM 3050 > realizr 1500 (2.0×) > llama.cpp 943 (3.2×) > ollama 160 (19×)'
+  notes: |
+    Completes the 4-runtime scaling picture. The hierarchy is clear:
+    vLLM (PagedAttention) > realizr (batch-and-step) > llama.cpp (fixed-slot)
+    > ollama (serial). Each architecture has a different scaling ceiling.
+    ollama's decode invariance (97.9% at c=32) is the strongest proof that
+    serial processing preserves per-request quality — the tradeoff is TTFT
+    growing linearly (24.4s at c=32).
 - id: PMAT-194
   title: 'PMAT-194: 4-runtime per-request quality table'
   status: DONE

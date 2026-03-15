@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.46.0
+**Version:** 3.47.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1194,13 +1194,16 @@ c=1 medium+hetero baselines: realizr 146.4, llama.cpp 158.1, vLLM 152.4 tok/s. *
 | realizr | 146.4 | 216.1 | **36.9%** | 355.1 | **30.3%** | 586.5 | **25.0%** | 944.7 | **20.2%** |
 | vLLM | 152.4 | 587.4 | **96.3%** | 1115.2 | **91.4%** | 1982.9 | **81.3%** | 2757.6 | **56.5%** |
 | llama.cpp | 158.1 | 354.4 | **56.1%** | 420.1 | **33.2%** | 896.6 | **35.5%** | 943.2 | **18.6%** |
+| ollama | 151.8 | 160.1 | **26.4%** | 159.4 | **13.1%** | 161.0 | **6.6%** | 159.0 | **3.3%** |
 
 *Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling. All data from PMAT-177/183 production methodology (medium + uniform:16,256, 60s, streaming).*
 
-**Asymptotes (PMAT-183/192):** Both runtimes saturate at c=64 on the 4060L:
+**Asymptotes (PMAT-183/192/194):** All 4 runtimes saturate on the 4060L:
 - **vLLM:** ~3050 tok/s (c=64: 3036, c=128: 3049, +0.4%). Per-request decode: 89→49→24 tok/s at c=32/64/128.
 - **realizr:** ~1500 tok/s (c=64: 1484, c=128: 1506, +1.4%). Per-request decode: 70→49→49 tok/s at c=32/64/128. batch=32 GPU kernel is the ceiling — queue depth doesn't affect decode rate.
-- **Gap at saturation: 2.0× constant** (3050/1500). This is the batch-GEMV vs per-token scheduling architectural divide at compute saturation.
+- **llama.cpp:** ~943 tok/s (c=32: 943, 16-slot ceiling). Per-request decode: 53→59→60 tok/s at c=8/16/32 (non-monotonic — slot utilization improves decode at ≥16 slots).
+- **ollama:** ~160 tok/s (serial, independent of c). Per-request decode: invariant at 160-163 tok/s. All scaling is latency (TTFT grows linearly with queue depth).
+- **Gap at saturation: vLLM 3050 > realizr 1500 (2.0×) > llama.cpp 943 (3.2×) > ollama 160 (19×).**
 
 **Scaling Model Characterization (PMAT-184, Mar 15):**
 
@@ -1211,6 +1214,7 @@ Parametric models fitted to PMAT-177/183 production data (c=1→128):
 | vLLM | Exponential saturation | `agg = A × (1 - exp(-c/τ))` | A=3050, τ=19.5 |
 | realizr | Power law | `agg = α × c^β` | α=124.7, β=0.549 |
 | llama.cpp | Power law (saturating) | `agg = α × c^β` (c≤32) | α=134.2, β=0.560 |
+| ollama | Constant (serial) | `agg ≈ 160` (c≥1) | Queue-only, no batching |
 
 *Model fit quality:*
 
@@ -1239,8 +1243,8 @@ Parametric models fitted to PMAT-177/183 production data (c=1→128):
 |---------|-----------|-----|-----|------|------|------|-------|
 | realizr | 148.3 | 55.1% | 50.5% | 48.7% | 47.0% | **33.0%** | **32.9%** |
 | vLLM | 153.4 | 97.5% | 93.1% | 83.0% | 58.2% | 32.0% | 15.8% |
-| llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% | — | — | — |
-| **ollama** | **163.5** | **98.5%** | **98.0%** | **99.0%** | **98.0%** | — | — |
+| llama.cpp | 159.2 | 56.2% | 33.6% | 37.1% | 38.0% | — | — |
+| **ollama** | **163.5** | **98.5%** | **98.0%** | **99.0%** | **97.9%** | — | — |
 
 **Key findings from scaling efficiency:**
 
@@ -1363,8 +1367,8 @@ Per-request quality metrics degrade as concurrency increases. The key question f
 | 1 | 153.4 | 6.5ms | 12.5ms | 148.3 | 6.7ms | 18.6ms | 159.2 | 6.3ms | 10.4ms | 163.5 | 6.1ms | 70.6ms |
 | 4 | 149.6 | 6.7ms | 21.8ms | 81.7 | 12.2ms | 76.3ms | 89.4 | 11.2ms | 21.5ms | 161.0 | 6.2ms | 2940.9ms |
 | 8 | 142.8 | 7.0ms | 23.2ms | 74.9 | 13.3ms | 148.2ms | 53.4 | 18.7ms | 44.0ms | 160.3 | 6.2ms | 6393.8ms |
-| 16 | 127.3 | 7.9ms | 26.1ms | 72.2 | 13.9ms | 281.9ms | 59.0 | 16.9ms | 66.5ms | — | — | — |
-| 32 | 89.4 | 11.2ms | 36.4ms | 69.7 | 14.3ms | 519.1ms | 60.5 | 16.5ms | 1561.5ms | — | — | — |
+| 16 | 127.3 | 7.9ms | 26.1ms | 72.2 | 13.9ms | 281.9ms | 59.0 | 16.9ms | 66.5ms | 161.8 | 6.2ms | 14573ms |
+| 32 | 89.4 | 11.2ms | 36.4ms | 69.7 | 14.3ms | 519.1ms | 60.5 | 16.5ms | 1561.5ms | 160.1 | 6.2ms | 24419ms |
 | 64 | 49.0 | 20.4ms | 72.6ms | 48.9 | 20.4ms | 2812.8ms | — | — | — | — | — | — |
 | 128 | 24.2 | 41.4ms | 131.7ms | 48.8 | 20.5ms | 8234.9ms | — | — | — | — | — | — |
 
@@ -3349,6 +3353,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.47.0 | 2026-03-15 | **PMAT-195: Complete 4-runtime scaling characterization.** Added ollama to scaling efficiency table (26.4%→3.3%, serial processing). Ollama scaling model: constant ~160 tok/s regardless of c (queue-only, no batching). Ollama c=16/32 added to per-request quality table (decode invariant 161.8/160.1, TTFT 14.6s/24.4s). llama.cpp c=32 decode ratio added (38.0%). Asymptotes section expanded to all 4 runtimes: vLLM 3050 > realizr 1500 (2.0×) > llama.cpp 943 (3.2×) > ollama 160 (19×). |
 | 3.46.0 | 2026-03-15 | **PMAT-194: 4-runtime per-request quality table.** Expanded quality degradation table from 2 runtimes (vLLM, realizr) to all 4 (+ llama.cpp, ollama). Iso-quality table adds llama.cpp column. Key findings: llama.cpp ITL non-monotonic (peaks 18.7ms at c=8, recovers to 16.5ms at c=32), TTFT collapse at c=32 (1562ms). Ollama decode invariant (163→160, 1.9% drop c=1→8) but serial TTFT 70→6394ms. llama.cpp at TTFT≤100ms serves c=16 (897 agg) — 4.2× realizr, 0.30× vLLM. |
 | 3.45.0 | 2026-03-15 | **PMAT-193: Iso-quality update with c=64/128 data.** Per-request quality table now has realizr at all c levels (1→128). ITL jitter and TTFT tail tables extended to c=64/128. New iso-quality row: ITL≤21ms gap is **2.0×** (realizr c=128 at 1506 vs vLLM c=64 at 3036). ITL stays flat at 20.4-20.5ms for c=64/128 (batch=32 GPU ceiling). PMAT-188 projected iso-quality revised: power-law extrapolation replaced with measured 1500 saturation asymptote. Key finding #5 updated: realizr BEATS vLLM at c=128 on composite score (66 vs 63 C+). |
 | 3.44.0 | 2026-03-15 | **PMAT-192: realizr c=64/128 measured — asymptote 1500 tok/s, WINS at c=128.** realizr c=64: 1484 tok/s, c=128: 1506 (+1.4%), 0% errors (batch=32 queues excess). **realizr BEATS vLLM at c=128 on composite score (66 vs 63 C+)** — quality crossover because batch=32 caps decode degradation at 49 tok/s constant while vLLM's decode halves to 24 tok/s. PMAT-184 power-law model underpredicted c=64 by 26% — realizr follows exponential saturation at c≥32 (agg ≈ 1500 × (1-exp(-c/15))), not power law. Both runtimes saturate at c=64 with 2.0× constant gap (3050/1500). Per-request decode at saturation: realizr 49/49 (c=64/128, batch=32 GPU kernel ceiling) vs vLLM 49/24 (continuous degradation). Exec summary table expanded to c=128. |
