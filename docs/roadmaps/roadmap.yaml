@@ -2160,6 +2160,25 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-198
+  title: 'PMAT-198: Phase 1+CB projections extended to c=128'
+  status: DONE
+  priority: P2
+  spec_version: '3.50.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Extend PMAT-180 projection table to c=32/64/128'
+      status: DONE
+      result: 'c=32: 2671, c=64: 2941, c=128: 2955 (all 0.97× vLLM measured)'
+    - criterion: 'Quantify Phase 1+CB improvement over current asymptote'
+      status: DONE
+      result: 'Current 1500 → projected 2950 = 1.97× improvement'
+  notes: |
+    Simple projection: Phase 1+CB at 0.97× vLLM applied to measured vLLM
+    saturation data. This gives the full target picture: realizr would
+    saturate at ~2950 tok/s instead of 1500, nearly doubling the asymptote.
+    The quality crossover at c=128 would be eliminated (realizr would score
+    higher than vLLM at all c levels with better per-request quality).
 - id: PMAT-197
   title: 'PMAT-197: llama.cpp --parallel 32 saturation — realizr 1.30× ahead at c=64'
   status: DONE

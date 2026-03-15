@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.49.0
+**Version:** 3.50.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1545,8 +1545,11 @@ The 3-factor model fits c=4 and c=8 (≤6% error) but overpredicts c=16 by 23%. 
 | 4 | 216 | 220 (+2%) | 338 (+56%) | 344 (+59%) | **568** | **0.97×** |
 | 8 | 355 | 378 (+6%) | 555 (+56%) | 591 (+66%) | **1078** | **0.97×** |
 | 16 | 587 | 687 (+17%) | 916 (+56%) | 1074 (+83%) | **1918** | **0.97×** |
+| 32 | 945 | — | — | — | **2671** | **0.97×** |
+| 64 | 1484 | — | — | — | **2941** | **0.97×** |
+| 128 | 1506 | — | — | — | **2955** | **0.97×** |
 
-*Phase 0 = fused Q4K GEMM. Phase 1 = paged KV (batch-and-step scheduler unchanged). CB = continuous batching (per-token decode dispatch). With CB, per-request decode tracks vLLM's curve × 0.97 (Q4K vs AWQ weight format, c=1 ratio).*
+*Phase 0 = fused Q4K GEMM. Phase 1 = paged KV (batch-and-step scheduler unchanged). CB = continuous batching (per-token decode dispatch). With CB, per-request decode tracks vLLM's curve × 0.97 (Q4K vs AWQ weight format, c=1 ratio). c=32-128 projections: 0.97 × vLLM measured aggregate (2758/3036/3049).*
 
 **Key finding (PMAT-180):** Continuous batching is the binding fix. "Paged KV + CB" reaches 0.97× vLLM at **all concurrency levels** — Phase 0 (fused Q4K) adds zero additional throughput because its TTFT improvement is subsumed by the scheduling efficiency of continuous batching. Phase 0's value is c=1 latency (TTFT) only.
 
@@ -3383,6 +3386,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.50.0 | 2026-03-15 | **PMAT-198: Phase 1+CB projections extended to c=128.** PMAT-180 projection table extended from c=16 to c=128 using measured vLLM asymptote (2758/3036/3049 × 0.97). Projected Phase 1+CB: 2671 at c=32, 2941 at c=64, 2955 at c=128 (all 0.97× vLLM). Current realizr saturates at 1500 — Phase 1+CB would lift to ~2950 (1.97× improvement). |
 | 3.49.0 | 2026-03-15 | **PMAT-197: llama.cpp --parallel 32 saturation at c=64/128.** Measured llama.cpp p=32 c=32/64/128 (production methodology). PMAT-130 falsification confirmed: 447 tok/s at c=32 (well below 1200 threshold). llama.cpp p=32 asymptote ~1141 tok/s (c=64≈c=128). realizr BEATS llama.cpp at c≥32: 2.11× at c=32, 1.30× at c=64, 1.33× at c=128. Per-request decode: llama.cpp 36-38 tok/s (all 32 slots) vs realizr 49 (batch=32 kernel). Exec summary table expanded with llama.cpp c=64/128. Architecture taxonomy updated. |
 | 3.48.0 | 2026-03-15 | **PMAT-196: 4-runtime architecture taxonomy.** Unified comparison table: scheduling, KV cache, decode kernel, c=1 decode, asymptote, scaling efficiency, decode preservation, ITL jitter, TTFT, VRAM. Key insight: spectrum from max throughput (vLLM 3050, 81% eff) to max per-request quality (ollama 164 c=1, 98% decode preservation). realizr and llama.cpp intermediate with different tradeoffs (ITL predictability vs low TTFT). "Best runtime" depends on deployment constraint. |
 | 3.47.0 | 2026-03-15 | **PMAT-195: Complete 4-runtime scaling characterization.** Added ollama to scaling efficiency table (26.4%→3.3%, serial processing). Ollama scaling model: constant ~160 tok/s regardless of c (queue-only, no batching). Ollama c=16/32 added to per-request quality table (decode invariant 161.8/160.1, TTFT 14.6s/24.4s). llama.cpp c=32 decode ratio added (38.0%). Asymptotes section expanded to all 4 runtimes: vLLM 3050 > realizr 1500 (2.0×) > llama.cpp 943 (3.2×) > ollama 160 (19×). |
