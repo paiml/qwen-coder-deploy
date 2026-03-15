@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-169
+  title: 'PMAT-169: Prompt-length impact on competitive position'
+  status: DONE
+  priority: P1
+  spec_version: '3.20.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure micro prompt (~7 tok) at c=4,8,16 for all 3 runtimes'
+      status: DONE
+      result: 'realizr 259/377/786, llama.cpp 315/377/710, vLLM 416/737/1200 tok/s'
+    - criterion: 'Compare micro vs medium throughput ratios'
+      status: DONE
+      result: 'realizr +6-34%, vLLM -13-21%, llama.cpp -10-22%'
+    - criterion: 'Quantify competitive gap change with prompt length'
+      status: DONE
+      result: 'Gap narrows 11-47pp. At micro c=16: realizr beats llama (1.11×)'
+  notes: |
+    Shorter prompts reduce FP8 prefill cost (realizr) but also reduce prefix
+    cache benefits (vLLM). This means Phase 0 ROI is prompt-length-dependent:
+    maximum 47pp improvement at c=16 long prompts, minimum ~10pp at short.
+    vLLM's medium-prompt numbers benefit from 89% prefix cache hit rate,
+    which would drop with diverse production traffic.
 - id: PMAT-168
   title: 'PMAT-168: High-concurrency c=32 production benchmark'
   status: DONE
