@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.39.0
+**Version:** 3.40.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1519,10 +1519,30 @@ Using the scoring contract (v3.0.0 absolute thresholds, throughput profile weigh
 
 **Key finding:** Phase 1+CB alone lifts realizr to **A grade at c=4,8** and A- at c=16 — competitive with vLLM. Adding Phase 0 (fused Q4K) closes the remaining TTFT gap, reaching A+ at c=4,8. **TTFT is the only remaining differentiator** after Phase 1+CB: vLLM TTFT 29ms vs projected realizr 80ms at c=8 accounts for the 90→96 gap. Phase 0 is a 6-point TTFT fix, not a throughput fix.
 
+**Projected iso-quality after Phase 1+CB (PMAT-188):**
+
+Using PMAT-180 aggregate projections + quality assumptions (decode restored to ~144 tok/s, ITL ~6.8ms, TTFT 40-150ms conservative):
+
+| Quality constraint | Current c | Current agg | Post Phase 1+CB c | Post agg | Improvement |
+|-------------------|----------|------------|-------------------|---------|-------------|
+| ITL ≤ 12ms | c=4 | 216 | c=16 | 1918 | **8.9×** |
+| ITL ≤ 15ms | c=32 | 945 | c=32+ | ~2800* | **3.0×** |
+| TTFT ≤ 100ms | c=4 | 216 | c=8-16 | 1078-1918 | **5.0-8.9×** |
+| Score ≥ 70 B | c=32 | 945 | c=32+ | ~2800* | **3.0×** |
+
+*c=32+ extrapolated from PMAT-184 power law with CB-corrected exponent β≈0.85.*
+
+The iso-quality gap vs vLLM shrinks from **12.8× to ~1.4×** at ITL ≤12ms (realizr c=16 at 1918 vs vLLM c=32 at 2758). **This is the single strongest quantitative argument for Phase 1+CB investment.**
+
+After Phase 0+1+CB (fused Q4K TTFT + continuous batching), TTFT drops to 20-60ms:
+- TTFT ≤100ms achievable at c=32+ → iso-quality gap essentially eliminated
+- Score ≥85 at c=8-16 → matches vLLM's quality grade
+
 **Falsification conditions for Phase 1+CB:**
 - Score ≥85 A- at c=8 → PASS (scheduling architecture validated)
 - Score <70 B at c=8 → FAIL (decode rate doesn't restore to c=1 levels — Q4K kernel issue)
 - If TTFT still >100ms at c=8 → FP8 prefill overhead persists independent of scheduling
+- **Iso-quality test:** ITL ≤12ms at c≥8 → PASS. ITL >15ms at c=8 → continuous batching has per-step overhead not modeled
 
 **Refined 2-Factor Decomposition (PMAT-179, Mar 15):**
 
@@ -3298,6 +3318,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.40.0 | 2026-03-15 | **PMAT-188: Projected iso-quality after Phase 1+CB.** Using PMAT-180 aggregate projections + quality assumptions (decode→144, ITL→6.8ms), the iso-quality gap vs vLLM shrinks from 12.8× to ~1.4× at ITL≤12ms (realizr c=16 at 1918 vs vLLM c=32 at 2758). Current: realizr can only serve c=4 at ITL≤12ms. Post Phase 1+CB: c=16 at same quality — 8.9× more throughput capacity. After Phase 0+1+CB, TTFT≤100ms achievable at c=32+ → iso-quality gap essentially eliminated. Added iso-quality falsification test: ITL≤12ms at c≥8 = PASS. |
 | 3.39.0 | 2026-03-15 | **PMAT-187: Quality-throughput tradeoff — iso-quality analysis.** Added per-request quality degradation table (decode, ITL, TTFT at c=1→128) and iso-quality throughput comparison. At ITL ≤12ms constraint: vLLM delivers 12.8× more throughput than realizr at equivalent quality (c=32 vs c=4). At score ≥70: 3.2× (c=128 vs c=32). Key: realizr ITL is flat (6.7→14.3ms, 2.1× over c=1-32) while vLLM degrades 6.4× (6.5→41.4ms). TTFT is the binding quality constraint (28× growth vs 10.5×). vLLM c=128 gives same user experience as realizr c=8 (both 65 C+) despite 8.6× aggregate. Phase 1+CB target: flatten TTFT curve to close iso-quality gap from 14× to ~2×. |
 | 3.38.0 | 2026-03-15 | **PMAT-186: Complete scorecard sweep c=1→128, all 4 runtimes.** Scored all PMAT-177/182/183 production results via `probador llm score`. New data: ollama 78 B (c=1, best decode 100 + ITL 100 but TTFT 53/tail 47), 58 C (c=4,8 — serial flat). c=32: realizr 70 B overtakes llama.cpp 51 C (TTFT score 2, 16-slot collapse). vLLM graceful degradation: 98→88→74→65 at c=4/32/64/128. vLLM c=128 at 65 C+ — same as realizr c=8, despite 8.6× more aggregate throughput, because per-request quality (decode 20, ITL 13) degrades sharply. llama.cpp c=1: 97 A+ (corrected from 98 — error rate 2.6% costs 8 points). Exec summary scorecard table expanded to all concurrency levels. |
 | 3.37.0 | 2026-03-15 | **PMAT-185: Falsification test hygiene — annotate stale claims.** PMAT-131 entry now warns "⚠️ SHORT-PROMPT ONLY" — the "realizr WINS c≥8" claim was superseded by PMAT-177 production methodology (realizr loses ALL c). PMAT-138 entry now warns "⚠️ FALSIFIED" — the "c=8 invariant win" was falsified by PMAT-157 (heterogeneous output inverts c=8 from 1.47× WIN to 0.84× LOSS). PMAT-131 data table annotated with cross-reference to production table. Popperian integrity: falsified claims must be visibly marked, not silently superseded. |

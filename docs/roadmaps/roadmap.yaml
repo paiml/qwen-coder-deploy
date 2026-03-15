@@ -2160,6 +2160,29 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-188
+  title: 'PMAT-188: Projected iso-quality after Phase 1+CB'
+  status: DONE
+  priority: P1
+  spec_version: '3.40.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Project iso-quality throughput ratios after Phase 1+CB'
+      status: DONE
+      result: 'ITL≤12ms gap: 12.8× → 1.4×. TTFT≤100ms gap: 14× → ~3×'
+    - criterion: 'Quantify Phase 1+CB iso-quality improvement factor'
+      status: DONE
+      result: 'ITL≤12ms: 8.9× more throughput capacity (c=4→c=16). Score≥70: 3×'
+    - criterion: 'Add iso-quality falsification test for Phase 1+CB'
+      status: DONE
+      result: 'ITL≤12ms at c≥8 = PASS. ITL>15ms at c=8 = FAIL'
+  notes: |
+    The iso-quality analysis is the strongest quantitative argument for
+    Phase 1+CB. Raw aggregate projections (PMAT-180: 0.97× vLLM) tell
+    the scaling story. Iso-quality projections tell the user-experience
+    story: a 12.8× to 1.4× gap reduction means realizr can serve ~10×
+    more users at the same perceived quality. This is the metric that
+    matters for deployment economics.
 - id: PMAT-187
   title: 'PMAT-187: Quality-throughput tradeoff — iso-quality analysis'
   status: DONE
