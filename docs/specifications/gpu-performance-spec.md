@@ -1395,7 +1395,7 @@ Prediction accuracy: 352 predicted vs 357 actual = **99% model fit**. The three 
 | 8 | 0.52 | 0.66 | 0.95 | 352 | 357 | **-1%** |
 | 16 | 0.69 | 0.86 | 0.90 | 824 | 668 | +23% |
 
-The model fits c=4 and c=8 (≤6% error) but **overpredicts c=16 by 23%** — a 4th factor emerges at high concurrency. Likely candidates: batch formation overhead, CUDA kernel launch cost scaling super-linearly with M, or TTFT queuing delays. The model captures 77-101% of the gap.
+The 3-factor model fits c=4 and c=8 (≤6% error) but overpredicts c=16 by 23%. **Resolved by PMAT-179:** the "4th factor" is scheduling utilization decaying with concurrency — the 3-factor model assumed concurrency-invariant hetero/TTFT factors, but they compound into a single scheduling utilization factor that drops from 66% (c=4) to 51% (c=16). See PMAT-179 for the exact 2-factor decomposition.
 
 **Phase impact projections across concurrency (all fixes = fused Q4K + paged KV + continuous batching):**
 
@@ -1405,7 +1405,7 @@ The model fits c=4 and c=8 (≤6% error) but **overpredicts c=16 by 23%** — a 
 | 8 | 357 | 382 (+7%) | 543 (+52%) | 581 (+63%) | **1081** | **0.99×** |
 | 16 | 668 | 754 (+13%) | 776 (+16%) | 875 (+31%) | **1235** | **0.80×** |
 
-**Phase 0's TTFT fix grows in value with concurrency** — +2% at c=4, +7% at c=8, +13% at c=16 — because TTFT is a larger fraction of total time when batch prefill processes more tokens. But Phase 1 (paged KV) is consistently the larger individual fix (+35-52%). The c=16 all-fixes projection (0.80× vLLM) has a 23% model gap suggesting a 4th factor caps scaling.
+**Phase 0's TTFT fix grows in value with concurrency** — +2% at c=4, +7% at c=8, +13% at c=16 — because TTFT is a larger fraction of total time when batch prefill processes more tokens. But Phase 1 (paged KV) is consistently the larger individual fix (+35-52%). The c=16 all-fixes projection (0.80× vLLM) reflects scheduling utilization decay that Phase 1 must address.
 
 **Phase 0 ROI by output length (PMAT-176):**
 
@@ -1455,23 +1455,23 @@ vLLM scheduling utilization is **~98% constant** across concurrency — continuo
 
 **Per-Request Decode Rate Scaling (PMAT-172, Mar 15):**
 
-Compiled per-request decode rates across c=1→32 from PMAT-166/168/170/171 data (heterogeneous output, medium prompt):
+Per-request decode rates across c=1→32 (heterogeneous output, medium prompt). c=1-16 from PMAT-177; c=32 from PMAT-168:
 
 | c | realizr decode | vLLM decode | llama.cpp decode | realizr/vLLM | realizr retention |
 |---|---------------|------------|-----------------|-------------|-------------------|
-| 1 | 148.2 | 153.5 | 161.4 | 0.97× | 100% |
-| 4 | 81.1 | 142.7 | 90.4 | 0.57× | 55% |
-| 8 | 73.9 | 142.7 | 54.3 | 0.52× | 50% |
-| 16 | 71.3 | 103.3 | 64.6 | 0.69× | 48% |
+| 1 | 148.3 | 153.4 | 159.2 | 0.97× | 100% |
+| 4 | 81.7 | 149.6 | 89.4 | 0.55× | 55% |
+| 8 | 74.9 | 142.8 | 53.4 | 0.52× | 51% |
+| 16 | 72.2 | 127.3 | 59.0 | 0.57× | 49% |
 | 32 | 69.6 | 92.9 | 61.6 | 0.75× | 47% |
 
 **Key findings:**
 
-1. **vLLM maintains near-constant decode through c=8** (153.5→142.7 = 93% retention). PagedAttention processes only active tokens — at M=8, it's still M=1 per request with pipelined scheduling. The decode rate only drops at c≥16 when GPU compute saturates.
-2. **realizr loses 45% of decode by c=4** (148→81 tok/s). Batch-and-step at M=4 processes all 4 tokens in one GEMV call, but the KV scan grows linearly with batch size — each decode step reads 4× more KV data. This is the fundamental batch-GEMV scaling limit.
-3. **realizr and vLLM converge at c=1** (148 vs 154 = 0.97×). The kernel-level gap is negligible — confirming that the competitive problem is purely architectural (scheduling + KV management), not compute kernel speed.
-4. **realizr's decode plateaus at c≥8** (74→70, only 5% drop from c=8→32). The KV scan is memory-bandwidth-bound, and at M=8 the 4060L's 256 GB/s is saturated. Additional batch tokens add minimal incremental cost because the KV cache is already being fully streamed.
-5. **llama.cpp has the worst decode scaling** — drops 62% by c=32. Its 16-slot fixed design scans all 16 KV slots every step regardless of occupancy, wasting bandwidth on empty slots at low c and saturating early.
+1. **vLLM maintains near-constant decode through c=8** (153.4→149.6→142.8 = 97%→93% retention at c=4→c=8). PagedAttention processes only active tokens — at M=8, it's still M=1 per request with pipelined scheduling. The decode rate only drops meaningfully at c≥16 when GPU compute saturates (83% retention at c=16).
+2. **realizr loses 45% of decode by c=4** (148→82 tok/s). Batch-and-step at M=4 processes all 4 tokens in one GEMV call, but the KV scan grows linearly with batch size — each decode step reads 4× more KV data. This is the fundamental batch-GEMV scaling limit.
+3. **realizr and vLLM converge at c=1** (148 vs 153 = 0.97×). The kernel-level gap is negligible — confirming that the competitive problem is purely architectural (scheduling + KV management), not compute kernel speed.
+4. **realizr's decode plateaus at c≥8** (75→70, only 7% drop from c=8→32). The KV scan is memory-bandwidth-bound, and at M=8 the 4060L's 256 GB/s is saturated. Additional batch tokens add minimal incremental cost because the KV cache is already being fully streamed.
+5. **llama.cpp has the worst decode scaling** — drops 61% by c=32. Its 16-slot fixed design scans all 16 KV slots every step regardless of occupancy, wasting bandwidth on empty slots at low c and saturating early.
 
 **Architectural implication:** vLLM's per-token scheduling is the key — it avoids the batch-GEMV KV scan penalty entirely. Paged KV (PMAT-052) alone doesn't fix this; the scheduler must also adopt per-token decode dispatch (continuous batching) rather than batch-and-step. This is why Phase 1's scope is "paged KV + continuous batching" — either alone is insufficient.
 
@@ -2798,7 +2798,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | **PMAT-166** | **GPU resource utilization & energy efficiency (c=1-16)** | **All runtimes pre-allocate; vLLM 2.4× more energy-efficient at c=16** | ✅ MEASURED. VRAM is concurrency-invariant for all 3 runtimes (realizr 7544, vLLM 7640, llama.cpp 1470 MiB constant). Hypothesis "realizr VRAM grows with c" FALSIFIED — CUDA_MAX_BATCH=32 pre-allocates at startup. vLLM KV cache <1% utilized even at c=16 — 1.5B model too small to pressure memory. Power ~constant (42-55W) regardless of c. Energy efficiency (tok/J): vLLM 37.0, llama.cpp 16.9, realizr 15.3 at c=16. vLLM 12× energy scaling (c1→c16) vs realizr 5.3×. Gap is scheduling, not memory. Phase 1 value is scheduler flexibility, not VRAM savings at 1.5B scale. |
 | **PMAT-165** | **Long-running stability (5min c=8 medium+hetero)** | **Stable: decode ±0.6%, ITL 0%, TTFT −0.5%, 0 errors, 61°C** | ✅ MEASURED. 5-minute benchmark confirms realizr stability. P50 metrics invariant: decode 75.3 (was 74.9), ITL 13.3ms (unchanged), TTFT 147.9ms (was 148.6). Zero errors, zero truncation, 744 requests served. GPU 61°C, clocks locked. No memory leaks or thermal throttling. Post-5min sanity check confirms baseline throughput (355.5 tok/s). Drift slope is measurement noise, not degradation. |
 | **PMAT-164** | **Request completion & reliability analysis** | **realizr 0% failures + 0% truncation, llama.cpp 1.8% failures + 100% truncation** | ✅ ANALYZED. llama.cpp has real connection failures (4-5 per 60s at c≤8) from slot overflow + 100% output truncation (112 tok cap). realizr has 0% failures and 100% natural completions. vLLM 0% failures but 100% truncation (model hits max_tokens). llama.cpp goodput is zero for medium prompts — no request completes naturally. Request throughput: vLLM 2.6× more than realizr (396 vs 160 at c=8). |
-| **PMAT-163** | **Scaling efficiency analysis (c=1-16 medium+hetero)** | **vLLM 75-94% efficient, realizr 25-37%, llama.cpp 33-55%** | ✅ MEASURED. c=1 baselines: realizr 146.2 (fastest), llama.cpp 160.7, vLLM 126.6. But vLLM scales 2.5-3× more efficiently (75-94% vs 25-37%). Crossover at c~3. Per-request decode: vLLM 97→77%, realizr 55→49% (plateaus), llama.cpp 55→33% (dips). PagedAttention enables near-linear scaling by processing only active tokens. Batch-and-step scales poorly despite faster single-request kernel. Paged KV (Phase 1) is the only path to vLLM-class efficiency. |
+| **PMAT-163** | **Scaling efficiency analysis (c=1-16 medium+hetero)** | **vLLM 81-96% efficient, realizr 25-37%, llama.cpp 33-56%** | ✅ MEASURED, ⚠️ CORRECTED by PMAT-178. Original c=1 baseline had vLLM outlier (126.6 — 5σ below normal 149.7±1.8). Corrected (PMAT-177): realizr 146.4, llama.cpp 158.1, vLLM 152.4 (all at parity). vLLM scales 2.5-3× more efficiently (81-96% vs 25-37%). Crossover at c~2 (was c~3). Per-request decode: vLLM 97→83%, realizr 55→49% (plateaus), llama.cpp 56→37%. PagedAttention enables near-linear scaling by processing only active tokens. |
 | **PMAT-162** | **Projected Phase 0/1 impact under production-realistic conditions** | **Phase 0: +6-8 (C→C+), Phase 0+1: +13-19 (C→B-)** | ✅ PROJECTED, ✅ VALIDATED by probador llm score on synthetic results. Fused Q4K alone: 56/61/63 at c=4/8/16 (+6 to +8). With paged KV: ~63/69/71 (+13 to +19 total). Phase 0 alone recovers c=8 crossover (61 vs llama.cpp 52) but insufficient at c=4 (56 vs llama 60). Both phases required. Falsification: fused Q4K TTFT ≤1.5× llama.cpp + composite ≥56 at c=4. |
 | **PMAT-161** | **Quality-of-experience: ITL and reliability under heterogeneous output** | **realizr best ITL at c≥8, tightest TTFT tail, 0% errors** | ✅ ANALYZED. Under heterogeneous output: realizr has best ITL at c≥8 (13.3ms vs llama.cpp 18.6ms, 1.40× better), tightest TTFT P50/P99 spread (1.3-10.4ms vs vLLM 10.2-64.5ms), and 0% errors at all c (vs llama.cpp 0.2-1.8%). Aggregate throughput penalty is entirely TTFT-driven. For interactive use, realizr's ITL advantage gives better perceived streaming speed despite lower aggregate. |
 | **PMAT-160** | **Executive summary refresh — production-realistic lead** | **Summary now reflects true competitive position** | ✅ UPDATED. Rewrote executive summary to lead with production-realistic results (medium prompt + heterogeneous output). Previous summary overstated competitiveness by leading with short-prompt fixed-output numbers. Three structural deficits enumerated. Historical results preserved as "favorable conditions." |
