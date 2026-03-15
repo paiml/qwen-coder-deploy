@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.37.0
+**Version:** 3.38.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -51,18 +51,21 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 4 | 216.1 | 354.4 | **587.4** | 160.1 | 0.37× | realizr 58 C |
 | 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
 | 16 | 586.5 | 896.6 | **1982.9** | ~160 | 0.30× | realizr 71 B |
-| 32 | 944.7 | 943.2 | **2757.6** | ~160 | 0.34× | — |
+| 32 | 944.7 | 943.2 | **2757.6** | ~160 | 0.34× | realizr 70 B |
 
-**Scorecards (probador llm score, PMAT-177):**
+**Scorecards (probador llm score, PMAT-186 — complete c=1→128):**
 
-| c | vLLM | llama.cpp | realizr |
-|---|------|-----------|---------|
-| 1 | **98 A+** | **98 A+** | 93 A |
-| 4 | **99 A+** | 73 B | 58 C |
-| 8 | **99 A+** | 65 C+ | 65 C+ |
-| 16 | **96 A+** | 72 B | 71 B |
+| c | vLLM | llama.cpp | realizr | ollama |
+|---|------|-----------|---------|--------|
+| 1 | **98 A+** | 97 A+ | 93 A | 78 B |
+| 4 | **98 A+** | 73 B | 58 C | 58 C |
+| 8 | **97 A+** | 65 C+ | 65 C+ | 58 C |
+| 16 | **96 A+** | 72 B | 71 B | — |
+| 32 | **88 A-** | 51 C | 70 B | — |
+| 64 | 74 B | — | — | — |
+| 128 | 65 C+ | — | — | — |
 
-**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** At c=8 and c=16, realizr matches llama.cpp (65 C+ / 71 B) — the gap is now entirely vs vLLM. Two structural deficits (PMAT-179 decomposition, exact at all c):
+**realizr loses to vLLM at ALL concurrency levels under production conditions.** At c=32, realizr (70 B) overtakes llama.cpp (51 C) — llama.cpp's 16-slot design collapses (TTFT score 2). vLLM degrades gracefully: 98 A+ → 88 A- → 74 B → 65 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but TTFT (53) and tail (47) limit it to 78 B; at c≥4, serial processing gives 58 C flat. Two structural deficits (PMAT-179 decomposition, exact at all c):
 1. **Per-request decode rate** (0.52-0.57× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching per-token dispatch
 2. **Scheduling utilization** (0.52-0.67× factor — batch-and-step waste compounds with c, PMAT-179) → paged KV (PMAT-052) + continuous batching. vLLM maintains ~98% utilization at all c; realizr drops from 66% at c=4 to 51% at c=16
    - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
@@ -3260,6 +3263,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.38.0 | 2026-03-15 | **PMAT-186: Complete scorecard sweep c=1→128, all 4 runtimes.** Scored all PMAT-177/182/183 production results via `probador llm score`. New data: ollama 78 B (c=1, best decode 100 + ITL 100 but TTFT 53/tail 47), 58 C (c=4,8 — serial flat). c=32: realizr 70 B overtakes llama.cpp 51 C (TTFT score 2, 16-slot collapse). vLLM graceful degradation: 98→88→74→65 at c=4/32/64/128. vLLM c=128 at 65 C+ — same as realizr c=8, despite 8.6× more aggregate throughput, because per-request quality (decode 20, ITL 13) degrades sharply. llama.cpp c=1: 97 A+ (corrected from 98 — error rate 2.6% costs 8 points). Exec summary scorecard table expanded to all concurrency levels. |
 | 3.37.0 | 2026-03-15 | **PMAT-185: Falsification test hygiene — annotate stale claims.** PMAT-131 entry now warns "⚠️ SHORT-PROMPT ONLY" — the "realizr WINS c≥8" claim was superseded by PMAT-177 production methodology (realizr loses ALL c). PMAT-138 entry now warns "⚠️ FALSIFIED" — the "c=8 invariant win" was falsified by PMAT-157 (heterogeneous output inverts c=8 from 1.47× WIN to 0.84× LOSS). PMAT-131 data table annotated with cross-reference to production table. Popperian integrity: falsified claims must be visibly marked, not silently superseded. |
 | 3.36.0 | 2026-03-15 | **PMAT-184: Scaling model characterization — vLLM exponential saturation + realizr power law.** Fitted parametric models to PMAT-177/183 production data (c=1→128). vLLM follows exponential saturation `agg = 3050 × (1 - exp(-c/19.5))` — fits well at asymptotes (c≥64) but underpredicts c=4-16 by 5-14% (super-linear continuous batching gains from prefix cache). realizr follows power law `agg = 124.7 × c^0.549` — √c scaling from batch-GEMV BW sharing. Scaling exponent gap: vLLM 0.85→0.40 (declining), realizr constant ~0.55. Phase 1+CB falsification: β≥0.80 = success, β<0.60 = CB didn't fix batch-GEMV. Also: added `bench-yoga-prod-ollama` Makefile target (was missing from production benchmark suite). |
 | 3.35.0 | 2026-03-15 | **PMAT-183: c=32/64/128 production sweep + vLLM asymptote.** Fresh c=32 data for all runtimes: realizr 944.7 (was 931.2, +1.5%), llama.cpp 943.2 (was 924.4, +2.0%), vLLM 2757.6 (was 2847.5, -3.2%, within scheduler variance). realizr and llama.cpp at exact parity (1.002×). vLLM c=64: 3036 (+10%), c=128: 3049 (+0.4%). **vLLM asymptotes at ~3050 tok/s on RTX 4060L** — GPU compute-saturated at c=64. Per-request decode: 89→49→24 at c=32/64/128. Scaling efficiency c=32: realizr 20.2%, llama.cpp 18.6%, vLLM 56.5%. All c=32 data now from single session with consistent methodology. |

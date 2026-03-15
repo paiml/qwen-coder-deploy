@@ -2160,6 +2160,29 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-186
+  title: 'PMAT-186: Complete scorecard sweep c=1→128, all 4 runtimes'
+  status: DONE
+  priority: P2
+  spec_version: '3.38.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Score all PMAT-177/182/183 production results'
+      status: DONE
+      result: 'Full scorecards: vLLM 98-65, realizr 93-65, llama.cpp 97-51, ollama 78-58'
+    - criterion: 'Add ollama scorecard to executive summary'
+      status: DONE
+      result: 'ollama 78 B (c=1), 58 C (c=4,8). Best decode+ITL, worst TTFT+tail'
+    - criterion: 'Score c=32 and vLLM c=64/128'
+      status: DONE
+      result: 'c=32: vLLM 88 A-, realizr 70 B, llama.cpp 51 C. vLLM c=64: 74 B, c=128: 65 C+'
+  notes: |
+    Key insight: vLLM c=128 scores same as realizr c=8 (65 C+) despite 8.6x
+    more aggregate throughput. At extreme concurrency, per-request quality
+    (decode/ITL) dominates the score — aggregate alone doesn't buy grade.
+    llama.cpp collapses at c=32 (TTFT score 2) due to 16-slot queueing.
+    Ollama's 78 B at c=1 is notable — best decode (100) and ITL (100) but
+    serial processing gives 53 TTFT (2941ms queue at c=4).
 - id: PMAT-185
   title: 'PMAT-185: Falsification test hygiene — annotate stale claims'
   status: DONE
