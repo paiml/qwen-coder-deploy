@@ -1509,10 +1509,10 @@ Phase 0's throughput gain is entirely determined by TTFT's share of total reques
 
 Using the scoring contract (v3.0.0 absolute thresholds, throughput profile weights) and PMAT-180 throughput projections:
 
-| c | Current | Phase 1+CB | All fixes | vLLM (ref) |
-|---|---------|-----------|-----------|-----------|
-| 4 | 62 C+ | **95 A** (+32) | 98 A+ (+36) | 99 A+ |
-| 8 | 65 C+ | **90 A** (+25) | 96 A+ (+31) | 96 A+ |
+| c | Current (PMAT-186) | Phase 1+CB | All fixes | vLLM (ref) |
+|---|-------------------|-----------|-----------|-----------|
+| 4 | 58 C | **95 A** (+37) | 98 A+ (+40) | 98 A+ |
+| 8 | 65 C+ | **90 A** (+25) | 96 A+ (+31) | 97 A+ |
 | 16 | 71 B | **87 A-** (+16) | 92 A (+21) | 96 A+ |
 
 *Phase 1+CB assumes: aggregate = PMAT-180 projections, per-request decode restored to c=1 level (148 tok/s), ITL ≈ 6.8ms, TTFT still FP8 (40-150ms by c). All fixes adds fused Q4K TTFT → 20-60ms.*
