@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.30.0
+**Version:** 3.31.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -62,10 +62,11 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 8 | **99 A+** | 65 C+ | 65 C+ |
 | 16 | **96 A+** | 72 B | 71 B |
 
-**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** At c=8 and c=16, realizr matches llama.cpp (65 C+ / 71 B) — the gap is now entirely vs vLLM. Three structural deficits (PMAT-173 multiplicative decomposition, 99% model fit):
-1. **Decode rate degradation** (0.52× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching
-2. **Output heterogeneity** (0.66× factor — contiguous KV wastes 36% vs vLLM's 3%, PMAT-171) → paged KV (PMAT-052)
-3. **TTFT penalty** (0.95× factor at 130-tok avg output — FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
+**realizr loses at ALL concurrency levels under production conditions (except parity at c=32).** At c=8 and c=16, realizr matches llama.cpp (65 C+ / 71 B) — the gap is now entirely vs vLLM. Two structural deficits (PMAT-179 decomposition, exact at all c):
+1. **Per-request decode rate** (0.52-0.57× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching per-token dispatch
+2. **Scheduling utilization** (0.52-0.67× factor — batch-and-step waste compounds with c, PMAT-179) → paged KV (PMAT-052) + continuous batching. vLLM maintains ~98% utilization at all c; realizr drops from 66% at c=4 to 51% at c=16
+   - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
+   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
 
 **The gap is NOT kernel speed — realizr is within 4% of vLLM at c=1** (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~2. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
 
@@ -78,7 +79,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **High-concurrency (PMAT-127):** batch=32 unlocks 1850 tok/s at c=32. Gap to vLLM: 0.40×→0.65×. batch=64 OOMs.
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
-**Roadmap:** Phase 0 (fused Q4K GEMM + WSPT scheduling) → Phase 1 (paged KV + continuous batching) → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-173):** at c=8, gap = decode(0.52) × hetero(0.66) × TTFT(0.95). Phase 0 adds only +7% throughput (TTFT is 8% of request time) — its value is latency. Phase 1 + continuous batching is the dominant fix (+204%, reaching 0.99× vLLM). Target: ≥80% vLLM at c=8 after Phase 1.
+**Roadmap:** Phase 0 (fused Q4K GEMM + WSPT scheduling) → Phase 1 (paged KV + continuous batching) → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179):** gap = decode_rate(0.52-0.57) × scheduling_utilization(0.52-0.67). vLLM scheduling utilization is ~98% constant; realizr drops from 66% to 51% as c increases (batch-and-step waste compounds). Phase 0 adds only +7% throughput — its value is latency. Phase 1 must lift scheduling utilization to >90% to reach parity. Target: ≥80% vLLM at c=8 after Phase 1.
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -1422,7 +1423,33 @@ Phase 0's throughput gain is entirely determined by TTFT's share of total reques
 
 **This reframes the optimization priority for production workloads:** If the primary use case is code completion (autocompletion, fill-in-the-middle), Phase 0 is critical (+49% at 16 tokens). If the primary use case is code generation (full function synthesis), Phase 0 is negligible (+4% at 256 tokens) and Phase 1 (paged KV + continuous batching) is the only meaningful investment.
 
-**CUDA_MAX_BATCH is NOT a factor (PMAT-175):** BATCH=16 vs BATCH=32 at c=16 fixed:128 produces identical results (1006.9 vs 1003.3 tok/s, +0.3%). Decode rate unchanged (72.7 vs 72.5). Heterogeneous: BATCH=16 is 2.2% slower (653.7 vs 668.5) because reduced queue headroom limits pipelining. The pre-allocated batch size does not affect the decode kernel — realizr only processes active sequences, not the full batch matrix. The 4th factor at c=16 is TTFT queueing interaction with decode pipeline overlap, not batch allocation.
+**Refined 2-Factor Decomposition (PMAT-179, Mar 15):**
+
+The PMAT-173 3-factor model (decode × hetero × TTFT) overpredicted c=16 by 23%. A simpler 2-factor decomposition is algebraically exact at all concurrency levels:
+
+| c | Decode factor | Scheduling factor | Product | Actual | Error |
+|---|-------------|------------------|---------|--------|-------|
+| 4 | 0.546 | 0.674 | 0.368 | 0.368 | 0% |
+| 8 | 0.525 | 0.607 | 0.318 | 0.318 | 0% |
+| 16 | 0.567 | 0.522 | 0.296 | 0.296 | 0% |
+
+*Decode factor = realizr_decode_per_request / vLLM_decode_per_request. Scheduling factor = realizr_utilization / vLLM_utilization, where utilization = aggregate / (decode × c).*
+
+**Scheduling utilization reveals the architectural gap:**
+
+| c | realizr util | vLLM util | Gap |
+|---|-------------|----------|-----|
+| 4 | 66.1% | 98.2% | 32pp |
+| 8 | 59.3% | 97.6% | 38pp |
+| 16 | 50.8% | 97.4% | 47pp |
+
+vLLM scheduling utilization is **~98% constant** across concurrency — continuous batching keeps the GPU busy regardless of batch size. realizr utilization **drops steadily from 66% to 51%** as batch-and-step waste compounds: more requests mean more empty decode slots from completion timing mismatches, longer batch-GEMV from KV scan, and more prefill/decode pipeline stalls.
+
+**Resolution of the "4th factor" mystery (PMAT-174):** The PMAT-173 model used c=8-specific hetero/TTFT factors and assumed they'd hold at c=16. They don't — the scheduling utilization gap widens from 38pp to 47pp. There is no mysterious 4th factor; the 3-factor model simply didn't account for concurrency-dependent scheduling waste. The 2-factor decomposition subsumes all three original factors and is exact.
+
+**Phase 1 target (updated):** Paged KV + continuous batching must lift realizr scheduling utilization from 51-66% to >90% (vLLM range). At c=16, this alone would take realizr from 587 to ~1130 tok/s (0.57× vLLM → 0.93× if decode factor improves proportionally).
+
+**CUDA_MAX_BATCH is NOT a factor (PMAT-175):** BATCH=16 vs BATCH=32 at c=16 fixed:128 produces identical results (1006.9 vs 1003.3 tok/s, +0.3%). Decode rate unchanged (72.7 vs 72.5). Heterogeneous: BATCH=16 is 2.2% slower (653.7 vs 668.5) because reduced queue headroom limits pipelining. The pre-allocated batch size does not affect the decode kernel — realizr only processes active sequences, not the full batch matrix.
 
 **Falsification:** If Phase 1 (paged KV + continuous batching) achieves <0.80× vLLM at c=8, the remaining gap is in the decode kernel itself (not scheduling). If it achieves >0.95×, the decode kernel is competitive and the gap was purely architectural.
 
@@ -3169,6 +3196,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.31.0 | 2026-03-15 | **PMAT-179: Refined 2-factor gap decomposition — resolves "4th factor" mystery.** Replaced PMAT-173's 3-factor model (decode × hetero × TTFT, 23% c=16 error) with exact 2-factor decomposition: decode_rate × scheduling_utilization. Algebraically exact at all c (0% error). Key insight: vLLM scheduling utilization is ~98% constant (continuous batching); realizr drops from 66% (c=4) to 51% (c=16) as batch-and-step waste compounds. The "4th factor" at c=16 was the 3-factor model's assumption that hetero/TTFT factors are concurrency-invariant — they aren't, they're components of the scheduling utilization that decays with c. Phase 1 target: lift scheduling utilization from 51-66% to >90%. Executive summary updated from 3-factor to 2-factor view. |
 | 3.30.0 | 2026-03-15 | **PMAT-178: vLLM measurement variance analysis.** Cross-session analysis of 10+ vLLM c=1 measurements reveals PMAT-163 (126.6 tok/s) was a 5σ outlier — all other measurements cluster at 149.7±1.8 tok/s (decode stable at 153.4±0.2). The "realizr 15% faster at c=1" narrative was based on this single outlier; corrected to 0.96-0.98×. PMAT-163 likely captured CUDA graph compilation or scheduler cold-start. Inflated scaling efficiency (93.9% → corrected 96.3% at c=4). vLLM c=32 efficiency drops from 70.3% → 58.4% against corrected baseline, suggesting 4060L compute saturation. realizr variance confirmed at <0.3% across sessions (146.2-146.4). |
 | 3.29.0 | 2026-03-15 | **Scaling table refresh with PMAT-177 data.** Updated scaling efficiency table (PMAT-163 section) and per-request decode degradation table with fresh PMAT-177 numbers. Key changes: vLLM c=1 baseline now 152.4 (was 126.6 from earlier session), realigning scaling efficiency calculation. vLLM c=32 efficiency 58.4% (was 70.3% — recalculated against higher c=1 baseline, c=32 data point from PMAT-168 not re-measured). All runtimes at parity at c=1 (146-158 tok/s), crossover at c~2. vLLM per-request decode retention: 97.5%/93.1%/83.0% at c=4/8/16 (previously 97.4%/88.1%/76.6% — higher than expected, scheduler timing variance). |
 | 3.28.0 | 2026-03-15 | **PMAT-177: Comprehensive production benchmark refresh.** Fresh 60s production sweep (medium + uniform:16,256, streaming) for all 3 runtimes at c=1,4,8,16. realizr numbers identical to PMAT-157 (<0.3% variance, confirming rock-solid stability). Definitive scorecards: realizr 93A/58C/65C+/71B, vLLM 98A+/99A+/99A+/96A+, llama.cpp 98A+/73B/65C+/72B. At c≥8, realizr matches llama.cpp — gap is entirely vs vLLM. Executive summary updated with c=1 row, scorecard table, and corrected crossover point (c~2, not c~3). Makefile updated with `bench-yoga-prod` targets and scoring at c=1,4,8,16. |

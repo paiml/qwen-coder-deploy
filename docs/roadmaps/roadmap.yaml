@@ -2160,6 +2160,29 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-179
+  title: 'PMAT-179: Refined 2-factor gap decomposition (decode × scheduling)'
+  status: DONE
+  priority: P1
+  spec_version: '3.31.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Derive exact decomposition that works at all concurrency levels'
+      status: DONE
+      result: 'gap = decode_rate × scheduling_utilization, 0% error at c=4,8,16'
+    - criterion: 'Resolve the c=16 4th factor mystery (PMAT-174)'
+      status: DONE
+      result: 'No 4th factor. 3-factor model assumed concurrency-invariant hetero/TTFT; they decay with c'
+    - criterion: 'Quantify scheduling utilization gap'
+      status: DONE
+      result: 'vLLM 97-98% constant. realizr 66%→59%→51% at c=4/8/16'
+  notes: |
+    Analytical derivation from PMAT-177 data. The 2-factor model subsumes all
+    three original PMAT-173 factors: output heterogeneity and TTFT overhead are
+    components of scheduling utilization, not independent factors. Phase 1
+    (paged KV + continuous batching) must lift scheduling utilization from
+    51-66% to >90% to reach vLLM parity. The decode rate factor (0.52-0.57)
+    improves slightly at c=16 because vLLM's decode also starts dropping.
 - id: PMAT-178
   title: 'PMAT-178: vLLM measurement variance analysis — PMAT-163 outlier correction'
   status: DONE
