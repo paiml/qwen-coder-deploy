@@ -648,7 +648,7 @@ bench-yoga-serial: bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama benc
 # Yoga production-realistic benchmarks (PMAT-157+ methodology)
 # ============================================================================
 # Medium prompt (~102 tok) + heterogeneous output (uniform:16,256) + streaming
-# c=1,4,8,16 — the production-realistic sweep established by PMAT-157/173
+# realizr/vLLM: c=1,4,8,16,32,64,128. llama.cpp: c=1,4,8,16,32. ollama: c=1,4,8,16,32.
 # Results feed directly into probador llm score and gap decomposition model
 #
 # Usage:
@@ -681,6 +681,9 @@ bench-yoga-prod-realizr:
 	$(call run-prod-bench,realizr,4,$(YOGA_REALIZAR),)
 	$(call run-prod-bench,realizr,8,$(YOGA_REALIZAR),)
 	$(call run-prod-bench,realizr,16,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,32,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,64,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,128,$(YOGA_REALIZAR),)
 	-forjar apply -f forjar-yoga-teardown.yaml --yes
 
 bench-yoga-prod-llamacpp:
@@ -692,6 +695,7 @@ bench-yoga-prod-llamacpp:
 	$(call run-prod-bench,llamacpp,4,$(YOGA_LLAMACPP),)
 	$(call run-prod-bench,llamacpp,8,$(YOGA_LLAMACPP),)
 	$(call run-prod-bench,llamacpp,16,$(YOGA_LLAMACPP),)
+	$(call run-prod-bench,llamacpp,32,$(YOGA_LLAMACPP),)
 	-forjar apply -f forjar-yoga-teardown.yaml --yes
 
 bench-yoga-prod-vllm:
@@ -703,6 +707,9 @@ bench-yoga-prod-vllm:
 	$(call run-prod-bench,vllm,4,$(YOGA_VLLM),--model $(VLLM_MODEL))
 	$(call run-prod-bench,vllm,8,$(YOGA_VLLM),--model $(VLLM_MODEL))
 	$(call run-prod-bench,vllm,16,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,32,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,64,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,128,$(YOGA_VLLM),--model $(VLLM_MODEL))
 	-forjar apply -f forjar-yoga-teardown.yaml --yes
 
 bench-yoga-prod-ollama:
@@ -713,6 +720,8 @@ bench-yoga-prod-ollama:
 	$(call run-prod-bench,ollama,1,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
 	$(call run-prod-bench,ollama,4,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
 	$(call run-prod-bench,ollama,8,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,16,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,32,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
 	-forjar apply -f forjar-yoga-teardown.yaml --yes
 
 bench-yoga-prod: bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-ollama bench-yoga-prod-vllm
@@ -908,7 +917,7 @@ report:
 
 score:
 	@echo "=== Yoga RTX 4060L Scorecard ==="
-	@for c in 1 4 8 16 32; do \
+	@for c in 1 4 8 16 32 64 128; do \
 		echo ""; \
 		echo "--- c=$$c ---"; \
 		probador llm score --results results/ --platform yoga --concurrency $$c --format table; \
@@ -918,7 +927,7 @@ score-prod:
 	@echo "=== Yoga Production Scorecard (PMAT-177+ methodology) ==="
 	@mkdir -p /tmp/yoga-prod-scoring
 	@cp results/*yoga-prod*.json /tmp/yoga-prod-scoring/ 2>/dev/null || true
-	@for c in 1 4 8 16 32; do \
+	@for c in 1 4 8 16 32 64 128; do \
 		echo ""; \
 		echo "--- c=$$c ---"; \
 		probador llm score --results /tmp/yoga-prod-scoring/ --concurrency $$c --format table; \
@@ -929,7 +938,7 @@ score-all:
 	probador llm score --results results/
 
 score-json:
-	@for c in 1 4 8 16 32; do \
+	@for c in 1 4 8 16 32 64 128; do \
 		probador llm score --results results/ --platform yoga --concurrency $$c --format json --output results/scorecard-yoga-c$$c-$(DATE).json; \
 	done
 
