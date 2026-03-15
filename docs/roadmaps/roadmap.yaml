@@ -2160,6 +2160,31 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-184
+  title: 'PMAT-184: Scaling model characterization — vLLM exponential saturation + realizr power law'
+  status: DONE
+  priority: P2
+  spec_version: '3.36.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Fit parametric scaling models to PMAT-177/183 production data'
+      status: DONE
+      result: 'vLLM: agg = 3050 × (1 - exp(-c/19.5)). realizr: agg = 124.7 × c^0.549'
+    - criterion: 'Quantify model fit quality across c=1-128'
+      status: DONE
+      result: 'vLLM: -2% to -14% (underpredicts mid-range). realizr: 0% to -20% (moderate fit)'
+    - criterion: 'Define Phase 1+CB falsification via scaling exponent'
+      status: DONE
+      result: 'β≥0.80 = CB success (near-linear). β<0.60 = batch-GEMV penalty persists'
+    - criterion: 'Add bench-yoga-prod-ollama Makefile target'
+      status: DONE
+      result: 'Target added with c=1,4,8 sweep using production methodology'
+  notes: |
+    vLLM super-exponential in mid-range (c=4-16): prefix cache hit rate increases
+    with arrival rate, giving better-than-saturation-model scaling. Converges at
+    c≥64 where GPU is compute-bound. realizr √c scaling is fundamental to
+    batch-GEMV architecture — each doubling of c adds ~46% throughput (2^0.549).
+    Power law extrapolation: c=64 → ~1105 tok/s (untestable, OOMs).
 - id: PMAT-183
   title: 'PMAT-183: c=32/64/128 production sweep + vLLM asymptote'
   status: DONE

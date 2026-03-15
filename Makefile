@@ -78,7 +78,7 @@ QWEN_LAYERS := 28
         bench-gpu-serial bench-gpu-realizr bench-gpu-llamacpp \
         deploy-yoga-realizr deploy-yoga-llamacpp deploy-yoga-ollama deploy-yoga-vllm teardown-yoga health-yoga \
         bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama bench-yoga-vllm bench-yoga-serial \
-        bench-yoga-prod bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-vllm \
+        bench-yoga-prod bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-ollama bench-yoga-prod-vllm \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
@@ -651,9 +651,10 @@ bench-yoga-serial: bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama benc
 # Results feed directly into probador llm score and gap decomposition model
 #
 # Usage:
-#   make bench-yoga-prod                  # All 3 runtimes (realizr, llama.cpp, vLLM)
+#   make bench-yoga-prod                  # All 4 runtimes (realizr, llama.cpp, ollama, vLLM)
 #   make bench-yoga-prod-realizr          # realizr only (isolated)
 #   make bench-yoga-prod-llamacpp         # llama.cpp only (isolated)
+#   make bench-yoga-prod-ollama           # ollama only (isolated)
 #   make bench-yoga-prod-vllm             # vLLM only (isolated)
 
 PROD_DURATION := 60s
@@ -703,7 +704,17 @@ bench-yoga-prod-vllm:
 	$(call run-prod-bench,vllm,16,$(YOGA_VLLM),--model $(VLLM_MODEL))
 	-forjar apply -f forjar-yoga-teardown.yaml --yes
 
-bench-yoga-prod: bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-vllm
+bench-yoga-prod-ollama:
+	@echo "=== teardown before ollama prod bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== ollama production benchmark (yoga) ==="
+	forjar apply -f forjar-yoga-ollama.yaml --yes --force
+	$(call run-prod-bench,ollama,1,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,4,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,8,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-prod: bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-ollama bench-yoga-prod-vllm
 	@echo ""
 	@echo "=== Yoga Production Benchmark Complete ==="
 	@echo "Results in results/*-yoga-prod-*-$(DATE).json"
