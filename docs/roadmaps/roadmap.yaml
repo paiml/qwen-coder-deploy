@@ -2160,6 +2160,30 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-180
+  title: 'PMAT-180: Corrected phase projections — CB is the binding fix'
+  status: DONE
+  priority: P1
+  spec_version: '3.32.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Project phase impact using 2-factor model'
+      status: DONE
+      result: 'Paged KV + CB → 0.97× vLLM at c=4,8,16. Phase 0 adds 0% after CB'
+    - criterion: 'Compare with PMAT-173 3-factor projections'
+      status: DONE
+      result: 'c=8 Phase 1 matches (555 vs 543). c=16 corrected from 0.80× to 0.97×'
+    - criterion: 'Identify the binding fix'
+      status: DONE
+      result: 'Continuous batching. Eliminates batch-GEMV decode degradation. Phase 0 subsumed'
+  notes: |
+    Key insight: Phase 0 (fused Q4K GEMM) is only valuable for c=1 latency.
+    At c≥4, continuous batching subsumes Phase 0's TTFT improvement because
+    CB's scheduling efficiency dominates. Paged KV alone (no CB) only reaches
+    0.50× vLLM — fixes hetero but not decode. Paged KV + CB reaches 0.97×
+    because CB restores per-request decode to c=1 levels (M=1 per token).
+    This reframes the roadmap: Phase 1 (paged KV + CB) is the single critical
+    investment. Phase 0 is optional for latency-sensitive c=1 use cases.
 - id: PMAT-179
   title: 'PMAT-179: Refined 2-factor gap decomposition (decode × scheduling)'
   status: DONE

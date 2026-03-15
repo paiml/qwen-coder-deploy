@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.31.0
+**Version:** 3.32.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1397,15 +1397,21 @@ Prediction accuracy: 352 predicted vs 357 actual = **99% model fit**. The three 
 
 The 3-factor model fits c=4 and c=8 (≤6% error) but overpredicts c=16 by 23%. **Resolved by PMAT-179:** the "4th factor" is scheduling utilization decaying with concurrency — the 3-factor model assumed concurrency-invariant hetero/TTFT factors, but they compound into a single scheduling utilization factor that drops from 66% (c=4) to 51% (c=16). See PMAT-179 for the exact 2-factor decomposition.
 
-**Phase impact projections across concurrency (all fixes = fused Q4K + paged KV + continuous batching):**
+**Phase impact projections across concurrency (PMAT-180 — 2-factor corrected):**
 
-| c | Current | Phase 0 | Phase 1 | Phase 0+1 | All 3 fixes | vs vLLM |
-|---|---------|---------|---------|-----------|-------------|---------|
-| 4 | 218 | 223 (+2%) | 293 (+35%) | 299 (+37%) | **509** | **0.93×** |
-| 8 | 357 | 382 (+7%) | 543 (+52%) | 581 (+63%) | **1081** | **0.99×** |
-| 16 | 668 | 754 (+13%) | 776 (+16%) | 875 (+31%) | **1235** | **0.80×** |
+| c | Current | Phase 0 | Phase 1 (no CB) | Phase 0+1 (no CB) | Paged KV + CB | vs vLLM |
+|---|---------|---------|----------------|------------------|--------------|---------|
+| 4 | 216 | 220 (+2%) | 338 (+56%) | 344 (+59%) | **568** | **0.97×** |
+| 8 | 355 | 378 (+6%) | 555 (+56%) | 591 (+66%) | **1078** | **0.97×** |
+| 16 | 587 | 687 (+17%) | 916 (+56%) | 1074 (+83%) | **1918** | **0.97×** |
 
-**Phase 0's TTFT fix grows in value with concurrency** — +2% at c=4, +7% at c=8, +13% at c=16 — because TTFT is a larger fraction of total time when batch prefill processes more tokens. But Phase 1 (paged KV) is consistently the larger individual fix (+35-52%). The c=16 all-fixes projection (0.80× vLLM) reflects scheduling utilization decay that Phase 1 must address.
+*Phase 0 = fused Q4K GEMM. Phase 1 = paged KV (batch-and-step scheduler unchanged). CB = continuous batching (per-token decode dispatch). With CB, per-request decode tracks vLLM's curve × 0.97 (Q4K vs AWQ weight format, c=1 ratio).*
+
+**Key finding (PMAT-180):** Continuous batching is the binding fix. "Paged KV + CB" reaches 0.97× vLLM at **all concurrency levels** — Phase 0 (fused Q4K) adds zero additional throughput because its TTFT improvement is subsumed by the scheduling efficiency of continuous batching. Phase 0's value is c=1 latency (TTFT) only.
+
+**Phase 1 without continuous batching is insufficient** — it lifts scheduling utilization but doesn't fix the per-request decode degradation (0.52-0.57×). Paged KV alone gets to 0.50× vLLM at c=8. Continuous batching eliminates the batch-GEMV KV scan penalty by reverting to M=1 per-token dispatch.
+
+**Phase 0's TTFT fix still grows with concurrency** — +2% at c=4, +6% at c=8, +17% at c=16 — because TTFT is a larger fraction of total time when prefill processes more queued tokens. But this becomes irrelevant once continuous batching eliminates the scheduling waste that compounds TTFT impact.
 
 **Phase 0 ROI by output length (PMAT-176):**
 
@@ -3196,6 +3202,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.32.0 | 2026-03-15 | **PMAT-180: Corrected phase projections — continuous batching is the binding fix.** Using the PMAT-179 2-factor decomposition to project Phase 0/1/CB impact: paged KV + continuous batching reaches 0.97× vLLM at ALL concurrency levels (c=4,8,16). Phase 0 adds zero additional throughput once CB is present — its value is c=1 latency only. Phase 1 without CB gets only 0.50× vLLM at c=8 (fixes hetero penalty but not decode degradation). This corrects PMAT-173's c=16 projection from 0.80× to 0.97× — the 23% model gap was the 3-factor model's concurrency-invariance assumption, not a fundamental ceiling. Per-request decode with CB tracks vLLM's curve × 0.97 (Q4K vs AWQ c=1 ratio). |
 | 3.31.0 | 2026-03-15 | **PMAT-179: Refined 2-factor gap decomposition — resolves "4th factor" mystery.** Replaced PMAT-173's 3-factor model (decode × hetero × TTFT, 23% c=16 error) with exact 2-factor decomposition: decode_rate × scheduling_utilization. Algebraically exact at all c (0% error). Key insight: vLLM scheduling utilization is ~98% constant (continuous batching); realizr drops from 66% (c=4) to 51% (c=16) as batch-and-step waste compounds. The "4th factor" at c=16 was the 3-factor model's assumption that hetero/TTFT factors are concurrency-invariant — they aren't, they're components of the scheduling utilization that decays with c. Phase 1 target: lift scheduling utilization from 51-66% to >90%. Executive summary updated from 3-factor to 2-factor view. |
 | 3.30.0 | 2026-03-15 | **PMAT-178: vLLM measurement variance analysis.** Cross-session analysis of 10+ vLLM c=1 measurements reveals PMAT-163 (126.6 tok/s) was a 5σ outlier — all other measurements cluster at 149.7±1.8 tok/s (decode stable at 153.4±0.2). The "realizr 15% faster at c=1" narrative was based on this single outlier; corrected to 0.96-0.98×. PMAT-163 likely captured CUDA graph compilation or scheduler cold-start. Inflated scaling efficiency (93.9% → corrected 96.3% at c=4). vLLM c=32 efficiency drops from 70.3% → 58.4% against corrected baseline, suggesting 4060L compute saturation. realizr variance confirmed at <0.3% across sessions (146.2-146.4). |
 | 3.29.0 | 2026-03-15 | **Scaling table refresh with PMAT-177 data.** Updated scaling efficiency table (PMAT-163 section) and per-request decode degradation table with fresh PMAT-177 numbers. Key changes: vLLM c=1 baseline now 152.4 (was 126.6 from earlier session), realigning scaling efficiency calculation. vLLM c=32 efficiency 58.4% (was 70.3% — recalculated against higher c=1 baseline, c=32 data point from PMAT-168 not re-measured). All runtimes at parity at c=1 (146-158 tok/s), crossover at c~2. vLLM per-request decode retention: 97.5%/93.1%/83.0% at c=4/8/16 (previously 97.4%/88.1%/76.6% — higher than expected, scheduler timing variance). |
