@@ -63,7 +63,8 @@ make teardown          # Stop services
 make report            # Generate performance.md + update README
 
 # Scoring (probador llm score)
-make score             # Yoga c=1 + c=4 scorecard (table)
+make score             # Yoga c=1,4,8,16,32 scorecard (table)
+make score-prod        # Production methodology results only (PMAT-177+)
 make score-jetson      # Jetson scorecards
 make score-json        # JSON scorecards to results/
 make score-all         # All platforms, all concurrency levels

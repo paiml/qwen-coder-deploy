@@ -6,7 +6,7 @@
 #   Jetson (parallel):   make deploy-jetson / make load-jetson (smoke tests only)
 #   GPU (4090, profiling only): make deploy-gpu / make nsys-gpu / make profile-gpu
 #   CPU (intel host):    make deploy / make test / make load
-#   Scoring:             make score / make score-jetson / make score-gate
+#   Scoring:             make score / make score-prod / make score-jetson / make score-gate
 #
 # Load testing runs on Jetson Orin (dedicated). 4090 freed for QLoRA training.
 # Deep profiling (nsys/ncu/apr profile) remains 4090-only (occasional).
@@ -83,6 +83,7 @@ QWEN_LAYERS := 28
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
         profile-yoga profile-yoga-ci profile-yoga-trace profile-yoga-compare profile-yoga-full \
+        score score-prod score-all score-json score-jetson score-gate \
         contract-lint contract-validate contract-score contract-falsify
 
 # ============================================================================
@@ -907,17 +908,28 @@ report:
 
 score:
 	@echo "=== Yoga RTX 4060L Scorecard ==="
-	@for c in 1 4 8 16; do \
+	@for c in 1 4 8 16 32; do \
 		echo ""; \
 		echo "--- c=$$c ---"; \
 		probador llm score --results results/ --platform yoga --concurrency $$c --format table; \
 	done
 
+score-prod:
+	@echo "=== Yoga Production Scorecard (PMAT-177+ methodology) ==="
+	@mkdir -p /tmp/yoga-prod-scoring
+	@cp results/*yoga-prod*.json /tmp/yoga-prod-scoring/ 2>/dev/null || true
+	@for c in 1 4 8 16 32; do \
+		echo ""; \
+		echo "--- c=$$c ---"; \
+		probador llm score --results /tmp/yoga-prod-scoring/ --concurrency $$c --format table; \
+	done
+	@rm -rf /tmp/yoga-prod-scoring
+
 score-all:
 	probador llm score --results results/
 
 score-json:
-	@for c in 1 4 8 16; do \
+	@for c in 1 4 8 16 32; do \
 		probador llm score --results results/ --platform yoga --concurrency $$c --format json --output results/scorecard-yoga-c$$c-$(DATE).json; \
 	done
 
