@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-164
+  title: 'PMAT-164: Request completion & reliability analysis'
+  status: DONE
+  priority: P1
+  spec_version: '3.15.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Analyze failed requests, truncation, and completion modes'
+      status: DONE
+      result: 'realizr: 0% failed, 0% truncated. vLLM: 0% failed, 100% truncated. llama.cpp: 1.8% failed, 100% truncated'
+    - criterion: 'Identify llama.cpp failure root cause'
+      status: DONE
+      result: 'Slot overflow — 16-slot pool exhausts under load (4-5 failures per 60s at c≤8)'
+    - criterion: 'Assess production goodput impact'
+      status: DONE
+      result: 'llama.cpp goodput zero for medium prompts (112 tok cap). vLLM 2.6x more requests than realizr'
+  notes: |
+    The 100% truncation for llama.cpp is architectural — 256 tok/slot minus
+    medium prompt + template overhead leaves only 112 tokens for output.
+    Every response is truncated regardless of requested max_tokens.
+    realizr zero errors/truncation is a genuine reliability advantage.
 - id: PMAT-163
   title: 'PMAT-163: Scaling efficiency analysis — why vLLM dominates at c>1'
   status: DONE
