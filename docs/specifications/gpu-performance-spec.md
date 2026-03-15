@@ -52,8 +52,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 | 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
 | 16 | 586.5 | 896.6 | **1982.9** | 161.0 | 0.30× | realizr 71 B |
 | 32 | 944.7 | 943.2 | **2757.6** | 159.0 | 0.34× | realizr 70 B |
-| 64 | **1484.4** | — | **3036.1** | — | 0.49× | — |
-| 128 | 1505.6 | — | 3049.4 | — | 0.49× | — |
+| 64 | **1484.4** | — | **3036.1** | — | 0.49× | vLLM 74 B |
+| 128 | 1505.6 | — | 3049.4 | — | 0.49× | **realizr 66 C+** |
 
 *Both runtimes saturate at c=64: vLLM ~3050, realizr ~1500 (2.0× constant gap). realizr at batch=32 queues excess requests with 0% errors.*
 
@@ -1251,7 +1251,7 @@ Parametric models fitted to PMAT-177/183 production data (c=1→128):
 1. **vLLM scales 2.5-3.3× more efficiently than realizr.** At c=16: vLLM uses 81% of its theoretical capacity vs realizr's 25%. At c=32: 58% vs 20%. This is the single largest competitive gap — not kernel speed (all runtimes are equivalent at c=1) but scaling architecture.
 2. **PagedAttention enables near-linear scaling** because it processes only active tokens per step. Short requests completing early free blocks for new requests — the system self-balances. Batch-and-step (realizr) and fixed-slot (llama.cpp) process all allocated slots every step regardless of actual utilization.
 3. **realizr per-request decode drops 50% at c=4, then plateaus at ~33% by c=64** (PMAT-192). At c=64/128, decode is 49/49 tok/s (identical) — the batch=32 GPU kernel is the ceiling regardless of queue depth. ITL stays flat at 20.4/20.5ms. Queue depth adds TTFT (2.8s→8.2s) but not decode latency.
-4. **llama.cpp saturates at c=32** — its 16-slot parallel design cannot scale beyond the slot count. At c=32, llama.cpp drops from 55% efficiency (c=4) to 18%, converging with realizr. Both batch-based approaches asymptote toward ~15-20% efficiency.
+4. **llama.cpp has non-monotonic decode: 89→53→59→60 at c=4/8/16/32.** At c=8 with `--parallel 16`, only half the slots are active but the server iterates all 16 per step (fixed-slot overhead). At c=16 (all slots full), decode recovers because per-slot work is amortized. At c=32, requests queue behind 16 slots. Saturates at ~943 tok/s — its 16-slot parallel design cannot scale beyond the slot count. Both batch-based approaches (realizr + llama.cpp) asymptote toward ~15-20% efficiency.
 5. **The crossover point is c~2.** At c=1, all runtimes produce near-identical throughput (146-161 tok/s). Above c=2, vLLM's scaling efficiency advantage dominates. At c=4: vLLM 587 vs realizr 216 (2.7×). At saturation: vLLM 3050 vs realizr 1500 (**2.0× constant**).
 
 **Implication:** Fused Q4K GEMM (Phase 0) cannot close the scaling gap — it only fixes TTFT. Paged KV (Phase 1) is the only path to vLLM-class scaling efficiency because it enables per-token resource allocation instead of per-slot pre-allocation.
