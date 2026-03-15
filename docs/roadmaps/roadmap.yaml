@@ -2160,6 +2160,26 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-176
+  title: 'PMAT-176: Phase 0 ROI by output length (16-256 tokens)'
+  status: DONE
+  priority: P1
+  spec_version: '3.27.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Derive Phase 0 throughput gain at different output lengths'
+      status: DONE
+      result: '+49% at 16 tok, +26% at 32, +14% at 64, +7% at 128, +4% at 256'
+    - criterion: 'Identify Phase 0 primary use case'
+      status: DONE
+      result: 'Code completion (short outputs). Negligible for generation (128+ tok)'
+  notes: |
+    Phase 0 gain ≈ TTFT_excess / (TTFT_excess + decode_time). At 16-token
+    output, TTFT (148ms) is 42% of total request time — fused Q4K GEMM
+    reducing TTFT to 34ms gives +49% aggregate throughput. At 128 tokens,
+    TTFT is only 8% — gain drops to +7%. This means Phase 0 is a code
+    completion optimization, not a generation optimization. For generation
+    workloads (128+ tokens), only Phase 1 matters.
 - id: PMAT-175
   title: 'PMAT-175: CUDA_MAX_BATCH impact test (BATCH=16 vs 32 at c=16)'
   status: DONE
