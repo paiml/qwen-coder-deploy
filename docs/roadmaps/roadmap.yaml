@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-190
+  title: "PMAT-190: TTFT tail predictability — realizr ≤1.09 at c≥4"
+  status: DONE
+  priority: P2
+  spec_version: '3.42.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compute TTFT P999/P50 tail ratio for all 4 runtimes'
+      status: DONE
+      result: 'realizr ≤1.09 (c≥4). vLLM 1.17→2.49 (growing). llama.cpp 1.18-1.57. ollama 1.38-1.39'
+    - criterion: 'Define Phase 1+CB preservation targets for latency predictability'
+      status: DONE
+      result: 'ITL jitter ≤1.10, TTFT tail ratio ≤1.50'
+  notes: |
+    Complements PMAT-189 ITL jitter with TTFT tail analysis. realizr has
+    the most predictable latency of ALL runtimes on BOTH metrics:
+    - ITL jitter: ≤1.08 (PMAT-189)
+    - TTFT tail: ≤1.09 at c≥4 (PMAT-190)
+    This is architecturally guaranteed by batch-and-step: every request in
+    a batch gets processed together with equal work. vLLM's TTFT tail grows
+    because continuous batching makes non-deterministic admission decisions.
 - id: PMAT-189
   title: "PMAT-189: ITL jitter analysis — realizr's latency consistency advantage"
   status: DONE
