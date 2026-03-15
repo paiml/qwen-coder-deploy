@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-181
+  title: 'PMAT-181: Projected composite scores with Phase 1+CB'
+  status: DONE
+  priority: P1
+  spec_version: '3.33.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compute projected scores using scoring contract v3.0.0'
+      status: DONE
+      result: 'Phase 1+CB: 95 A (c=4), 90 A (c=8), 87 A- (c=16). All fixes: 98/96/92 A+'
+    - criterion: 'Identify remaining gap after Phase 1+CB'
+      status: DONE
+      result: 'TTFT only (80ms vs vLLM 29ms at c=8). 6-point gap from TTFT scoring'
+    - criterion: 'Define falsification conditions'
+      status: DONE
+      result: '≥85 A- = pass, <70 B = fail (decode rate issue). TTFT >100ms = prefill overhead'
+  notes: |
+    Phase 1+CB is sufficient for A grade at c=4,8. The remaining gap to A+
+    is entirely TTFT — Phase 0's 6-point contribution. This quantifies the
+    ROI of each phase in composite score terms: Phase 1+CB adds +16 to +32
+    points, Phase 0 adds +5 to +6 points on top.
 - id: PMAT-180
   title: 'PMAT-180: Corrected phase projections — CB is the binding fix'
   status: DONE

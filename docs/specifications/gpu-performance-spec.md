@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.32.0
+**Version:** 3.33.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -79,7 +79,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 - **High-concurrency (PMAT-127):** batch=32 unlocks 1850 tok/s at c=32. Gap to vLLM: 0.40×→0.65×. batch=64 OOMs.
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
-**Roadmap:** Phase 0 (fused Q4K GEMM + WSPT scheduling) → Phase 1 (paged KV + continuous batching) → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179):** gap = decode_rate(0.52-0.57) × scheduling_utilization(0.52-0.67). vLLM scheduling utilization is ~98% constant; realizr drops from 66% to 51% as c increases (batch-and-step waste compounds). Phase 0 adds only +7% throughput — its value is latency. Phase 1 must lift scheduling utilization to >90% to reach parity. Target: ≥80% vLLM at c=8 after Phase 1.
+**Roadmap:** Phase 1 (paged KV + continuous batching) is the **single critical investment** → Phase 0 (fused Q4K GEMM) is optional for c=1 latency → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179):** gap = decode_rate(0.52-0.57) × scheduling_utilization(0.52-0.67). **Phase projections (PMAT-180):** paged KV + continuous batching → 0.97× vLLM at all c. Phase 0 adds zero throughput once CB is present. Target: ≥0.90× vLLM at c=8 after Phase 1.
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -1429,6 +1429,25 @@ Phase 0's throughput gain is entirely determined by TTFT's share of total reques
 
 **This reframes the optimization priority for production workloads:** If the primary use case is code completion (autocompletion, fill-in-the-middle), Phase 0 is critical (+49% at 16 tokens). If the primary use case is code generation (full function synthesis), Phase 0 is negligible (+4% at 256 tokens) and Phase 1 (paged KV + continuous batching) is the only meaningful investment.
 
+**Projected Composite Scores with Phase 1 + CB (PMAT-181, Mar 15):**
+
+Using the scoring contract (v3.0.0 absolute thresholds, throughput profile weights) and PMAT-180 throughput projections:
+
+| c | Current | Phase 1+CB | All fixes | vLLM (ref) |
+|---|---------|-----------|-----------|-----------|
+| 4 | 62 C+ | **95 A** (+32) | 98 A+ (+36) | 99 A+ |
+| 8 | 65 C+ | **90 A** (+25) | 96 A+ (+31) | 96 A+ |
+| 16 | 71 B | **87 A-** (+16) | 92 A (+21) | 96 A+ |
+
+*Phase 1+CB assumes: aggregate = PMAT-180 projections, per-request decode restored to c=1 level (148 tok/s), ITL ≈ 6.8ms, TTFT still FP8 (40-150ms by c). All fixes adds fused Q4K TTFT → 20-60ms.*
+
+**Key finding:** Phase 1+CB alone lifts realizr to **A grade at c=4,8** and A- at c=16 — competitive with vLLM. Adding Phase 0 (fused Q4K) closes the remaining TTFT gap, reaching A+ at c=4,8. **TTFT is the only remaining differentiator** after Phase 1+CB: vLLM TTFT 29ms vs projected realizr 80ms at c=8 accounts for the 90→96 gap. Phase 0 is a 6-point TTFT fix, not a throughput fix.
+
+**Falsification conditions for Phase 1+CB:**
+- Score ≥85 A- at c=8 → PASS (scheduling architecture validated)
+- Score <70 B at c=8 → FAIL (decode rate doesn't restore to c=1 levels — Q4K kernel issue)
+- If TTFT still >100ms at c=8 → FP8 prefill overhead persists independent of scheduling
+
 **Refined 2-Factor Decomposition (PMAT-179, Mar 15):**
 
 The PMAT-173 3-factor model (decode × hetero × TTFT) overpredicted c=16 by 23%. A simpler 2-factor decomposition is algebraically exact at all concurrency levels:
@@ -2704,7 +2723,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 14 2026 — PMAT-140 full Dynamo replication plan)
+### Tier Summary (Updated Mar 15 2026 — PMAT-180 phase projections)
 
 | Tier | Items | Status |
 |------|-------|--------|
@@ -2712,12 +2731,12 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | T0: Prefill parity | PMAT-023/024/026, FP8 pipeline (PMAT-053b→086) | ✅ 1.29x llama.cpp (PASS < 2x) |
 | T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **357.2 aggregate c=4 (0.98x PARITY, 78 B > llama.cpp 75 B)** |
 | ~~T1: W4A16 tensor core~~ | ~~Marlin-style INT4→FP16 GEMM~~ | **FALSIFIED** (PMAT-091, 054B) — WMMA 87.5% waste at M=4 |
-| **T1: Dynamo Phase 0** | PMAT-054 fused Q4K, PMAT-141 AgentHints API, PMAT-142 WSPT scheduling | Planned — prompt invariance + cache-aware scheduling |
-| **T2: Dynamo Phase 1** | PMAT-052 paged KV, PMAT-053 paged attention, PMAT-143 dedup, PMAT-144 graph | **Planned — THE keystone rewrite. Targets ≥80% vLLM at c=32** |
-| **T3: Dynamo Phase 2** | PMAT-145 frequency eviction, PMAT-146 radix tree, PMAT-147 CPU offload, PMAT-148 TTL | Planned — cache intelligence, multi-turn TTFT → 0 |
-| **T4: Dynamo Phase 3** | PMAT-149 stream disagg, PMAT-150 speculative prefill | Planned — prefill never blocks decode |
-| T5: EAGLE speculative | Draft-then-verify 2-3x | Planned |
-| T6: Dynamo Phase 4 | PMAT-151-153 multi-GPU routing, NIXL, dual scheduling | Future — requires multi-GPU hardware |
+| **T1: Dynamo Phase 1 🔑** | PMAT-052 paged KV, PMAT-053 paged attention, continuous batching | **THE critical investment. Targets 0.97× vLLM at all c (PMAT-180)** |
+| *T1b: Dynamo Phase 0* | *PMAT-054 fused Q4K, PMAT-141 AgentHints, PMAT-142 WSPT* | *Optional — c=1 latency only. Zero throughput impact once CB present (PMAT-180)* |
+| **T2: Dynamo Phase 2** | PMAT-145 frequency eviction, PMAT-146 radix tree, PMAT-147 CPU offload, PMAT-148 TTL | Planned — cache intelligence, multi-turn TTFT → 0 |
+| **T3: Dynamo Phase 3** | PMAT-149 stream disagg, PMAT-150 speculative prefill | Planned — prefill never blocks decode |
+| T4: EAGLE speculative | Draft-then-verify 2-3x | Planned |
+| T5: Dynamo Phase 4 | PMAT-151-153 multi-GPU routing, NIXL, dual scheduling | Future — requires multi-GPU hardware |
 
 ### Priority Matrix
 
@@ -3202,6 +3221,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.33.0 | 2026-03-15 | **PMAT-181: Projected composite scores with Phase 1+CB.** Applied scoring contract (v3.0.0 absolute thresholds) to PMAT-180 throughput projections. Phase 1+CB lifts realizr from 62-71 (C+/B) to 87-95 (A-/A). Adding Phase 0 reaches 92-98 (A/A+), matching vLLM 96 A+. The 90→96 gap at c=8 is entirely TTFT (80ms vs 29ms). Falsification conditions defined: ≥85 A- = pass, <70 B = fail (decode rate didn't restore). |
 | 3.32.0 | 2026-03-15 | **PMAT-180: Corrected phase projections — continuous batching is the binding fix.** Using the PMAT-179 2-factor decomposition to project Phase 0/1/CB impact: paged KV + continuous batching reaches 0.97× vLLM at ALL concurrency levels (c=4,8,16). Phase 0 adds zero additional throughput once CB is present — its value is c=1 latency only. Phase 1 without CB gets only 0.50× vLLM at c=8 (fixes hetero penalty but not decode degradation). This corrects PMAT-173's c=16 projection from 0.80× to 0.97× — the 23% model gap was the 3-factor model's concurrency-invariance assumption, not a fundamental ceiling. Per-request decode with CB tracks vLLM's curve × 0.97 (Q4K vs AWQ c=1 ratio). |
 | 3.31.0 | 2026-03-15 | **PMAT-179: Refined 2-factor gap decomposition — resolves "4th factor" mystery.** Replaced PMAT-173's 3-factor model (decode × hetero × TTFT, 23% c=16 error) with exact 2-factor decomposition: decode_rate × scheduling_utilization. Algebraically exact at all c (0% error). Key insight: vLLM scheduling utilization is ~98% constant (continuous batching); realizr drops from 66% (c=4) to 51% (c=16) as batch-and-step waste compounds. The "4th factor" at c=16 was the 3-factor model's assumption that hetero/TTFT factors are concurrency-invariant — they aren't, they're components of the scheduling utilization that decays with c. Phase 1 target: lift scheduling utilization from 51-66% to >90%. Executive summary updated from 3-factor to 2-factor view. |
 | 3.30.0 | 2026-03-15 | **PMAT-178: vLLM measurement variance analysis.** Cross-session analysis of 10+ vLLM c=1 measurements reveals PMAT-163 (126.6 tok/s) was a 5σ outlier — all other measurements cluster at 149.7±1.8 tok/s (decode stable at 153.4±0.2). The "realizr 15% faster at c=1" narrative was based on this single outlier; corrected to 0.96-0.98×. PMAT-163 likely captured CUDA graph compilation or scheduler cold-start. Inflated scaling efficiency (93.9% → corrected 96.3% at c=4). vLLM c=32 efficiency drops from 70.3% → 58.4% against corrected baseline, suggesting 4060L compute saturation. realizr variance confirmed at <0.3% across sessions (146.2-146.4). |
