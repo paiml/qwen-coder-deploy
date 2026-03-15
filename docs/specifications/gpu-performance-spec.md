@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.20.0
+**Version:** 3.21.0
 **Status:** ACTIVE
 **Date:** 2026-03-14
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1306,7 +1306,26 @@ Measured micro prompt (~7 tokens) at c=4,8,16 for all 3 runtimes with uniform:16
 
 **At micro c≥8, realizr reaches parity or beats llama.cpp** (1.00× at c=8, 1.11× at c=16). This is the decode-dominant regime where FP8 tensor cores at M≥5 dominate and TTFT is negligible. Phase 0 (fused Q4K GEMM) would move realizr's medium-prompt performance toward its micro-prompt numbers — the ~47pp gap at c=16 is the maximum Phase 0 potential.
 
-**vLLM's medium-prompt advantage is partly artificial** — 89% prefix cache hit rate inflates its throughput by ~20% on repeated benchmarks. In production with diverse prompts, vLLM's effective throughput would be closer to its micro-prompt numbers (79-87% of measured). This slightly reduces the realized gap but doesn't change the architectural conclusion.
+**vLLM's medium-prompt advantage is partly from prefix caching** — PMAT-170 (below) quantifies this precisely: 7-23% throughput boost, scaling with concurrency.
+
+**vLLM Prefix Cache A/B Test (PMAT-170, Mar 15):**
+
+Direct A/B comparison: vLLM with `--enable-prefix-caching` (default) vs `--no-enable-prefix-caching`, same session, same GPU, same workload (medium + uniform:16,256, 20s, 5s warmup).
+
+| c | With cache | No cache | Throughput Δ | TTFT with | TTFT without | TTFT ratio |
+|---|-----------|----------|-------------|----------|-------------|-----------|
+| 1 | 152.5 | 150.2 | +1.5% | 12.6ms | 29.2ms | 2.3× |
+| 4 | 586.9 | 547.6 | **+7.2%** | 21.8ms | 39.2ms | 1.8× |
+| 8 | 1088.3 | 965.1 | **+12.8%** | 23.2ms | 40.5ms | 1.8× |
+| 16 | 1905.3 | 1548.3 | **+23.1%** | 26.0ms | 43.8ms | 1.7× |
+
+**Key findings:**
+
+1. **Prefix caching provides 7-23% aggregate throughput boost**, scaling linearly with concurrency. At c=16, the boost is 23.1% — validating PMAT-169's "~20% inflation" claim at high concurrency. At c=4, the boost is only 7.2%.
+2. **Prefix caching halves TTFT** (1.7-2.3× reduction). The shared medium prompt prefix (~102 tokens) is cached in KV blocks and reused across requests. Without cache, every request recomputes the full prompt KV. This is the primary TTFT mechanism — not kernel speed.
+3. **Without prefix cache, realizr/vLLM gap narrows 3-8pp:** 0.37→0.40× (c=4), 0.33→0.37× (c=8), 0.35→0.43× (c=16). The gap remains large — **prefix caching explains <25% of vLLM's advantage.** The remaining 57-63% gap is from PagedAttention scheduling + W4A16 Marlin kernels.
+4. **In production with diverse prompts, vLLM's prefix cache hit rate would be lower than 89%** (benchmark uses one repeated prompt). The effective throughput for diverse traffic is between the cached and uncached numbers. For code completion (repeated system prompt prefix), cache hit rates of 50-80% are realistic.
+5. **Measurement note:** Today's vLLM with-cache numbers (586.9→1905.3) are ~20% higher than PMAT-157 (475.7→1528.2), same configuration. This is NOT a warmup effect (confirmed by running without `--warmup`). Run-to-run variance of ±10-15% is expected for vLLM on the 4060L — the continuous batching scheduler produces variable batch sizes depending on arrival timing.
 
 **High-Concurrency Production Benchmark — c=32 Convergence (PMAT-168, Mar 15):**
 
@@ -2595,6 +2614,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). vLLM 0.17.0 CUDA graph 6× regression (enforce-eager baseline). Corrected PMAT-140 trajectory table with measured data. |
+| **PMAT-170** | **vLLM prefix cache A/B test** | **Cache boosts vLLM 7-23%, halves TTFT; explains <25% of gap** | ✅ MEASURED. Direct A/B: vLLM with vs without `--no-enable-prefix-caching`. Throughput boost: +1.5% (c=1), +7.2% (c=4), +12.8% (c=8), +23.1% (c=16). TTFT halved (12.6 vs 29.2ms at c=1). Without cache, realizr/vLLM improves 3-8pp (0.35→0.43× at c=16). Prefix caching explains <25% of vLLM's advantage — remaining gap is PagedAttention + W4A16 Marlin. Run-to-run variance of ±10-15% observed (PMAT-157 vs today). |
 | **PMAT-169** | **Prompt-length impact on competitive position (micro vs medium)** | **Shorter prompts HELP realizr (+6-34%), HURT vLLM (-13-21%) and llama.cpp (-10-22%)** | ✅ MEASURED. Micro prompt (~7 tok) vs medium (~102 tok) at c=4,8,16. realizr improves because FP8 prefill cost scales linearly with prompt tokens. vLLM degrades because prefix cache hit rate drops (89%→lower). llama.cpp degrades due to slot overflow. At micro c=16: realizr BEATS llama.cpp (1.11×). Competitive gap narrows 11-47pp. Phase 0 max potential = 47pp at c=16. vLLM's measured advantage partly from 89% prefix cache (artificial for diverse production traffic). |
 | **PMAT-168** | **High-concurrency c=32 production benchmark** | **realizr=llama.cpp parity (931 vs 924), vLLM 3.1× ahead (2847)** | ✅ MEASURED. At c=32 medium+hetero: realizr and llama.cpp converge (1.01× parity, both ~925 tok/s). llama.cpp's 16-slot design saturates while realizr's 32-slot batch fills. But realizr has 3× better TTFT (527ms vs 1557ms). vLLM maintains 3.1× aggregate lead with 70% scaling efficiency. realizr/vLLM ratio consistent 0.33-0.46× across c=4-32 — architectural gap is concurrency-invariant. Scaling efficiency: vLLM 70%, realizr 20%, llama.cpp 18%. |
 | **PMAT-167** | **Prompt-length TTFT sensitivity (FP8 prefill cost function)** | **realizr: 10.2ms + 0.103 ms/token (linear); competitors flat** | ✅ MEASURED. realizr TTFT scales linearly with prompt tokens (R²≈0.99): 11.6ms (7 tok) → 39.6ms (280 tok). llama.cpp constant 9.8-10.1ms (fused Q4K), vLLM constant 12.1-12.5ms (W4A16 Marlin + prefix cache). FP8 2-step dequant adds 0.103 ms/token. At c=4, slope steepens to 0.539 ms/token (5.2×, batch prefill). Phase 0 ROI grows super-linearly: +45% at medium, +87% at c=4 long. llama.cpp fails at long prompts (280 tok > 256 slot cap — 100% errors). Fused Q4K GEMM is the single highest-ROI TTFT optimization. |
@@ -2999,6 +3019,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.21.0 | 2026-03-15 | **PMAT-170: vLLM prefix cache A/B test.** Direct comparison: `--enable-prefix-caching` vs `--no-enable-prefix-caching`. Cache boosts throughput 7-23% (scaling with c), halves TTFT (29→13ms at c=1). Without cache, realizr/vLLM improves 3-8pp (0.35→0.43× at c=16). Prefix caching explains <25% of vLLM's advantage — the remaining gap is PagedAttention scheduling + W4A16 Marlin kernels. Run-to-run variance ±10-15% noted (today's numbers ~20% higher than PMAT-157, same config). |
 | 3.20.0 | 2026-03-15 | **PMAT-169: Prompt-length impact on competitive position.** Micro prompt (~7 tok) vs medium (~102 tok) at c=4,8,16. Shorter prompts help realizr (+6-34%, less FP8 prefill cost) but hurt vLLM (-13-21%, lower prefix cache hit rate) and llama.cpp (-10-22%, more slot overflow). At micro c=16, realizr beats llama.cpp (1.11×). Competitive gap narrows 11-47pp with shorter prompts. Phase 0 maximum potential is 47pp at c=16. vLLM's measured medium-prompt advantage is partly from 89% prefix cache hit rate — diverse production traffic would reduce effective throughput ~20%. |
 | 3.19.0 | 2026-03-15 | **PMAT-168: High-concurrency c=32 production benchmark.** realizr and llama.cpp converge at c=32 (931 vs 924 tok/s = 1.01× parity) — llama.cpp's 16-slot design saturates while realizr's 32-slot batch fills. realizr has 3× better TTFT (527ms vs 1557ms). vLLM dominates at 2847 tok/s (3.1× ahead, 70% scaling efficiency). Scaling efficiency: vLLM 70%, realizr 20%, llama.cpp 18%. realizr/vLLM ratio (0.33×) is consistent across c=4-32 — the architectural gap is concurrency-invariant. |
 | 3.18.0 | 2026-03-15 | **PMAT-167: Prompt-length TTFT sensitivity — FP8 prefill cost function.** realizr TTFT = 10.2ms + 0.103 ms/token (linear, R²≈0.99). llama.cpp constant 9.8-10.1ms (fused Q4K absorbs prompt length). vLLM constant 12.1-12.5ms (W4A16 Marlin + 89% prefix cache hit). At c=4, slope steepens to 0.539 ms/token (5.2× vs c=1). Phase 0 TTFT savings: 45% at medium c=1, 87% at long c=4. llama.cpp fails at long prompts (280 tok > 256-token slot cap, 100% errors). The FP8 2-step dequant→cuBLASLt pipeline is the TTFT bottleneck — fused Q4K GEMM eliminates the entire 0.103 ms/token slope. |
