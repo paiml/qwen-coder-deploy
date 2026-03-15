@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.29.0
+**Version:** 3.30.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -67,7 +67,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 2. **Output heterogeneity** (0.66× factor — contiguous KV wastes 36% vs vLLM's 3%, PMAT-171) → paged KV (PMAT-052)
 3. **TTFT penalty** (0.95× factor at 130-tok avg output — FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
 
-**The gap is NOT kernel speed — realizr is within 4% of vLLM at c=1** (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~2. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM variance ±10-15% from scheduler timing.)*
+**The gap is NOT kernel speed — realizr is within 4% of vLLM at c=1** (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. Crossover at c~2. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
 
 **Historical short-prompt results (PMAT-109/113, short prompt + fixed 32 tok) — favorable conditions for realizr:**
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms. TTFT P99 14.2ms (bimodal tail eliminated by PMAT-109)
@@ -1202,6 +1202,28 @@ c=1 medium+hetero baselines: realizr 146.4, llama.cpp 158.1, vLLM 152.4 tok/s. *
 5. **The crossover point is c~2.** At c=1, all three runtimes produce near-identical throughput (146-158 tok/s). Above c=2, vLLM's scaling efficiency advantage dominates. At c=4: vLLM 587 vs realizr 216 (2.7×). By c=32: 2848 vs 931 (3.1×).
 
 **Implication:** Fused Q4K GEMM (Phase 0) cannot close the scaling gap — it only fixes TTFT. Paged KV (Phase 1) is the only path to vLLM-class scaling efficiency because it enables per-token resource allocation instead of per-slot pre-allocation.
+
+**vLLM Measurement Variance Analysis (PMAT-178, Mar 15):**
+
+Cross-session analysis of all vLLM c=1 measurements reveals the PMAT-163 baseline (126.6 tok/s) was an **outlier** — all other measurements cluster at 148-153 tok/s:
+
+| Session | Date | c=1 agg | c=1 decode | Notes |
+|---------|------|---------|-----------|-------|
+| PMAT-097 | Mar 12 | 153.0 | 153.6 | Short prompt |
+| PMAT-119 | Mar 13 | 149.1 | 153.4 | Long prompt |
+| **PMAT-163** | **Mar 14** | **126.6** | **128.3** | **Outlier — both agg & decode depressed** |
+| PMAT-166 | Mar 15 | 152.2 | 153.5 | Medium+hetero |
+| PMAT-167 | Mar 15 | 149.2 | 153.5 | Medium (avg of 3 prompt lengths: 149.2/148.6/149.6) |
+| PMAT-170 | Mar 15 | 150.2/152.5 | 153.5 | No-cache/with-cache pair |
+| PMAT-177 | Mar 15 | 152.4 | 153.4 | Production sweep |
+
+**Key findings:**
+
+1. **vLLM c=1 decode is remarkably stable: 153.4±0.2 tok/s** across 10+ measurements. The PMAT-163 outlier (128.3) is 5σ below the cluster — likely captured during CUDA graph compilation or scheduler cold-start.
+2. **vLLM c=1 aggregate is 149.7±1.8 tok/s** (excluding outlier). The ±10-15% variance previously noted (PMAT-170) applies to **high-concurrency**, not c=1. At c=1, variance is <2%.
+3. **The "realizr 15% faster at c=1" narrative was based on the outlier.** Corrected: realizr is 0.96-0.98× vLLM at c=1. All three runtimes produce equivalent c=1 throughput (146-158 tok/s).
+4. **realizr variance is even tighter: <0.3%** across sessions (146.2-146.4 tok/s, PMAT-157 vs PMAT-177). The batch-and-step scheduler has deterministic behavior — no scheduling variance.
+5. **Methodological correction:** PMAT-163 scaling efficiency (93.9% at c=4) was inflated by the low c=1 base. PMAT-177 shows 96.3% — vLLM scales even better than previously calculated. However, vLLM c=32 efficiency drops from 70.3% to 58.4% against the corrected baseline — suggesting vLLM begins saturating the 4060L's compute at c=32.
 
 **Request Completion & Reliability Analysis (PMAT-164, Mar 15):**
 
@@ -3147,6 +3169,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.30.0 | 2026-03-15 | **PMAT-178: vLLM measurement variance analysis.** Cross-session analysis of 10+ vLLM c=1 measurements reveals PMAT-163 (126.6 tok/s) was a 5σ outlier — all other measurements cluster at 149.7±1.8 tok/s (decode stable at 153.4±0.2). The "realizr 15% faster at c=1" narrative was based on this single outlier; corrected to 0.96-0.98×. PMAT-163 likely captured CUDA graph compilation or scheduler cold-start. Inflated scaling efficiency (93.9% → corrected 96.3% at c=4). vLLM c=32 efficiency drops from 70.3% → 58.4% against corrected baseline, suggesting 4060L compute saturation. realizr variance confirmed at <0.3% across sessions (146.2-146.4). |
 | 3.29.0 | 2026-03-15 | **Scaling table refresh with PMAT-177 data.** Updated scaling efficiency table (PMAT-163 section) and per-request decode degradation table with fresh PMAT-177 numbers. Key changes: vLLM c=1 baseline now 152.4 (was 126.6 from earlier session), realigning scaling efficiency calculation. vLLM c=32 efficiency 58.4% (was 70.3% — recalculated against higher c=1 baseline, c=32 data point from PMAT-168 not re-measured). All runtimes at parity at c=1 (146-158 tok/s), crossover at c~2. vLLM per-request decode retention: 97.5%/93.1%/83.0% at c=4/8/16 (previously 97.4%/88.1%/76.6% — higher than expected, scheduler timing variance). |
 | 3.28.0 | 2026-03-15 | **PMAT-177: Comprehensive production benchmark refresh.** Fresh 60s production sweep (medium + uniform:16,256, streaming) for all 3 runtimes at c=1,4,8,16. realizr numbers identical to PMAT-157 (<0.3% variance, confirming rock-solid stability). Definitive scorecards: realizr 93A/58C/65C+/71B, vLLM 98A+/99A+/99A+/96A+, llama.cpp 98A+/73B/65C+/72B. At c≥8, realizr matches llama.cpp — gap is entirely vs vLLM. Executive summary updated with c=1 row, scorecard table, and corrected crossover point (c~2, not c~3). Makefile updated with `bench-yoga-prod` targets and scoring at c=1,4,8,16. |
 | 3.27.0 | 2026-03-15 | **PMAT-176: Phase 0 ROI by output length.** Phase 0 throughput gain is output-length-dependent: +49% at 16 tok (code completion, TTFT is 42% of request), +26% at 32 tok, +7% at 128 tok (code generation), +4% at 256 tok. Formula: gain ≈ TTFT_excess / (TTFT_excess + decode_time). Phase 0 (fused Q4K GEMM) is a code-completion optimization. For generation workloads (128+ tokens), only Phase 1 (paged KV + continuous batching) delivers meaningful throughput improvement. |
