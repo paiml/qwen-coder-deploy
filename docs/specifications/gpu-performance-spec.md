@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.45.0
+**Version:** 3.46.0
 **Status:** ACTIVE
 **Date:** 2026-03-15
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1356,29 +1356,30 @@ Temperature scales with sustained GPU utilization, not instantaneous throughput.
 
 Per-request quality metrics degrade as concurrency increases. The key question for production: at what aggregate throughput do runtimes deliver equivalent user experience?
 
-*Per-request quality degradation (PMAT-177/183 production data):*
+*Per-request quality degradation (PMAT-177/183/192/194 production data, all 4 runtimes):*
 
-| c | vLLM decode | vLLM ITL | vLLM TTFT | realizr decode | realizr ITL | realizr TTFT |
-|---|-----------|---------|----------|--------------|------------|-------------|
-| 1 | 153.4 | 6.5ms | 12.5ms | 148.3 | 6.7ms | 18.6ms |
-| 4 | 149.6 | 6.7ms | 21.8ms | 81.7 | 12.2ms | 76.3ms |
-| 8 | 142.8 | 7.0ms | 23.2ms | 74.9 | 13.3ms | 148.2ms |
-| 16 | 127.3 | 7.9ms | 26.1ms | 72.2 | 13.9ms | 281.9ms |
-| 32 | 89.4 | 11.2ms | 36.4ms | 69.7 | 14.3ms | 519.1ms |
-| 64 | 49.0 | 20.4ms | 72.6ms | 48.9 | 20.4ms | 2812.8ms |
-| 128 | 24.2 | 41.4ms | 131.7ms | 48.8 | 20.5ms | 8234.9ms |
+| c | vLLM dec | vLLM ITL | vLLM TTFT | realizr dec | realizr ITL | realizr TTFT | llama.cpp dec | llama.cpp ITL | llama.cpp TTFT | ollama dec | ollama ITL | ollama TTFT |
+|---|---------|---------|----------|------------|------------|-------------|--------------|--------------|---------------|-----------|-----------|------------|
+| 1 | 153.4 | 6.5ms | 12.5ms | 148.3 | 6.7ms | 18.6ms | 159.2 | 6.3ms | 10.4ms | 163.5 | 6.1ms | 70.6ms |
+| 4 | 149.6 | 6.7ms | 21.8ms | 81.7 | 12.2ms | 76.3ms | 89.4 | 11.2ms | 21.5ms | 161.0 | 6.2ms | 2940.9ms |
+| 8 | 142.8 | 7.0ms | 23.2ms | 74.9 | 13.3ms | 148.2ms | 53.4 | 18.7ms | 44.0ms | 160.3 | 6.2ms | 6393.8ms |
+| 16 | 127.3 | 7.9ms | 26.1ms | 72.2 | 13.9ms | 281.9ms | 59.0 | 16.9ms | 66.5ms | — | — | — |
+| 32 | 89.4 | 11.2ms | 36.4ms | 69.7 | 14.3ms | 519.1ms | 60.5 | 16.5ms | 1561.5ms | — | — | — |
+| 64 | 49.0 | 20.4ms | 72.6ms | 48.9 | 20.4ms | 2812.8ms | — | — | — | — | — | — |
+| 128 | 24.2 | 41.4ms | 131.7ms | 48.8 | 20.5ms | 8234.9ms | — | — | — | — | — | — |
 
 *Iso-quality throughput comparison — max aggregate at quality threshold:*
 
-| Quality constraint | realizr max c | realizr agg | vLLM max c | vLLM agg | vLLM/realizr |
-|-------------------|--------------|------------|-----------|---------|-------------|
-| ITL ≤ 12ms | c=4 | 216 | c=32 | 2758 | **12.8×** |
-| ITL ≤ 15ms | c=32 | 945 | c=32 | 2758 | **2.9×** |
-| ITL ≤ 20ms | c=32 | 945 | c=64 | 3036 | **3.2×** |
-| ITL ≤ 21ms | c=128 | 1506 | c=64 | 3036 | **2.0×** |
-| TTFT ≤ 100ms | c=4 | 216 | c=64 | 3036 | **14.0×** |
-| TTFT ≤ 200ms | c=8 | 355 | c=128 | 3049 | **8.6×** |
-| Score ≥ 70 B | c=32 | 945 | c=128 | 3049 | **3.2×** |
+| Quality constraint | realizr max c | realizr agg | vLLM max c | vLLM agg | llama.cpp max c | llama.cpp agg | vLLM/realizr |
+|-------------------|--------------|------------|-----------|---------|----------------|--------------|-------------|
+| ITL ≤ 12ms | c=4 | 216 | c=32 | 2758 | c=4 | 354 | **12.8×** |
+| ITL ≤ 15ms | c=32 | 945 | c=32 | 2758 | c=4 | 354 | **2.9×** |
+| ITL ≤ 17ms | c=32 | 945 | c=64 | 3036 | c=32 | 943 | **3.2×** |
+| ITL ≤ 20ms | c=32 | 945 | c=64 | 3036 | c=32 | 943 | **3.2×** |
+| ITL ≤ 21ms | c=128 | 1506 | c=64 | 3036 | — | — | **2.0×** |
+| TTFT ≤ 100ms | c=4 | 216 | c=64 | 3036 | c=16 | 897 | **14.0×** |
+| TTFT ≤ 200ms | c=8 | 355 | c=128 | 3049 | c=16 | 897 | **8.6×** |
+| Score ≥ 70 B | c=32 | 945 | c=128 | 3049 | — | — | **3.2×** |
 
 **Key findings (PMAT-187):**
 
@@ -1387,6 +1388,8 @@ Per-request quality metrics degrade as concurrency increases. The key question f
 3. **Iso-quality gap is 2-14× depending on constraint.** For strict ITL (≤12ms): 12.8× — realizr can only serve c=4 while vLLM serves c=32 at the same quality. For ITL ≤21ms: **2.0×** — realizr at c=128 vs vLLM at c=64. For relaxed quality (score ≥70): 3.2×.
 4. **Phase 1+CB target:** Flatten TTFT curve (→vLLM-like sublinear growth) + maintain ITL flatness. If TTFT ≤100ms at c=16, iso-quality gap shrinks from 14× to ~2×.
 5. **vLLM's quality floor is c~32.** Beyond that, per-request quality degrades rapidly (ITL 11→41ms, decode 89→24 tok/s). **At c=128, realizr BEATS vLLM on composite score (66 C+ vs 63 C+)** because batch=32 caps decode degradation at ~49 tok/s while vLLM's decode halves to 24 tok/s. Raw throughput is not user experience.
+6. **llama.cpp ITL is non-monotonic:** peaks at 18.7ms (c=8) then recovers to 16.5ms (c=32). This suggests fixed-slot ITL contention resolves when slots are fully utilized. llama.cpp at TTFT≤100ms serves c=16 (897 agg) — 4.2× more than realizr but 3.4× less than vLLM. The TTFT collapse at c=32 (1562ms) mirrors realizr's batch queuing problem.
+7. **ollama's decode is nearly invariant:** 163.5→160.3 tok/s (1.9% drop, c=1→8) because serial processing means each request gets full GPU. But TTFT explodes (70→6394ms) — every request queues behind all others. For single-user interactive use, ollama wins on quality; for any concurrent use, it's nonviable.
 
 *ITL jitter analysis (P99/P50 ratio — lower is more consistent):*
 
@@ -3346,6 +3349,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.46.0 | 2026-03-15 | **PMAT-194: 4-runtime per-request quality table.** Expanded quality degradation table from 2 runtimes (vLLM, realizr) to all 4 (+ llama.cpp, ollama). Iso-quality table adds llama.cpp column. Key findings: llama.cpp ITL non-monotonic (peaks 18.7ms at c=8, recovers to 16.5ms at c=32), TTFT collapse at c=32 (1562ms). Ollama decode invariant (163→160, 1.9% drop c=1→8) but serial TTFT 70→6394ms. llama.cpp at TTFT≤100ms serves c=16 (897 agg) — 4.2× realizr, 0.30× vLLM. |
 | 3.45.0 | 2026-03-15 | **PMAT-193: Iso-quality update with c=64/128 data.** Per-request quality table now has realizr at all c levels (1→128). ITL jitter and TTFT tail tables extended to c=64/128. New iso-quality row: ITL≤21ms gap is **2.0×** (realizr c=128 at 1506 vs vLLM c=64 at 3036). ITL stays flat at 20.4-20.5ms for c=64/128 (batch=32 GPU ceiling). PMAT-188 projected iso-quality revised: power-law extrapolation replaced with measured 1500 saturation asymptote. Key finding #5 updated: realizr BEATS vLLM at c=128 on composite score (66 vs 63 C+). |
 | 3.44.0 | 2026-03-15 | **PMAT-192: realizr c=64/128 measured — asymptote 1500 tok/s, WINS at c=128.** realizr c=64: 1484 tok/s, c=128: 1506 (+1.4%), 0% errors (batch=32 queues excess). **realizr BEATS vLLM at c=128 on composite score (66 vs 63 C+)** — quality crossover because batch=32 caps decode degradation at 49 tok/s constant while vLLM's decode halves to 24 tok/s. PMAT-184 power-law model underpredicted c=64 by 26% — realizr follows exponential saturation at c≥32 (agg ≈ 1500 × (1-exp(-c/15))), not power law. Both runtimes saturate at c=64 with 2.0× constant gap (3050/1500). Per-request decode at saturation: realizr 49/49 (c=64/128, batch=32 GPU kernel ceiling) vs vLLM 49/24 (continuous degradation). Exec summary table expanded to c=128. |
 | 3.43.0 | 2026-03-15 | **PMAT-191: Ollama c=16,32 measured — confirms serial flatness.** Fresh measurements fill exec summary gaps: c=16 agg 161.0, c=32 agg 159.0 (flat as predicted). Decode retention 99%+ at all c. TTFT linear: 14573ms (c=16), 24419ms (c=32). ITL 6.2ms constant, jitter 1.0×. Scorecards: 58 C (c=16), 57 C (c=32) — TTFT score 0 makes ollama unusable for interactive at c≥4. Updated exec summary from ~160 estimates to measured values. vLLM c=16 score adjusted 96→94, c=32 88→86 (best-in-class bonus redistributed with ollama in scoring pool). |

@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-194
+  title: 'PMAT-194: 4-runtime per-request quality table'
+  status: DONE
+  priority: P2
+  spec_version: '3.46.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Expand quality degradation table to all 4 runtimes'
+      status: DONE
+      result: 'llama.cpp c=1-32, ollama c=1-8 added alongside vLLM c=1-128 and realizr c=1-128'
+    - criterion: 'Add llama.cpp to iso-quality table'
+      status: DONE
+      result: 'ITL≤12ms: c=4 354. ITL≤17ms: c=32 943. TTFT≤100ms: c=16 897'
+    - criterion: 'Document llama.cpp non-monotonic ITL and ollama invariant decode'
+      status: DONE
+      result: 'llama.cpp peaks 18.7ms c=8, recovers 16.5ms c=32. Ollama 163→160 (1.9%)'
+  notes: |
+    Completes the iso-quality analysis by showing all 4 runtimes side-by-side.
+    The full picture: vLLM dominates throughput, ollama dominates single-user
+    decode quality, llama.cpp is the middle ground, realizr trades TTFT for
+    ITL predictability. Each runtime has a different quality-throughput
+    tradeoff curve. The "best runtime" depends entirely on the quality constraint.
 - id: PMAT-193
   title: 'PMAT-193: Iso-quality update with c=64/128 data'
   status: DONE
