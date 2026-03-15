@@ -1165,11 +1165,11 @@ Using the PMAT-157/158 heterogeneous output scorecards as baseline, substituting
 
 c=1 medium+hetero baselines: realizr 146.2, llama.cpp 160.7, vLLM 126.6 tok/s. **realizr is 15% faster than vLLM at c=1.** The gap inverts at c≥4 because of radically different scaling efficiency:
 
-| Runtime | c=1 | c=4 | c=4 eff | c=8 | c=8 eff | c=16 | c=16 eff |
-|---------|------|------|---------|------|---------|-------|----------|
-| realizr | 146.2 | 216.7 | **37.0%** | 355.2 | **30.4%** | 585.9 | **25.0%** |
-| vLLM | 126.6 | 475.7 | **93.9%** | 876.8 | **86.6%** | 1528.2 | **75.4%** |
-| llama.cpp | 160.7 | 350.7 | **54.6%** | 421.4 | **32.8%** | 914.9 | **35.6%** |
+| Runtime | c=1 | c=4 | c=4 eff | c=8 | c=8 eff | c=16 | c=16 eff | c=32 | c=32 eff |
+|---------|------|------|---------|------|---------|-------|----------|-------|----------|
+| realizr | 146.2 | 216.7 | **37.0%** | 355.2 | **30.4%** | 585.9 | **25.0%** | 931.2 | **19.9%** |
+| vLLM | 126.6 | 475.7 | **93.9%** | 876.8 | **86.6%** | 1528.2 | **75.4%** | 2847.5 | **70.3%** |
+| llama.cpp | 160.7 | 350.7 | **54.6%** | 421.4 | **32.8%** | 914.9 | **35.6%** | 924.4 | **18.0%** |
 
 *Scaling efficiency = aggregate_cN / (aggregate_c1 × N). 100% = perfect linear scaling.*
 
@@ -1183,11 +1183,11 @@ c=1 medium+hetero baselines: realizr 146.2, llama.cpp 160.7, vLLM 126.6 tok/s. *
 
 **Key findings from scaling efficiency:**
 
-1. **vLLM scales 2.5-3× more efficiently than realizr.** At c=16: vLLM uses 75% of its theoretical capacity vs realizr's 25%. This is the single largest competitive gap — not kernel speed (realizr is faster at c=1) but scaling architecture.
+1. **vLLM scales 2.5-3.5× more efficiently than realizr.** At c=32: vLLM uses 70% of its theoretical capacity vs realizr's 20%. This is the single largest competitive gap — not kernel speed (realizr is faster at c=1) but scaling architecture.
 2. **PagedAttention enables near-linear scaling** because it processes only active tokens per step. Short requests completing early free blocks for new requests — the system self-balances. Batch-and-step (realizr) and fixed-slot (llama.cpp) process all allocated slots every step regardless of actual utilization.
 3. **realizr per-request decode drops 50% at c=4 and then plateaus** (48% at c=16). This is the batch-and-step cost: each decode step runs M=c GEMV, sharing BW across batch members. But ITL stays flat because the per-token cost is divided equally — consistent user experience despite lower throughput.
-4. **llama.cpp per-request decode drops more at c=8** (33%) because all 16 parallel slots are processed every step regardless of occupancy. At c=16 the slots fill up and efficiency recovers slightly (37%).
-5. **The crossover point is c~3.** Above c=3, vLLM's scaling efficiency advantage overwhelms its 15% c=1 decode disadvantage. At c=4: vLLM 476 vs realizr 217 (2.2×). By c=16: 1528 vs 586 (2.6×).
+4. **llama.cpp saturates at c=32** — its 16-slot parallel design cannot scale beyond the slot count. At c=32, llama.cpp drops from 55% efficiency (c=4) to 18%, converging with realizr. Both batch-based approaches asymptote toward ~15-20% efficiency.
+5. **The crossover point is c~3.** Above c=3, vLLM's scaling efficiency advantage overwhelms its 15% c=1 decode disadvantage. At c=4: vLLM 476 vs realizr 217 (2.2×). By c=32: 2848 vs 931 (3.1×).
 
 **Implication:** Fused Q4K GEMM (Phase 0) cannot close the scaling gap — it only fixes TTFT. Paged KV (Phase 1) is the only path to vLLM-class scaling efficiency because it enables per-token resource allocation instead of per-slot pre-allocation.
 
