@@ -4085,3 +4085,34 @@ roadmap:
     Scaling improves moving from specialization toward batching.
     nsys reports: results/nsys-yoga-llamacpp-c1-kernels-20260316.txt,
                   results/nsys-yoga-llamacpp-c4-kernels-20260316.txt
+- id: PMAT-216
+  github_issue: null
+  item_type: task
+  title: 'PMAT-216: Fresh competitive benchmark verification — <1% reproducibility'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr c=1,4,8,16 — DONE (147.1/216.3/355.3/581.1)'
+  - 'AC2: llama.cpp c=1,4,8,16 — DONE (154.0/332.1/379.6/764.1)'
+  - 'AC3: vLLM c=1,4,8,16 — DONE (152.2/586.2/1084.2/1960.7)'
+  - 'AC4: Reproducibility vs PMAT-177 <1% — CONFIRMED'
+  - 'AC5: Scorecards generated — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - competitive
+  - reproducibility
+  - production
+  - 4060L
+  notes: |
+    Fresh production methodology (medium, uniform:16,256, 60s, streaming).
+    realizr PMAT-177 vs Mar 16b: +0.5%/+0.1%/+0.1%/-0.9% at c=1/4/8/16.
+    Scores: realizr 94A/58C/65C+/70B. vLLM 97-100 A+. llama.cpp 94A/69C+/59C/67C+.
+    Result files: results/*-yoga-prod-c*-20260316b.json
+    Scorecard: results/scorecard-yoga-20260316b.json
