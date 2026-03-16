@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.51.0
+**Version:** 3.52.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -825,6 +825,41 @@ Does increasing llama.cpp's parallelism from 16→32 yield the same throughput g
 | 128 | 1131.2 | **1505.6** | **1.33× realizr** | 37.2 | 48.8 |
 
 **Falsification result:** llama.cpp achieves 447 tok/s at c=32 (well below 1200 threshold) — **FALSIFIED**. Fixed-slot overhead confirmed with production methodology. llama.cpp p=32 asymptotes at ~1141 tok/s (vs p=16 asymptote 943, +21%). But realizr batch=32 asymptotes at 1500 tok/s (**1.32× ahead**). Per-request decode: llama.cpp 35-38 tok/s (all 32 slots processed per step) vs realizr 48.8-49 (batch=32 kernel ceiling). llama.cpp errors 0.7-1.2% vs realizr 0%.
+
+**PMAT-200: llama.cpp ctx-size sensitivity — ctx=4096 vs ctx=8192 (Mar 16):**
+
+With `--ctx-size 4096 --parallel 16` (256 tok/slot), llama.cpp output is capped at ~112 tokens for medium prompts (256 − 102 prompt − 42 template). ALL responses are truncated. Testing `--ctx-size 8192` (512 tok/slot) removes this cap.
+
+| c | ctx=4096 agg | ctx=8192 agg | Δ | ctx=4096 err | ctx=8192 err | ctx=4096 avg_tok | ctx=8192 avg_tok |
+|---|-------------|-------------|---|-------------|-------------|-----------------|-----------------|
+| 1 | 158.1 | 157.8 | **−0.2%** | 1.0% | **0.0%** | 94.3 | **141.7** |
+| 4 | 354.4 | 345.2 | **−2.6%** | 1.7% | **0.6%** | 94.9 | **134.3** |
+| 8 | 420.1 | 413.2 | **−1.6%** | 1.8% | **0.5%** | 92.0 | **131.3** |
+| 16 | 896.6 | 843.8 | **−5.9%** | 1.0% | 1.1% | 92.3 | **128.8** |
+| 32 | 943.2 | 934.7 | **−0.9%** | 0.2% | 1.6% | 90.7 | **128.9** |
+
+**Key findings:**
+
+1. **Aggregate drops modestly** (−0.2% to −5.9%). Worst at c=16 where all 16 slots have 2× KV capacity → 2× attention BW per step. Negligible at c=1 and c=32.
+2. **Error rates drop** at c≤8 (1.0-1.8% → 0.0-0.6%). Fewer slot overflow errors with larger context windows.
+3. **avg_tok_per_req increases 50%** (94→142 at c=1). With ctx=8192, llama.cpp generates the full uniform:16,256 output range instead of being capped at 112.
+4. **VRAM: 1578 vs 1470 MiB** (+108 MiB, +7.4%). Well within 8GB budget.
+5. **Decode rate barely changes** (−0.2% to −3.9%). The doubled KV context adds minimal per-step overhead.
+6. **TTFT is noisy** across configurations (21.5→30.8ms at c=4 between sessions, ±20% variance).
+
+**Competitive ratio with ctx=8192 (realizr PMAT-177 vs llama.cpp ctx=8192):**
+
+| c | realizr | llama.cpp 8k | Ratio | llama.cpp 4k ratio |
+|---|---------|-------------|-------|-------------------|
+| 1 | 146.3 | 157.8 | 0.93× | 0.93× |
+| 4 | 216.4 | 345.2 | 0.63× | 0.61× |
+| 8 | 355.1 | 413.2 | 0.86× | 0.85× |
+| 16 | 586.5 | 843.8 | 0.70× | 0.65× |
+| 32 | 944.7 | 934.7 | **1.01×** | **1.00×** |
+
+**The competitive picture is unchanged.** llama.cpp's throughput advantage is NOT an artifact of truncated output. The −2.6% to −5.9% penalty from doubled context is real but small. At c=16, the ratio shifts from 0.65× to 0.70× (slightly closer) because llama.cpp loses more from increased KV attention.
+
+**Methodological note:** The canonical llama.cpp config remains `--ctx-size 4096 --parallel 16` (matching llama.cpp defaults and optimizing for throughput). This caps output at 112 tokens for medium prompts, which is a legitimate architectural characteristic of fixed-slot systems. The ctx=8192 data validates that this truncation does not meaningfully inflate llama.cpp's reported throughput.
 
 **PMAT-131: Complete 3-runtime scaling curve at optimal configs (short prompt, Mar 14):**
 
@@ -3386,6 +3421,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.52.0 | 2026-03-16 | **PMAT-200: llama.cpp ctx-size sensitivity (ctx=4096 vs ctx=8192).** With ctx=4096, llama.cpp output capped at 112 tokens (100% truncated). ctx=8192 (512 tok/slot) removes cap, allowing full uniform:16,256 range. Aggregate drops modestly (−0.2% to −5.9%, worst at c=16). Error rates drop at c≤8 (1.8%→0.5%). avg_tok increases 50% (94→142). Key finding: llama.cpp's throughput advantage is NOT an artifact of truncated output. Competitive ratios vs realizr unchanged (0.63× at c=4, parity at c=32). Canonical config remains ctx=4096. VRAM: 1578 vs 1470 MiB (+7.4%). |
 | 3.51.0 | 2026-03-16 | **PMAT-199: Spec consistency audit.** Fixed vLLM reference values in historical short-prompt section (line 87): was using medium-prompt data (551, 1023, 1779) in a short-prompt section, corrected to short-prompt values (594.8, 1058.5, 1832.2). Clarified prompt-invariance claim with actual short→medium deltas (−7% c=4, −3% c=8/16). Cross-checked all exec summary numbers, ratios, and scores against source PMAT data — no other numerical errors found. |
 | 3.50.0 | 2026-03-15 | **PMAT-198: Phase 1+CB projections extended to c=128.** PMAT-180 projection table extended from c=16 to c=128 using measured vLLM asymptote (2758/3036/3049 × 0.97). Projected Phase 1+CB: 2671 at c=32, 2941 at c=64, 2955 at c=128 (all 0.97× vLLM). Current realizr saturates at 1500 — Phase 1+CB would lift to ~2950 (1.97× improvement). |
 | 3.49.0 | 2026-03-15 | **PMAT-197: llama.cpp --parallel 32 saturation at c=64/128.** Measured llama.cpp p=32 c=32/64/128 (production methodology). PMAT-130 falsification confirmed: 447 tok/s at c=32 (well below 1200 threshold). llama.cpp p=32 asymptote ~1141 tok/s (c=64≈c=128). realizr BEATS llama.cpp at c≥32: 2.11× at c=32, 1.30× at c=64, 1.33× at c=128. Per-request decode: llama.cpp 36-38 tok/s (all 32 slots) vs realizr 49 (batch=32 kernel). Exec summary table expanded with llama.cpp c=64/128. Architecture taxonomy updated. |

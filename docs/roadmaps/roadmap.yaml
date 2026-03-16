@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-200
+  title: 'PMAT-200: llama.cpp ctx-size sensitivity — ctx=4096 vs ctx=8192'
+  status: DONE
+  priority: P2
+  spec_version: '3.52.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp with ctx=8192 at c=1,4,8,16,32'
+      status: DONE
+      result: 'Aggregate drops -0.2% to -5.9%. VRAM +108 MiB. Full output range restored (avg_tok 94→142)'
+    - criterion: 'Determine if ctx=4096 truncation inflates llama.cpp throughput'
+      status: DONE
+      result: 'No — throughput advantage is NOT an artifact. Competitive ratios vs realizr unchanged'
+    - criterion: 'Check error rate impact'
+      status: DONE
+      result: 'Error rates drop at c≤8 (1.0-1.8% → 0.0-0.6%). Larger slots reduce overflow'
+  notes: |
+    Validates fairness of llama.cpp benchmarks. The 112-token output cap from
+    ctx=4096/parallel=16 does NOT inflate llama.cpp's throughput advantage.
+    Doubling context costs only -2.6% at c=4 and -5.9% at c=16 — the attention
+    BW overhead from larger KV slots is modest. Canonical config stays at
+    ctx=4096 to match llama.cpp defaults.
 - id: PMAT-199
   title: 'PMAT-199: Spec consistency audit — fix cross-section data conflicts'
   status: DONE
