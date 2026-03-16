@@ -2160,6 +2160,30 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-203
+  title: 'PMAT-203: Fix apr profile GPU fallback + first RTX 4060L GPU profiling'
+  status: DONE
+  priority: P1
+  spec_version: '3.55.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Fix apr profile GPU profiling fallback'
+      status: DONE
+      result: 'Parity gate false positive on CUDA 13.1 driver. Fix: SKIP_PARITY_GATE=1 in profile command (aprender 5084c1c2)'
+    - criterion: 'Capture GPU per-operation profile on yoga RTX 4060L'
+      status: DONE
+      result: '159.1 tok/s decode, 469.0 tok/s prefill. Roofline: 12.8% BW eff (102.6/800 GB/s), memory-bound'
+    - criterion: 'Validate apr 0.4.11 binary — no performance regression'
+      status: DONE
+      result: 'c=1 146.9 vs 146.4 (+0.3%), c=4 216.6 vs 216.1 (+0.2%). No regression'
+  notes: |
+    Root cause: OwnedQuantizedModelCuda::new() runs parity gate (GPU/CPU logits cosine
+    similarity check) which has false positive on CUDA 13.1 driver. apr serve forjar config
+    had SKIP_PARITY_GATE=1 but apr profile didn't. Error was silently swallowed with Err(_).
+    BrickProfiler caveat: 84.7% kernel launch overhead with CUDA graph disabled makes
+    per-op percentages unrepresentative of production. RmsNorm appears 56% but is <5% under
+    CUDA graph. Cross-platform roofline: 4060L 12.8% BW eff vs 4090 8.4% — higher utilization
+    because lower BW headroom (800 vs 1008 GB/s).
 - id: PMAT-202
   title: 'PMAT-202: Trajectory re-measurement — corrected vLLM competitive ratios'
   status: DONE

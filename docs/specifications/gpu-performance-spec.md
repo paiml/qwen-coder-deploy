@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.54.0
+**Version:** 3.55.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3204,6 +3204,56 @@ ncu profiling (basic set, 8 replay passes per kernel, CUDA_GRAPH=0):
 - BFE regression explained: kernel was already compute-bound, higher-latency BFE made it worse
 - **Fix (GH-173)**: Parallel byte-masked extraction reduces scale handling from 79 → 35 instructions (56%)
 
+### Apr Profile GPU Per-Operation Telemetry (2026-03-16, RTX 4060L — PMAT-203)
+
+**First real GPU profiling on yoga.** Previous profiles fell back to CPU (28.8 tok/s) due to parity gate false positive — fix: skip parity gate in profile command (same as `apr serve`).
+
+**Decode throughput (CUDA graph enabled, 3 warmup + 10 measurement passes):**
+
+| Metric | Value |
+|--------|-------|
+| Decode throughput | **159.1 tok/s** |
+| Prefill throughput | **469.0 tok/s** (5-token prompt) |
+| Latency P50 | 201.1ms (32 tokens/pass) |
+| Latency P99 | 201.2ms |
+| Tokens generated | 320 (10 × 32) |
+
+**Roofline analysis:**
+
+| Metric | RTX 4060L (Mar 16) | RTX 4090 (Mar 2) | Ratio |
+|--------|-------------------|------------------|-------|
+| Decode throughput | **159.1 tok/s** | 130.7 tok/s | 1.22× |
+| Memory efficiency | **12.8%** (102.6/800 GB/s) | 8.4% (84.3/1008 GB/s) | 1.52× |
+| Arithmetic intensity | 4.0 FLOP/byte | 4.0 FLOP/byte | same |
+| Classification | **MEMORY BOUND** | MEMORY BOUND | same |
+
+The 4060L achieves higher BW utilization (12.8% vs 8.4%) because it has less BW headroom — 800 vs 1008 GB/s peak. Both GPUs are memory-bound at the same arithmetic intensity (4.0 FLOP/byte), confirming the decode bottleneck is weight data movement, not computation.
+
+**BrickProfiler per-operation breakdown (CUDA graph DISABLED for per-op instrumentation):**
+
+| # | Operation | Time | % | Calls | Bottleneck |
+|---|-----------|------|---|-------|------------|
+| 1 | RmsNorm | 17,224µs | 56.0% | 855 | MEMORY |
+| 2 | AttentionScore | 6,235µs | 20.3% | 420 | MEMORY |
+| 3 | QkvProjection | 2,413µs | 7.8% | 420 | MEMORY |
+| 4 | OutputProjection | 1,228µs | 4.0% | 420 | MEMORY |
+| 5 | DownProjection | 1,205µs | 3.9% | 420 | MEMORY |
+| 6 | RopeEmbedding | 1,192µs | 3.9% | 420 | COMPUTE |
+| 7 | LmHead | 87µs | 0.3% | 15 | MEMORY |
+
+**⚠️ BrickProfiler caveat:** CUDA graph is disabled for per-op timing, adding **84.7% kernel launch overhead** (170,394µs). The per-op percentages do NOT reflect production timing — RmsNorm appears dominant (56%) because each norm call is a tiny kernel with proportionally high launch overhead. Under CUDA graph (production), GEMV kernels dominate (77.9% per nsys on 4090, §9.1). The BrickProfiler data is useful for relative operation counts and bottleneck classification, not absolute time distribution.
+
+**Decode vs production validation:**
+
+| Metric | Profile (greedy, short) | Production (streaming, medium) | Gap |
+|--------|------------------------|-------------------------------|-----|
+| Decode tok/s | 159.1 | 146.4 | 8.7% |
+| TTFT | 10.6ms | 26.7ms | 2.5× |
+
+Profile uses 5-token prompt (greedy, no streaming overhead), production uses medium ~102-token prompt with SSE streaming. The 8.7% gap is the combined streaming + prompt-length overhead.
+
+**Binary validation:** apr 0.4.11 (a849cfe7) matches 0.4.10 (ea706fe3) baselines — 146.9 vs 146.4 tok/s c=1 (+0.3%), 216.6 vs 216.1 tok/s c=4 (+0.2%). No performance regression.
+
 ### Roofline Position
 
 ```
@@ -3434,6 +3484,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.55.0 | 2026-03-16 | **PMAT-203: First GPU profiling on yoga RTX 4060L + apr profile fix.** Root cause: `apr profile` fell back to CPU (28.8 tok/s) because parity gate (GPU/CPU logits cosine similarity check) has false positive on CUDA 13.1 driver. `apr serve` had `SKIP_PARITY_GATE=1` in forjar config but `apr profile` didn't. Fix committed in aprender (5084c1c2). GPU profiling now works: **159.1 tok/s decode** (vs 28.8 CPU fallback), 469.0 tok/s prefill. Roofline: 12.8% BW efficiency (102.6/800 GB/s), memory-bound at 4.0 FLOP/byte — same classification as 4090 but higher utilization (12.8% vs 8.4%). BrickProfiler per-op breakdown (CUDA graph disabled): RmsNorm 56%, AttentionScore 20.3%, QkvProj 7.8% — caveat: 84.7% kernel launch overhead makes percentages unrepresentative of production (nsys shows GEMV 77.9% under CUDA graph). Binary upgrade 0.4.10→0.4.11 validated: c=1 146.9 vs 146.4 (+0.3%), c=4 216.6 vs 216.1 (+0.2%) — no regression. |
 | 3.54.0 | 2026-03-16 | **PMAT-202: Trajectory re-measurement with CUDA graphs — gap widens to 0.50×.** Re-measured PMAT-154 trajectory (medium+128tok) with vLLM CUDA graphs enabled (correcting PMAT-154's enforce-eager). vLLM c=4: 589.3 (was 470.8, +25%), c=8: 1115.9 (was 888.7, +26%), c=16: 2022.6 (was 1548.9, +31%). Corrected competitive ratios: **0.50-0.53×** (was 0.63-0.67×). TTFT gap widens: realizr 3.1-5.8× vLLM (was 2.4-3.0× with eager). Updated projection table with Phase 1+CB row. vLLM c=16 graphs-enabled matches PMAT-177 production data (2022.6 vs 1982.9, +2%), confirming workload consistency. |
 | 3.53.0 | 2026-03-16 | **PMAT-201: vLLM CUDA graph status — PMAT-154 FALSIFIED.** PMAT-154 (Mar 14) claimed CUDA graphs cause 6× slowdown. FALSIFIED: vLLM 0.17.0 V1 engine FULL_AND_PIECEWISE graphs provide **+21-28% benefit** over enforce-eager (c=1: 153.5 vs 125.9, c=4: 587.2 vs 460.3, c=8: 1107.7 vs 914.7). TTFT −37% (12.7 vs 20.3ms), ITL −18% (6.5 vs 7.9ms). PMAT-154 regression was transient V1 compilation cache issue. All PMAT-177+ production measurements already used graphs-enabled (forjar config has no --enforce-eager). PMAT-154/156 trajectory data used enforce-eager → understates vLLM by 21-28%. Corrected spec: replaced false regression claim, annotated PMAT-156 table. |
 | 3.52.0 | 2026-03-16 | **PMAT-200: llama.cpp ctx-size sensitivity (ctx=4096 vs ctx=8192).** With ctx=4096, llama.cpp output capped at 112 tokens (100% truncated). ctx=8192 (512 tok/slot) removes cap, allowing full uniform:16,256 range. Aggregate drops modestly (−0.2% to −5.9%, worst at c=16). Error rates drop at c≤8 (1.8%→0.5%). avg_tok increases 50% (94→142). Key finding: llama.cpp's throughput advantage is NOT an artifact of truncated output. Competitive ratios vs realizr unchanged (0.63× at c=4, parity at c=32). Canonical config remains ctx=4096. VRAM: 1578 vs 1470 MiB (+7.4%). |
