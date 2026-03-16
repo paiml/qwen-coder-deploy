@@ -79,6 +79,8 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **The gap is NOT kernel speed — realizr's FP8 decode is FASTER than llama.cpp at M≥5 (PMAT-207).** Per-request decode ratio vs llama.cpp: 1.07× (c=5), 1.13× (c=6), 1.27× (c=7), **1.40× (c=8)**. Yet aggregate throughput still loses (0.70-0.85×) because scheduling overhead exceeds the decode advantage. realizr is within 4% of vLLM at c=1 (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
 
+**Kernel-level profiling confirms this (PMAT-209→213, nsys+ncu on 4060L):** The decode kernel mix is **concurrency-invariant at c≥4** — DP4A GEMV 48%, attention 24%, regardless of c=4/8/16. realizr's per-kernel efficiency is high: fused_gate_up_swiglu achieves 76% DRAM BW (ncu), FP8 tensor core decode activates at M≥5 (128×128 tile grows 25× from c=4→c=16). The Q4K GEMV itself is underutilized on the 4060L (23% compute, 21% DRAM at M=1) because it's too fine-grained for 24 SMs — kernel fusion fixes this (76% → memory-bound). Total per-token decode budget: 4,505µs kernel + 1,785µs CUDA graph overhead + 540µs serving = 6,830µs (146.4 tok/s). The optimization ceiling is scheduling architecture, confirmed at every level from ncu instruction counts to production nsys.
+
 **3-way crossover analysis (PMAT-208, c=5-7, production methodology):**
 
 | c | realizr agg | llama.cpp agg | vLLM agg | r/l agg | r/v agg | realizr dec | llama.cpp dec | vLLM dec | r/l dec | r/v dec |
@@ -3144,6 +3146,29 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 
 ## 9. Profiling Data
 
+### Profiling Summary (RTX 4060L, sm_89, 24 SMs — PMAT-203→213)
+
+**Comprehensive GPU profiling completed Mar 16, 2026.** Sources: nsys kernel timelines (M=1 profile + c=4/8/16 serve), ncu per-kernel roofline (7 decode kernels), BrickProfiler per-op breakdown.
+
+**Top-level findings:**
+
+| Finding | Source | Implication |
+|---------|--------|-------------|
+| Kernel mix invariant at c≥4: GEMV 48%, attention 24% | PMAT-213 | Optimization target unchanged across concurrency |
+| Fused gate_up_swiglu is 49.8% of M=1 kernel time | PMAT-210 | PMAT-054 fusion is critical for c=1 latency |
+| Q4K GEMV underutilized on 4060L (23% compute, 21% DRAM) | PMAT-209 | Kernel too small for 24 SMs; fusion transforms to 76% DRAM |
+| FP8 decode activates at M≥5 (25× tile growth c=4→c=16) | PMAT-212/213 | FP8 truncates decode tail but is <1% of GPU time |
+| 771 kernel launches per decode step | PMAT-210 | CUDA graph essential (eliminates 13.5ms overhead) |
+| 28.4% of graph-mode decode is NOT kernel execution | PMAT-210 | Graph dispatch + pipeline bubbles are irreducible |
+| Serving overhead: 540µs (8.6%) | PMAT-210 | realizr is GPU-bound, not serving-bound |
+| BrickProfiler misses fused_gate_up_swiglu | PMAT-210 | Reported 84.7% overhead inflated to 66.4% |
+
+**Per-token decode budget (M=1, 28 layers):** 4,505µs kernel + 1,785µs graph overhead = 6,290µs (159.1 tok/s). +540µs serving = 6,830µs production (146.4 tok/s).
+
+**Cross-platform Q4K GEMV roofline:** Jetson Orin = COMPUTE-BOUND (72% compute), 4060L = UNDERUTILIZED (23% compute), 4060L fused = MEMORY-BOUND (76% DRAM).
+
+---
+
 ### Nsight Systems Kernel Profile (2026-03-04)
 
 | Kernel | Time (%) | Instances | Avg (µs) |
@@ -3573,7 +3598,7 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | A: GQA Fix | 3 | ✅ 3/3 |
 | B: SwiGLU Fusion | 3 | ✅ 3/3 |
 | C: Attention Quant | 3 | Pending (SageAttention not implemented) |
-| D: Launch Overhead | 3 | ✅ **1/3** (D1 confirmed via PMAT-203/209; D2,D3 pending) |
+| D: Launch Overhead | 3 | ✅ **2/3** (D1 CUDA graph <10%: confirmed; D2 <50 launches/tok: **1 with graph, 771 without** PMAT-210; D3 >300 c=4: **FAILING** 216 tok/s) |
 | E: APR GPU Regression | 3 | ✅ **3/3** (E1-E3 all passing) |
 | F: Batched Decode Correctness | 3 | ✅ **3/3 FIXED (6f75ec3)** |
 
