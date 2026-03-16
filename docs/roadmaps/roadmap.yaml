@@ -1567,7 +1567,7 @@ roadmap:
   - name: 'Phase 2: Remove clear_decode_graph from generate_gpu_resident_streaming'
     status: completed
   - name: 'Phase 3: Build, deploy, benchmark'
-    status: in_progress
+    status: completed
   subtasks: []
   estimated_effort: 2h
   labels:
@@ -3749,3 +3749,34 @@ roadmap:
     Critical implication for PMAT-054: fused Q4K GEMM must match tensor core
     throughput at M≥5 (not M≥8 as initially estimated) or it will regress
     all concurrency above c=4.
+- id: PMAT-206
+  github_issue: null
+  item_type: task
+  title: 'PMAT-206: TTFT tail analysis — PMAT-109 graph persistence confirmed'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Characterize TTFT distribution at c=1 with long run — DONE (128 req, 120s)'
+  - 'AC2: Quantify bimodal tail improvement from PMAT-109 — DONE (5% → <1%)'
+  - 'AC3: Identify cause of remaining outliers — DONE (first-request graph capture only)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - ttft
+  - tail-latency
+  - graph-persistence
+  - validation
+  notes: |
+    120s c=1 medium-prompt run: 127/128 requests at 18.7-19.7ms (<1ms range).
+    Single outlier at 41.1ms is request 0 (initial CUDA graph capture).
+    Pre-PMAT-109 bimodal: 5% at 42-44ms. Post-PMAT-109: <1% (first req only).
+    Mar 15 comparison: 3.2% outliers (2/62), including mid-session request 32.
+    10s warmup (vs 5s) eliminates mid-session rebuilds.
+    TTFT determinism: stdev <0.3ms excluding first request.
+    Also clarified PMAT-204 nsys kernel attribution: FP8 GEMM in trace is
+    prefill (M=32), not decode. FP8 decode threshold is M≥5 in serve mode.

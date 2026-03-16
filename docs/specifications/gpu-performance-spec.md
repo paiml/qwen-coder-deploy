@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.57.0
+**Version:** 3.58.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3254,11 +3254,30 @@ Profile uses 5-token prompt (greedy, no streaming overhead), production uses med
 
 **Binary validation:** apr 0.4.11 (a849cfe7) matches 0.4.10 (ea706fe3) baselines — 146.9 vs 146.4 tok/s c=1 (+0.3%), 216.6 vs 216.1 tok/s c=4 (+0.2%). No performance regression.
 
+### TTFT Tail Distribution Analysis (2026-03-16, RTX 4060L — PMAT-206)
+
+**PMAT-109 graph persistence confirmed working.** 120s c=1 run (128 requests, 10s warmup, medium prompt):
+
+| Metric | Value |
+|--------|-------|
+| TTFT P50 | **19.1ms** |
+| TTFT P90 | 19.5ms |
+| TTFT P95 | 19.6ms |
+| TTFT P99 | 19.7ms |
+| TTFT P999 | 38.4ms |
+| TTFT max | 41.1ms |
+
+**Distribution:** 127/128 requests (99.2%) cluster at 18.7-19.7ms (<1ms range). Exactly **1 outlier** at 41.1ms — request 0 (first post-warmup request, initial CUDA graph capture). All subsequent requests reuse the persistent graph.
+
+**Improvement from pre-PMAT-109 baseline:** bimodal tail was 5% at 42-44ms (every ~20 requests triggered `cuGraphExecDestroy` + recapture). Now <1% (only first request). TTFT determinism is excellent — stdev 1.96ms is dominated by the single outlier; excluding it, stdev <0.3ms.
+
+**Mar 15 comparison:** 2/62 outliers (3.2%) — request 0 (40.8ms) and request 32 (41.1ms). Request 32's cause is unknown (same prompt length, no memory pressure). With longer warmup (10s vs 5s), the Mar 16 run sees only the initial capture outlier.
+
 ### Nsight Systems Kernel Profile (2026-03-16, RTX 4060L — PMAT-204)
 
 **CRITICAL: 4060L uses FP8 tensor core decode path (fp8_decode=true), NOT pure DP4A GEMV like the 4090.**
 
-nsys profile of `apr profile` (3 warmup + 10 measurement + 1 BrickProfiler pass):
+nsys profile of `apr profile` (3 warmup + 10 measurement + 1 BrickProfiler pass). **Note:** FP8 cuBLASLt GEMM kernels in this trace are from prefill passes (M=32), not decode (M=1). Decode uses DP4A GEMV at M=1 regardless of `fp8_decode` setting (FP8 decode threshold is M≥5). The FP8 decode path activates in `apr serve` under concurrency, not in profile. See PMAT-205 crossover table for throughput impact:
 
 | Kernel | Time (%) | Instances | Avg (µs) | Category |
 |--------|----------|-----------|----------|----------|
@@ -3539,6 +3558,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.58.0 | 2026-03-16 | **PMAT-206: TTFT tail analysis confirms PMAT-109 graph persistence.** 120s c=1 run (128 requests, 10s warmup): 99.2% of requests at 18.7-19.7ms (stdev <0.3ms excluding first request). Single outlier at 41.1ms is request 0 (initial graph capture). Pre-PMAT-109: 5% outlier rate at 42-44ms. Post-PMAT-109: <1% (first request only). Mar 15 comparison: 3.2% outlier rate with 5s warmup → 10s warmup eliminates the mid-session graph rebuild. TTFT P99 = 19.7ms (passes PMAT-109 AC1 threshold of 30ms). Corrected PMAT-204 nsys kernel attribution: FP8 cuBLASLt GEMM in nsys trace is from prefill (M=32), not decode (M=1). FP8 decode fires at M≥5 in serve mode only (realizr `cublas_prefill.rs:fp8_decode && m >= 5`). |
 | 3.57.0 | 2026-03-16 | **PMAT-205: FP8 decode crossover precision — M≥5 is the exact threshold.** Measured c=5,6,7 with FP8_DECODE=0 vs default to find precise crossover between DP4A GEMV and FP8 tensor core GEMM. At c≤4 (M≤4): both paths identical (0.0-0.3% delta). At c=5 (M≈5): FP8 wins +4.6% aggregate / +8.8% decode. Advantage grows monotonically: +11.9% (c=6), +19.1% (c=7), +23.7% (c=8). Per-request decode regression from DP4A is superlinear: +8.8% → +15.6% → +27.3% → +34.2%. The cuBLASLt E4M3 16×8×32 tile becomes advantageous when batch dimension exceeds DP4A GEMV warp cooperation width. Updated PMAT-204 point 6 with precise crossover table. Implication: PMAT-054 fused Q4K GEMM must match tensor core throughput at M≥5 (not M≥8 as initially estimated). |
 | 3.56.0 | 2026-03-16 | **PMAT-204: First nsys kernel profile on RTX 4060L — FP8 tensor core decode path dominates.** nsys profiling reveals the 4060L uses a fundamentally different kernel mix than the 4090: FP8 cuBLASLt GEMM 39.8% + FP8 conversion overhead 21.7% = **61.5% FP8 pipeline** (vs 4090: 0% FP8, 77.9% DP4A GEMV). The 4060L's `fp8_decode=true` uses sm_89 E4M3 tensor cores for Q4K projections. **FP8_DECODE=0 A/B test FALSIFIES conversion overhead as optimization target:** disabling FP8 decode regresses c=8 by −19.2% (287→355 tok/s). FP8 tensor core GEMM at M=8 is faster than DP4A GEMV despite conversion cost. c=1 and c=4: identical (crossover between M=4 and M=8). **Implication for PMAT-054:** fused Q4K GEMM must match cuBLASLt tensor core throughput at M≥8 or it will regress concurrency. RmsNorm: nsys 2.0% vs BrickProfiler 56% — 28× discrepancy confirms BrickProfiler per-op data is launch-overhead-dominated (non-representative). |
 | 3.55.0 | 2026-03-16 | **PMAT-203: First GPU profiling on yoga RTX 4060L + apr profile fix.** Root cause: `apr profile` fell back to CPU (28.8 tok/s) because parity gate (GPU/CPU logits cosine similarity check) has false positive on CUDA 13.1 driver. `apr serve` had `SKIP_PARITY_GATE=1` in forjar config but `apr profile` didn't. Fix committed in aprender (5084c1c2). GPU profiling now works: **159.1 tok/s decode** (vs 28.8 CPU fallback), 469.0 tok/s prefill. Roofline: 12.8% BW efficiency (102.6/800 GB/s), memory-bound at 4.0 FLOP/byte — same classification as 4090 but higher utilization (12.8% vs 8.4%). BrickProfiler per-op breakdown (CUDA graph disabled): RmsNorm 56%, AttentionScore 20.3%, QkvProj 7.8% — caveat: 84.7% kernel launch overhead makes percentages unrepresentative of production (nsys shows GEMV 77.9% under CUDA graph). Binary upgrade 0.4.10→0.4.11 validated: c=1 146.9 vs 146.4 (+0.3%), c=4 216.6 vs 216.1 (+0.2%) — no regression. |
