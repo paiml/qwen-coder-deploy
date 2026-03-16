@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-199
+  title: 'PMAT-199: Spec consistency audit — fix cross-section data conflicts'
+  status: DONE
+  priority: P3
+  spec_version: '3.51.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Verify all exec summary numbers match source PMAT data'
+      status: DONE
+      result: 'Fixed vLLM reference in short-prompt section: was medium values (551,1023,1779), corrected to short (594.8,1058.5,1832.2)'
+    - criterion: 'Verify ratio calculations are mathematically correct'
+      status: DONE
+      result: 'All ratios verified. No mathematical errors found in exec summary or baseline tables'
+    - criterion: 'Check for stale data not updated from latest PMAT findings'
+      status: DONE
+      result: 'No stale data found. Different realizr c=1 values (146,148.5,149.5) correctly reflect different methodologies (production vs PMAT-097 vs PMAT-109)'
+  notes: |
+    Popperian quality control: after 50 spec versions with 12 commits in one session,
+    cross-section consistency needed verification. The vLLM reference fix was the only
+    substantive error found. Different realizr c=1 decode values across sections are
+    legitimate methodology differences (production medium 146.4, PMAT-097 short 148.5,
+    PMAT-109 short 149.5) — each correctly labeled in its section header.
 - id: PMAT-198
   title: 'PMAT-198: Phase 1+CB projections extended to c=128'
   status: DONE
