@@ -2160,6 +2160,27 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-202
+  title: 'PMAT-202: Trajectory re-measurement — corrected vLLM competitive ratios'
+  status: DONE
+  priority: P1
+  spec_version: '3.54.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Re-measure PMAT-154 trajectory (medium+128tok) with vLLM CUDA graphs enabled'
+      status: DONE
+      result: 'vLLM c=4 589.3, c=8 1115.9, c=16 2022.6 (25-31% higher than enforce-eager)'
+    - criterion: 'Update competitive ratios'
+      status: DONE
+      result: 'Corrected from 0.63-0.67x to 0.50-0.53x. Gap is wider than previously documented'
+    - criterion: 'Update projection table'
+      status: DONE
+      result: 'Added Phase 1+CB row, corrected vLLM baseline in all phase ratios'
+  notes: |
+    PMAT-154 measured vLLM with enforce-eager due to false CUDA graph regression belief.
+    Now corrected with graphs-enabled data. The competitive gap is significantly wider:
+    0.50x (not 0.65x). Phase 1+CB still reaches 0.97x vLLM — the architectural fix
+    remains the same, but the starting point is worse than documented.
 - id: PMAT-201
   title: 'PMAT-201: vLLM CUDA graph status audit — PMAT-154 FALSIFIED'
   status: DONE

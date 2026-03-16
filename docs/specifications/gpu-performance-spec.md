@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.53.0
+**Version:** 3.54.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1059,15 +1059,17 @@ Realizr is Rust. Dynamo is Rust. The code is directly portable — not "inspired
 | PMAT-152 | NIXL cross-GPU KV transfer | `block_manager/storage/nixl.rs`: `NixlRemoteDescriptor { storage, agent, notif }`. Maps `StorageType → MemType` (Vram/Dram/File). Registration via `NixlRegisterableStorage` trait | Transfer KV blocks between GPUs without CPU bounce. Enables disaggregated prefill across physical GPUs |
 | PMAT-153 | FCFS + WSPT dual scheduling with priority queue | `scheduling/queue.rs`: `SchedulerQueue<P,C,S>` with `BinaryHeap`, `threshold_frac`, per-worker token tracking. Dynamic re-keying on capacity free | Production scheduling: FCFS for tail TTFT, WSPT for average TTFT. Worker-aware load balancing |
 
-**Measured baseline (PMAT-154, medium prompt + 128 output tokens, yoga RTX 4060L, 1900MHz, 60s, streaming, warmup 5s):**
+**Measured baseline (PMAT-202, corrected — medium prompt + 128 output tokens, yoga RTX 4060L, 1900MHz, 60s, streaming, warmup 5s, vLLM CUDA graphs enabled):**
 
-| c | realizr | vLLM (0.17.0 eager) | Ratio | realizr TTFT | vLLM TTFT | realizr ITL | vLLM ITL |
-|---|---------|-------------------|-------|-------------|-----------|-------------|----------|
-| 4 | 314.7 | 470.8 | **0.67×** | 75.7ms | 31.8ms | 12.2ms | 8.3ms |
-| 8 | 557.2 | 888.7 | **0.63×** | 148.0ms | 55.3ms | 13.3ms | 8.5ms |
-| 16 | 1003.7 | 1548.9 | **0.65×** | 281.8ms | 95.2ms | 13.8ms | 9.6ms |
+| c | realizr | vLLM (0.17.0 graphs) | Ratio | realizr TTFT | vLLM TTFT | realizr ITL | vLLM ITL |
+|---|---------|---------------------|-------|-------------|-----------|-------------|----------|
+| 4 | 314.7 | **589.3** | **0.53×** | 75.7ms | 24.7ms | 12.2ms | 6.7ms |
+| 8 | 557.2 | **1115.9** | **0.50×** | 148.0ms | 42.0ms | 13.3ms | 6.9ms |
+| 16 | 1003.7 | **2022.6** | **0.50×** | 281.8ms | 48.6ms | 13.8ms | 7.6ms |
 | **18** | **1116.1** | — | — | 315.5ms | — | 13.7ms | — |
-| 32 | **OOM** | **2189.1** | — | — | 127.7ms | — | 13.7ms |
+| 32 | **OOM** | ~2800† | — | — | — | — | — |
+
+†Estimated from PMAT-177 scaling (2757.6 at c=32 production). PMAT-154 measured 2189.1 with enforce-eager.
 
 **PMAT-201: vLLM CUDA graph status (PMAT-154 FALSIFIED).** PMAT-154 (Mar 14) reported a 6× CUDA graph regression (23 tok/s with graphs vs 141 eager). This was a **transient V1 engine compilation cache issue** — all PMAT-177+ production benchmarks (Mar 15-16) ran with CUDA graphs enabled (`enforce_eager=False`, `FULL_AND_PIECEWISE` mode) and show **+21-28% benefit from graphs**:
 
@@ -1079,17 +1081,18 @@ Realizr is Rust. Dynamo is Rust. The code is directly portable — not "inspired
 
 All production numbers in this spec (PMAT-177+) use graphs-enabled (default). PMAT-154/156 trajectory data used `--enforce-eager` and thus **understates vLLM by ~21-28%** — those competitive ratios are conservative.
 
-**Key findings:** realizr/vLLM gap is consistent **0.63-0.67×** across all concurrency levels at this workload — not the 0.28× previously estimated. realizr OOMs at c=20 medium+128tok (fixed-slot ceiling), while vLLM scales to c=32+ via paged KV. The gap is **TTFT-dominated**: realizr TTFT is 2.4-3.0× vLLM at all c (FP8 pipeline overhead + batch-and-step scheduling).
+**Key findings (PMAT-202 corrected):** realizr/vLLM gap is **0.50-0.53×** across all concurrency levels at this workload (was 0.63-0.67× with enforce-eager, PMAT-154). realizr OOMs at c=20 medium+128tok (fixed-slot ceiling), while vLLM scales to c=32+ via paged KV. The gap is **TTFT-dominated**: realizr TTFT is 3.1-5.8× vLLM at all c (FP8 pipeline overhead + batch-and-step scheduling, amplified by vLLM's CUDA graph TTFT improvement).
 
 **Projected impact (cumulative, yoga RTX 4060L, medium+128tok):**
 
 | After phase | c=16 tok/s | c=32 tok/s | vs vLLM c=16 | vs vLLM c=32 | Key unlock |
 |-------------|-----------|-----------|-------------|-------------|------------|
-| **Current (v3.3.0)** | **1003.7** | **OOM** | **0.65×** | **—** | batch=32 ceiling, FP8 TTFT penalty |
-| Phase 0 (fused Q4K + WSPT) | ~1400 | OOM | ~0.90× | — | Prompt invariance (TTFT 282→~100ms), cache-aware scheduling |
-| Phase 1 (paged KV) | ~1600 | ~2200 | ~1.03× | ~1.00× | Batch ceiling removed, 100+ concurrent viable |
-| Phase 2 (cache intelligence) | ~1700 | ~2500 | ~1.10× | ~1.14× | Prefix reuse eliminates redundant prefill on multi-turn |
-| Phase 3 (disaggregated) | ~1800 | ~2800 | ~1.16× | ~1.28× | Prefill never blocks decode, TTFT ~1× scaling |
+| **Current (v3.53.0)** | **1003.7** | **OOM** | **0.50×** | **—** | batch=32 ceiling, FP8 TTFT penalty |
+| Phase 0 (fused Q4K + WSPT) | ~1400 | OOM | ~0.69× | — | Prompt invariance (TTFT 282→~100ms), cache-aware scheduling |
+| Phase 1 (paged KV) | ~1600 | ~2200 | ~0.79× | ~0.79× | Batch ceiling removed, 100+ concurrent viable |
+| Phase 1+CB | ~1960 | ~2720 | ~0.97× | ~0.97× | Continuous batching (PMAT-180) |
+| Phase 2 (cache intelligence) | ~2100 | ~2900 | ~1.04× | ~1.04× | Prefix reuse eliminates redundant prefill on multi-turn |
+| Phase 3 (disaggregated) | ~2200 | ~3100 | ~1.09× | ~1.11× | Prefill never blocks decode, TTFT ~1× scaling |
 
 ⚠️ **PMAT-163 correction:** These projections use fixed-128 baselines. Under production-realistic conditions (medium + uniform:16,256 output), realizr's scaling efficiency is only 25-37% (vs vLLM's 75-94%). Phase 0 alone lifts scores from 50-56 C to 58-64 C+. Phase 0+1 together reach ~65-72 C+/B- (see PMAT-162). The trajectory ratios above assume Phase 1 solves the output-heterogeneity penalty; if it doesn't, ~0.90× at c=16 drops to ~0.70×.
 
@@ -3431,6 +3434,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.54.0 | 2026-03-16 | **PMAT-202: Trajectory re-measurement with CUDA graphs — gap widens to 0.50×.** Re-measured PMAT-154 trajectory (medium+128tok) with vLLM CUDA graphs enabled (correcting PMAT-154's enforce-eager). vLLM c=4: 589.3 (was 470.8, +25%), c=8: 1115.9 (was 888.7, +26%), c=16: 2022.6 (was 1548.9, +31%). Corrected competitive ratios: **0.50-0.53×** (was 0.63-0.67×). TTFT gap widens: realizr 3.1-5.8× vLLM (was 2.4-3.0× with eager). Updated projection table with Phase 1+CB row. vLLM c=16 graphs-enabled matches PMAT-177 production data (2022.6 vs 1982.9, +2%), confirming workload consistency. |
 | 3.53.0 | 2026-03-16 | **PMAT-201: vLLM CUDA graph status — PMAT-154 FALSIFIED.** PMAT-154 (Mar 14) claimed CUDA graphs cause 6× slowdown. FALSIFIED: vLLM 0.17.0 V1 engine FULL_AND_PIECEWISE graphs provide **+21-28% benefit** over enforce-eager (c=1: 153.5 vs 125.9, c=4: 587.2 vs 460.3, c=8: 1107.7 vs 914.7). TTFT −37% (12.7 vs 20.3ms), ITL −18% (6.5 vs 7.9ms). PMAT-154 regression was transient V1 compilation cache issue. All PMAT-177+ production measurements already used graphs-enabled (forjar config has no --enforce-eager). PMAT-154/156 trajectory data used enforce-eager → understates vLLM by 21-28%. Corrected spec: replaced false regression claim, annotated PMAT-156 table. |
 | 3.52.0 | 2026-03-16 | **PMAT-200: llama.cpp ctx-size sensitivity (ctx=4096 vs ctx=8192).** With ctx=4096, llama.cpp output capped at 112 tokens (100% truncated). ctx=8192 (512 tok/slot) removes cap, allowing full uniform:16,256 range. Aggregate drops modestly (−0.2% to −5.9%, worst at c=16). Error rates drop at c≤8 (1.8%→0.5%). avg_tok increases 50% (94→142). Key finding: llama.cpp's throughput advantage is NOT an artifact of truncated output. Competitive ratios vs realizr unchanged (0.63× at c=4, parity at c=32). Canonical config remains ctx=4096. VRAM: 1578 vs 1470 MiB (+7.4%). |
 | 3.51.0 | 2026-03-16 | **PMAT-199: Spec consistency audit.** Fixed vLLM reference values in historical short-prompt section (line 87): was using medium-prompt data (551, 1023, 1779) in a short-prompt section, corrected to short-prompt values (594.8, 1058.5, 1832.2). Clarified prompt-invariance claim with actual short→medium deltas (−7% c=4, −3% c=8/16). Cross-checked all exec summary numbers, ratios, and scores against source PMAT data — no other numerical errors found. |
