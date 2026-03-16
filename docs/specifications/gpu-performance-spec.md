@@ -47,7 +47,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 | c | realizr | llama.cpp | vLLM | ollama | realizr/vLLM | Score |
 |---|---------|-----------|------|--------|-------------|-------|
-| 1 | 146.4 | 158.1 | 152.4 | **151.8** | 0.96× | realizr 93 A |
+| 1 | 146.4 | 158.1 | 152.4 | **151.8** | 0.96× | realizr 95 A+ |
 | 4 | 216.1 | 354.4 | **587.4** | 160.1 | 0.37× | realizr 58 C |
 | 8 | 355.1 | 420.1 | **1115.2** | 159.4 | 0.32× | realizr 65 C+ |
 | 16 | 586.5 | 896.6 | **1982.9** | 161.0 | 0.30× | realizr 71 B |
@@ -57,14 +57,14 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 *All 3 batching runtimes saturate at c=64: vLLM ~3050, realizr ~1500 (2.0× gap), llama.cpp ~1141 (1.32× behind realizr). realizr at batch=32 queues excess requests with 0% errors. \*llama.cpp c=64/128 values measured with --parallel 32 (PMAT-197), scores with 3-runtime pool.*
 
-**Scorecards (probador llm score, PMAT-186/192 — complete c=1→128):**
+**Scorecards (probador llm score, PMAT-186/206 — complete c=1→128):**
 
 | c | vLLM | llama.cpp | realizr | ollama |
 |---|------|-----------|---------|--------|
-| 1 | **98 A+** | 97 A+ | 93 A | 78 B |
+| 1 | **98 A+** | 97 A+ | 95 A+ | 78 B |
 | 4 | **98 A+** | 73 B | 58 C | 58 C |
 | 8 | **97 A+** | 65 C+ | 65 C+ | 58 C |
-| 16 | **94 A** | 72 B | 71 B | 58 C |
+| 16 | **94 A** | 72 B | 70 B | 58 C |
 | 32 | **86 A-** | 51 C | 70 B | 57 C |
 | 64 | **74 B** | 45 D* | 64 C+ | — |
 | 128 | 63 C+ | 44 D* | **66 C+** | — |
