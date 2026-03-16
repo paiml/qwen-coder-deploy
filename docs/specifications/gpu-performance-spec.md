@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.66.0
+**Version:** 3.67.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3146,9 +3146,9 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 
 ## 9. Profiling Data
 
-### Profiling Summary (RTX 4060L, sm_89, 24 SMs — PMAT-203→214)
+### Profiling Summary (RTX 4060L, sm_89, 24 SMs — PMAT-203→215)
 
-**Comprehensive GPU profiling completed Mar 16, 2026.** Sources: nsys kernel timelines (realizr M=1 profile + c=4/8/16 serve; vLLM c=1/4/16 serve), ncu per-kernel roofline (7 decode kernels), BrickProfiler per-op breakdown.
+**Comprehensive GPU profiling completed Mar 16, 2026.** Sources: nsys kernel timelines (realizr M=1 profile + c=4/8/16 serve; vLLM c=1/4/16 serve; llama.cpp c=1/4 serve), ncu per-kernel roofline (7 decode kernels), BrickProfiler per-op breakdown.
 
 **Top-level findings:**
 
@@ -3165,6 +3165,8 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | **vLLM: 1 kernel (CUTLASS GEMM) = 95.7% of GPU time** | **PMAT-214** | **Batch-invariant GEMM is why vLLM scales 3×** |
 | **vLLM GEMM time +2.8% from c=1→c=16** | **PMAT-214** | **M tokens per call → linear throughput scaling** |
 | **vLLM FlashAttention: 0.1%→11.7% (c=1→c=16)** | **PMAT-214** | **Attention is vLLM's scaling limiter at c=32+** |
+| **llama.cpp: ncols-templated GEMV (M=1-4)** | **PMAT-215** | **Middle ground — adapts to batch, but no GEMM switch** |
+| **Three-level spectrum: specialization ↔ batching** | **PMAT-214/215** | **realizr(44 kernels) → llama.cpp(35) → vLLM(15)** |
 
 **Per-token decode budget (M=1, 28 layers):** 4,505µs kernel + 1,785µs graph overhead = 6,290µs (159.1 tok/s). +540µs serving = 6,830µs production (146.4 tok/s).
 
@@ -3601,6 +3603,59 @@ vLLM uses a radically different kernel architecture from realizr: 1-2 dominant k
 
 5. **This IS the scheduling gap.** realizr's CUDA graph replays one token per dispatch. vLLM's GEMM naturally handles M tokens per call. The "scheduling overhead" we measured in PMAT-179 (decode_rate × scheduling_util) is precisely this: realizr dispatches one graph per token while vLLM dispatches one GEMM batch for all M tokens. The fix is continuous batching with batched GEMM (Phase 1+CB), which is projected to reach 0.97× vLLM at all c (PMAT-180).
 
+### llama.cpp Kernel Profile — ncols-Templated GEMV (PMAT-215)
+
+**nsys profiles of llama.cpp (Q4K GGUF) serve at c=1, c=4 (RTX 4060L, 2026-03-16).**
+
+llama.cpp sits between realizr and vLLM in the specialization spectrum: it uses **ncols-templated GEMV** that dispatches to M=1,2,3,4 kernel variants based on current batch size.
+
+**llama.cpp c=4 top kernels:**
+
+| Kernel | Time % | Instances | Avg (µs) | Notes |
+|--------|--------|-----------|----------|-------|
+| `mul_mat_vec_q<Q4K, ncols=4>` | 21.0% | 14,618 | 37.6 | M=4 decode |
+| `mul_mat_vec_q<Q4K, ncols=1, flag>` | 17.0% | 18,070 | 24.7 | M=1 decode |
+| `mul_mat_vec_q<Q4K, ncols=3>` | 11.0% | 10,080 | 28.7 | M=3 decode |
+| `mul_mat_vec_q<Q4K, ncols=2>` | 9.8% | 11,088 | 23.1 | M=2 decode |
+| `mul_mat_vec_q<Q6K, ncols=4>` | 7.1% | 2,525 | 73.9 | Q6K layers |
+| `mul_mat_vec_q<Q6K, ncols=1>` | 4.6% | 130 | 920.5 | LmHead (151K vocab) |
+| `mul_mat_vec_q<Q6K, ncols=2>` | 4.4% | 1,914 | 59.6 | |
+| `mul_mat_vec_q<Q6K, ncols=3>` | 4.3% | 1,740 | 64.9 | |
+| `quantize_q8_1` | 3.5% | 63,935 | 1.4 | Activation quantization |
+| `flash_attn_ext_f16` | 1.8% | 5,964 | 8.1 | FlashAttention |
+
+**llama.cpp c=1 decode kernels** (prefill-dominated capture — Q4K GEMM at 47% is prefill):
+
+| Kernel | Time % | Notes |
+|--------|--------|-------|
+| `mul_mat_q<Q4K, ncols=80>` | 47.0% | PREFILL GEMM |
+| `mul_mat_vec_q<Q4K, ncols=1>` | 12.3% | Decode GEMV |
+| `mul_mat_q<Q6K, ncols=80>` | 9.2% | PREFILL GEMM (Q6K layers) |
+| `mul_mat_vec_q<Q6K, ncols=1>` | 6.5% | LmHead (928µs) |
+
+**Three-way kernel architecture comparison (c=4 decode):**
+
+| Dimension | realizr | llama.cpp | vLLM |
+|-----------|---------|-----------|------|
+| Weight format | Q4K GGUF + DP4A INT8 | Q4K/Q6K GGUF | AWQ INT4 → FP16 |
+| Decode dispatch | CUDA graph (M=1/dispatch) | ncols-templated GEMV (M=1-4) | CUTLASS GEMM (M=batch) |
+| Batch scaling | 1 graph replay per token | GEMV handles ncols tokens | GEMM handles M tokens |
+| Dominant kernel % | 49.8% (fused_gate_up) | 21.0% (Q4K ncols=4) | 95.7% (CUTLASS GEMM) |
+| Per-call time (largest) | 84µs | 37.6µs (Q4K) / 73.9µs (Q6K) | 2,165µs |
+| Unique kernel types | 44+ | ~35 | ~15 |
+| Attention share | 24% | 1.8% | 1.2% |
+| c=4 aggregate tok/s | 216 | 354 | 585 |
+
+**Key findings:**
+
+1. **Three-level specialization spectrum.** realizr = maximum kernel specialization (DP4A, fused ops, CUDA graph). llama.cpp = ncols-templated GEMV (adapts kernel to batch size 1-4). vLLM = CUTLASS GEMM (batch-invariant, M tokens per call). Scaling improves as you move from specialization toward batching.
+
+2. **ncols templating explains llama.cpp's scaling.** At c=4, llama.cpp dynamically dispatches to ncols=1,2,3,4 GEMV variants based on the current batch occupancy. ncols=4 Q4K GEMV takes 37.6µs (not 4× the ncols=1 cost of 25µs) — partial batch efficiency. But unlike vLLM's GEMM, each ncols still processes M independent vector products, not a fused matrix multiply.
+
+3. **LmHead reveals the weight format impact.** Q6K ncols=1 LmHead: llama.cpp 928µs, realizr DP4A ~123µs (7.5× faster via INT8 hardware). vLLM FP16 GEMV 2,139µs (reads 4× more bytes for FP16 vs Q6K). LmHead is where format choice matters most — 151K×1536 matrix dominates M=1 decode.
+
+4. **realizr and llama.cpp are kernel-equivalent at c=1.** Both achieve ~159 tok/s with Q4K GGUF. The per-token kernel time is nearly identical. The gap emerges at c≥2: llama.cpp's ncols-templated GEMV processes M tokens per kernel while realizr's CUDA graph dispatches 1.
+
 ### Roofline Position
 
 ```
@@ -3833,6 +3888,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.67.0 | 2026-03-16 | **PMAT-215: llama.cpp nsys kernel profile + three-way architecture comparison.** Profiled llama.cpp (Q4K GGUF) serve at c=1 and c=4 via nsys. llama.cpp uses ncols-templated GEMV (M=1-4 variants) — a middle ground between realizr's CUDA graph (M=1/dispatch) and vLLM's CUTLASS GEMM (M=batch). Q4K ncols=4 GEMV at 37.6µs, Q6K at 73.9µs. LmHead Q6K is 928µs (7.5× slower than realizr's DP4A at 123µs; 2.3× faster than vLLM's FP16 at 2,139µs). Three-level specialization spectrum confirmed: realizr (44+ kernels, maximum specialization) → llama.cpp (35 kernels, ncols-templated) → vLLM (15 kernels, batch-invariant GEMM). Scaling improves as you move from specialization toward batching. |
 | 3.66.0 | 2026-03-16 | **PMAT-214: vLLM nsys kernel profile — why 3× scaling.** Profiled vLLM AWQ INT4 serve at c=1, c=4, c=16 via nsys. Root cause of vLLM's scaling advantage: a SINGLE CUTLASS WMMA FP16 GEMM kernel is 95.7% of GPU time (c≥2). This GEMM takes 2.14-2.20ms per call (+2.8% c=1→c=16) and processes M tokens per call — throughput scales linearly with batch size while GPU time stays constant. At c=1, vLLM uses cuBLAS GEMV (98.9%, same 2.14ms). At c≥2, cuBLAS dispatches to CUTLASS GEMM. FlashAttention grows from 0.1% (c=1) to 11.7% (c=16) — this is vLLM's eventual scaling limiter (~3,050 tok/s asymptote). Only ~15 kernel types vs realizr's 44+. Each vLLM kernel invocation is 25× longer (2.14ms vs 84µs), making launch overhead negligible. The scheduling gap IS the kernel architecture gap: realizr dispatches one graph per token; vLLM dispatches one GEMM for all M tokens. |
 | 3.65.0 | 2026-03-16 | **PMAT-213: nsys serve c=16 + cross-concurrency kernel mix summary.** Completed the c=4/8/16 nsys serve trilogy. Critical finding: **kernel mix is concurrency-invariant at c≥4** — DP4A GEMV locks at ~48%, attention at ~24%. Optimization priority does NOT change with concurrency. FP8 decode 128×128 tile scales 25× from c=4 to c=16 (56→1,400 instances) as more decode steps reach M≥5 at batch saturation. Yet FP8 is only ~1% of GPU time — its value is truncating the decode latency tail. Attention stabilizes at 24.5% (c≥8) with avg duration 114µs (KV cache length converges at steady-state). Added consolidated cross-concurrency comparison table. |
 | 3.64.0 | 2026-03-16 | **PMAT-212: nsys serve c=8 — FP8 decode visible via 6× tile growth.** Compared c=4 vs c=8 nsys serve profiles. The 128×128×64 cuBLASLt E4M3 tile grew 6× (56→336 instances) while prefill-proportional tiles grew only 1.4×. The extra 280 instances are FP8 tensor core GEMM in the decode path at M≥5, confirming PMAT-205 crossover IN PRODUCTION (not just benchmarks). DP4A GEMV still dominates (47.5%) because M fluctuates and many steps are M<5. Attention grew 21.9%→24.5% (longer KV caches at c=8). The PMAT-205 +23.7% throughput improvement comes from eliminating the slowest M≥5 decode steps even though total FP8 decode time is only ~1% — it truncates the decode latency tail. |

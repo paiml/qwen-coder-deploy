@@ -4050,3 +4050,38 @@ roadmap:
     nsys reports: results/nsys-yoga-vllm-c1-kernels-20260316.txt,
                   results/nsys-yoga-vllm-c4-kernels-20260316.txt,
                   results/nsys-yoga-vllm-c16-kernels-20260316.txt
+- id: PMAT-215
+  github_issue: null
+  item_type: task
+  title: 'PMAT-215: llama.cpp nsys kernel profile — ncols-templated GEMV'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys llama.cpp at c=1 — DONE (47% Q4K GEMM prefill, 12.3% Q4K ncols=1 GEMV decode)'
+  - 'AC2: nsys llama.cpp at c=4 — DONE (21% Q4K ncols=4, ncols=1-4 all present)'
+  - 'AC3: Three-way architecture comparison — DONE'
+  - 'AC4: ncols-templated GEMV documented — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - llamacpp
+  - kernel-profile
+  - three-way
+  - profiling
+  - 4060L
+  notes: |
+    llama.cpp uses ncols-templated GEMV: separate kernel specializations for
+    M=1,2,3,4. Q4K ncols=4 avg 37.6µs, Q6K ncols=4 avg 73.9µs.
+    LmHead Q6K ncols=1: 928µs (7.5x slower than realizr DP4A, 2.3x faster than vLLM FP16).
+    Three-level architecture spectrum confirmed:
+    realizr (44+ kernels, CUDA graph M=1) → llama.cpp (35 kernels, ncols-templated)
+    → vLLM (15 kernels, CUTLASS GEMM M=batch).
+    Scaling improves moving from specialization toward batching.
+    nsys reports: results/nsys-yoga-llamacpp-c1-kernels-20260316.txt,
+                  results/nsys-yoga-llamacpp-c4-kernels-20260316.txt
