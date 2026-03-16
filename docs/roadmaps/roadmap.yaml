@@ -3716,3 +3716,36 @@ roadmap:
     Key insight: short+32tok benchmarks (the industry standard) systematically
     overstate realizr vs llama.cpp. Production workloads (medium+128tok)
     show realizr wins ONLY at c=8. Fused Q4K GEMM is the unlock.
+- id: PMAT-205
+  github_issue: null
+  item_type: task
+  title: 'PMAT-205: FP8 decode crossover precision — M≥5 exact threshold'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure c=5,6,7 with FP8_DECODE=0 — DONE'
+  - 'AC2: Identify exact crossover M — DONE (M=5, +4.6% agg / +8.8% decode)'
+  - 'AC3: Characterize advantage growth rate — DONE (superlinear: +8.8→34.2% dec)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - fp8
+  - crossover
+  - tensor-core
+  - a-b-test
+  notes: |
+    Refines PMAT-204 finding (crossover "between M=4 and M=8") to exact threshold.
+    c=5 (M≈5) is the first concurrency where FP8 tensor core GEMM wins.
+    At c≤4: both paths identical (0.0-0.3%). At c=5: +4.6% agg, +8.8% decode.
+    Advantage grows monotonically and superlinearly per decode metric:
+    c=5: +8.8%, c=6: +15.6%, c=7: +27.3%, c=8: +34.2%.
+    cuBLASLt E4M3 16×8×32 tile becomes advantageous when batch dimension
+    exceeds DP4A GEMV 3-warp cooperation width.
+    Critical implication for PMAT-054: fused Q4K GEMM must match tensor core
+    throughput at M≥5 (not M≥8 as initially estimated) or it will regress
+    all concurrency above c=4.

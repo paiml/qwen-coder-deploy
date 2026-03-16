@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.56.0
+**Version:** 3.57.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3296,7 +3296,18 @@ nsys profile of `apr profile` (3 warmup + 10 measurement + 1 BrickProfiler pass)
 
 5. **BrickProfiler vs nsys validation:** BrickProfiler showed RmsNorm at 56% (Section 9.3). nsys shows RmsNorm at 2.0%. The 28x discrepancy is entirely kernel launch overhead — each rmsnorm is a 3.5µs kernel with ~30µs launch overhead in the non-graphed BrickProfiler pass.
 
-6. **FP8 decode is a NET WIN at M≥8 — FALSIFIED as optimization target.** A/B test with `FP8_DECODE=0` shows the DP4A-only path regresses 19.2% at c=8 (287.0 vs 355.1 tok/s). At M=1 (c=1): identical (146.9/146.9). At M=4 (c=4): identical (216.2/216.6). At M=8 (c=8): **−19.2%** (DP4A GEMV at M=8 is slower than FP8 tensor core GEMM, even with conversion overhead). The cuBLASLt E4M3 GEMM at M=8 achieves higher arithmetic throughput via tensor cores (16×8×32 tile) than batched DP4A GEMV. The 21.7% conversion overhead is an investment that pays back via ~40% higher GEMM throughput at M≥8. **Implication: PMAT-054 (fused Q4K GEMM) must MATCH cuBLASLt tensor core throughput at M≥8 or it will regress concurrency performance.**
+6. **FP8 decode is a NET WIN at M≥5 — FALSIFIED as optimization target (PMAT-205 precision).** Crossover measured at c=1,4,5,6,7,8 with `FP8_DECODE=0` vs default:
+
+| c | FP8 agg | DP4A agg | Δ agg | FP8 dec | DP4A dec | Δ dec |
+|---|---------|----------|-------|---------|----------|-------|
+| 1 | 146.4 | 146.9 | +0.3% | 148.3 | 148.9 | +0.4% |
+| 4 | 216.1 | 216.2 | +0.0% | 81.7 | 81.7 | +0.0% |
+| **5** | **247.7** | **236.7** | **+4.6%** | **76.9** | **70.7** | **+8.8%** |
+| 6 | 287.9 | 257.4 | +11.9% | 76.5 | 66.2 | +15.6% |
+| 7 | 320.2 | 268.7 | +19.1% | 75.6 | 59.4 | +27.3% |
+| 8 | 355.1 | 287.0 | +23.7% | 74.9 | 55.8 | +34.2% |
+
+**Crossover at c=5 (M≈5).** At c≤4, both paths identical. At c=5, FP8 tensor core GEMM wins +4.6% aggregate / +8.8% decode. Advantage grows monotonically: +23.7% at c=8. The cuBLASLt E4M3 16×8×32 tile becomes advantageous exactly when batch dimension exceeds DP4A GEMV warp cooperation width (3 warps × 32 = 96 threads, but effective M threshold is ~5 due to GEMM tile fill). The 21.7% conversion overhead (dequant → absmax → scale → E4M3) is an investment that pays back via ~40% higher GEMM throughput at M≥5. **Implication: PMAT-054 (fused Q4K GEMM) must MATCH cuBLASLt tensor core throughput at M≥5 or it will regress concurrency performance.** DP4A decode regression grows superlinearly: +8.8% → +15.6% → +27.3% → +34.2% per-step.
 
 ### Roofline Position
 
@@ -3528,6 +3539,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.57.0 | 2026-03-16 | **PMAT-205: FP8 decode crossover precision — M≥5 is the exact threshold.** Measured c=5,6,7 with FP8_DECODE=0 vs default to find precise crossover between DP4A GEMV and FP8 tensor core GEMM. At c≤4 (M≤4): both paths identical (0.0-0.3% delta). At c=5 (M≈5): FP8 wins +4.6% aggregate / +8.8% decode. Advantage grows monotonically: +11.9% (c=6), +19.1% (c=7), +23.7% (c=8). Per-request decode regression from DP4A is superlinear: +8.8% → +15.6% → +27.3% → +34.2%. The cuBLASLt E4M3 16×8×32 tile becomes advantageous when batch dimension exceeds DP4A GEMV warp cooperation width. Updated PMAT-204 point 6 with precise crossover table. Implication: PMAT-054 fused Q4K GEMM must match tensor core throughput at M≥5 (not M≥8 as initially estimated). |
 | 3.56.0 | 2026-03-16 | **PMAT-204: First nsys kernel profile on RTX 4060L — FP8 tensor core decode path dominates.** nsys profiling reveals the 4060L uses a fundamentally different kernel mix than the 4090: FP8 cuBLASLt GEMM 39.8% + FP8 conversion overhead 21.7% = **61.5% FP8 pipeline** (vs 4090: 0% FP8, 77.9% DP4A GEMV). The 4060L's `fp8_decode=true` uses sm_89 E4M3 tensor cores for Q4K projections. **FP8_DECODE=0 A/B test FALSIFIES conversion overhead as optimization target:** disabling FP8 decode regresses c=8 by −19.2% (287→355 tok/s). FP8 tensor core GEMM at M=8 is faster than DP4A GEMV despite conversion cost. c=1 and c=4: identical (crossover between M=4 and M=8). **Implication for PMAT-054:** fused Q4K GEMM must match cuBLASLt tensor core throughput at M≥8 or it will regress concurrency. RmsNorm: nsys 2.0% vs BrickProfiler 56% — 28× discrepancy confirms BrickProfiler per-op data is launch-overhead-dominated (non-representative). |
 | 3.55.0 | 2026-03-16 | **PMAT-203: First GPU profiling on yoga RTX 4060L + apr profile fix.** Root cause: `apr profile` fell back to CPU (28.8 tok/s) because parity gate (GPU/CPU logits cosine similarity check) has false positive on CUDA 13.1 driver. `apr serve` had `SKIP_PARITY_GATE=1` in forjar config but `apr profile` didn't. Fix committed in aprender (5084c1c2). GPU profiling now works: **159.1 tok/s decode** (vs 28.8 CPU fallback), 469.0 tok/s prefill. Roofline: 12.8% BW efficiency (102.6/800 GB/s), memory-bound at 4.0 FLOP/byte — same classification as 4090 but higher utilization (12.8% vs 8.4%). BrickProfiler per-op breakdown (CUDA graph disabled): RmsNorm 56%, AttentionScore 20.3%, QkvProj 7.8% — caveat: 84.7% kernel launch overhead makes percentages unrepresentative of production (nsys shows GEMV 77.9% under CUDA graph). Binary upgrade 0.4.10→0.4.11 validated: c=1 146.9 vs 146.4 (+0.3%), c=4 216.6 vs 216.1 (+0.2%) — no regression. |
 | 3.54.0 | 2026-03-16 | **PMAT-202: Trajectory re-measurement with CUDA graphs — gap widens to 0.50×.** Re-measured PMAT-154 trajectory (medium+128tok) with vLLM CUDA graphs enabled (correcting PMAT-154's enforce-eager). vLLM c=4: 589.3 (was 470.8, +25%), c=8: 1115.9 (was 888.7, +26%), c=16: 2022.6 (was 1548.9, +31%). Corrected competitive ratios: **0.50-0.53×** (was 0.63-0.67×). TTFT gap widens: realizr 3.1-5.8× vLLM (was 2.4-3.0× with eager). Updated projection table with Phase 1+CB row. vLLM c=16 graphs-enabled matches PMAT-177 production data (2022.6 vs 1982.9, +2%), confirming workload consistency. |
