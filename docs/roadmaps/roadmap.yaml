@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-201
+  title: 'PMAT-201: vLLM CUDA graph status audit — PMAT-154 FALSIFIED'
+  status: DONE
+  priority: P1
+  spec_version: '3.53.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Measure vLLM with CUDA graphs enabled vs enforce-eager at c=1,4,8'
+      status: DONE
+      result: 'Graphs provide +21-28% throughput, -37% TTFT, -18% ITL over enforce-eager'
+    - criterion: 'Determine if PMAT-154 6x regression still exists'
+      status: DONE
+      result: 'FALSIFIED — V1 engine FULL_AND_PIECEWISE graphs work correctly. 153.5 tok/s (not 23)'
+    - criterion: 'Verify PMAT-177 production numbers used correct configuration'
+      status: DONE
+      result: 'Confirmed — forjar config has no --enforce-eager, server log shows 86 CUDA graphs captured'
+  notes: |
+    PMAT-154 (Mar 14) reported 6x CUDA graph regression. Was transient V1 compilation
+    cache issue. By Mar 15 (PMAT-177), graphs worked correctly. All PMAT-177+ production
+    numbers are accurate (graphs-enabled). PMAT-154/156 trajectory data used enforce-eager
+    and thus understates vLLM by 21-28%. Key implication: the competitive gap vs vLLM
+    is even wider than PMAT-154/156 suggest.
 - id: PMAT-200
   title: 'PMAT-200: llama.cpp ctx-size sensitivity — ctx=4096 vs ctx=8192'
   status: DONE
