@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.62.0
+**Version:** 3.63.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3442,6 +3442,47 @@ Sources: ncu per-kernel timing (PMAT-209) × nsys instance counts (PMAT-204) + B
 
 6. **Q4K GEMV (unfused) is only 10.7% of kernel time.** The 112 individual Q4K GEMVs per token (Q, K, V, output projections) total 480µs — dwarfed by the single fused FFN kernel. These are the underutilized kernels (21% DRAM BW from PMAT-209). Fusing QKV into a single kernel (like gate_up) would transform them from underutilized to memory-bound.
 
+### Nsight Systems Serve Profile (2026-03-16, RTX 4060L, c=4 — PMAT-211)
+
+**CRITICAL: The kernel mix fundamentally shifts from M=1 (profile) to M≈4 (serve under load).**
+
+nsys profile of `apr serve` during c=4 production load (medium prompt, uniform:16,256 output, streaming):
+
+| Kernel | Time (%) | Instances | Avg (µs) | Category |
+|--------|----------|-----------|----------|----------|
+| `batched_hw_dp4a_q4k_gemv` | **47.7%** | 48,601 | 37.0 | DP4A GEMV (batched) |
+| `batched_incremental_attention` | **21.9%** | 8,101 | 102.2 | Attention (batched) |
+| `sm89_xmma_gemm_e4m3` (64×128×64) | 9.6% | 401 | 899.4 | FP8 cuBLASLt (**prefill**) |
+| `sm89_xmma_gemm_e4m3` (32×64×64) | 8.1% | 8,216 | 37.4 | FP8 cuBLASLt (**prefill**) |
+| `q8_quantize` | 1.6% | 32,404 | 1.9 | Activation quant |
+| `batched_rmsnorm_vectorized` | 1.6% | 16,658 | 3.7 | Normalization |
+| Other (swiglu, residual, rope, KV, argmax) | 9.5% | ~130k | <3 | Infrastructure |
+
+**Kernel mix shift — M=1 vs M≈4:**
+
+| Kernel Category | M=1 (profile) | M≈4 (serve c=4) | Explanation |
+|-----------------|---------------|------------------|-------------|
+| **Q4K GEMV** | 3.7% (unfused, 4.29µs) | **47.7%** (batched, 37.0µs) | Batched path un-fuses gate+up into separate GEMVs |
+| **Fused gate_up_swiglu** | **8.1%** (80µs/call) | **0%** | Replaced by batched Q4K GEMV + batched_swiglu |
+| **Attention** | 0.8% (flash_decoding) | **21.9%** (incremental) | KV cache scan scales with M and sequence length |
+| **FP8 cuBLASLt** | 39.8% (**prefill**) | 17.7% (**prefill**) | Both are prefill-only at M≤4 |
+| **Infrastructure** | ~10% | ~12% | Similar |
+
+**Analysis:**
+
+1. **The batched GEMV replaces the fused kernel.** At M=1, realizr uses `fused_gate_up_swiglu_hw_dp4a_q4k_gemv` (gate+up+swiglu in one 80µs kernel). At M≥2, the batched inference path uses `batched_hw_dp4a_q4k_gemv` for all projections (including gate, up separately) + `batched_swiglu` as a separate kernel. This is because the batched GEMV kernel is designed for M>1 where each row processes a different sequence.
+
+2. **Attention becomes the #2 bottleneck at M≥2** — `batched_incremental_attention` at 102µs/call (vs flash_decoding at 8µs at M=1). The 12.8× increase comes from processing M=4 queries simultaneously over the growing KV cache. At c=8+ (M≥5 where FP8 activates), attention would grow further.
+
+3. **No FP8 tensor core decode at M≤4** — confirming PMAT-205's M≥5 threshold. All `sm89_xmma_gemm_e4m3` instances in the serve profile are from prefill passes (new request arrivals). The decode path remains pure DP4A GEMV at M≤4.
+
+4. **Optimization priority shifts with concurrency:**
+   - **M=1**: fused_gate_up_swiglu (49.8%) → kernel fusion is critical
+   - **M=2-4**: batched_hw_dp4a_q4k_gemv (47.7%) + attention (21.9%) → GEMV + attention co-optimization
+   - **M≥5**: FP8 cuBLASLt GEMM takes over → tensor core utilization
+
+5. **ampere_sgemm kernels (0.4%)**: 504+504 instances of FP32 SGEMM 128×128 — likely LmHead projection (vocab 151,936 × hidden 1,536). Not quantized, runs on CUDA cores.
+
 ### Roofline Position
 
 ```
@@ -3674,6 +3715,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.63.0 | 2026-03-16 | **PMAT-211: nsys serve profile at c=4 — kernel mix fundamentally shifts from M=1 to M≈4.** Profiled `apr serve` under c=4 production load via nsys. batched_hw_dp4a_q4k_gemv dominates at 47.7% (replacing fused_gate_up_swiglu which was 49.8% at M=1). The batched path un-fuses gate+up into separate batched GEMVs. batched_incremental_attention emerges at 21.9% (was 0.8% at M=1) — KV cache scan scales with batch size. No FP8 tensor core decode at M≤4 (confirming PMAT-205 M≥5 threshold — all E4M3 GEMM is prefill). Optimization priority shifts: M=1 needs kernel fusion, M=2-4 needs GEMV+attention co-optimization, M≥5 needs tensor core utilization. ampere_sgemm 0.4% is LmHead FP32 projection. |
 | 3.62.0 | 2026-03-16 | **PMAT-210: Decode latency decomposition — fused gate_up_swiglu is 49.8% of kernel time.** Synthesized ncu per-kernel timing (PMAT-209) × nsys instance counts (PMAT-204) into per-token decode budget: 771 kernel launches, 4,505µs kernel time, 1,785µs CUDA graph overhead = 6,290µs total (159.1 tok/s). Fused gate_up_swiglu dominates at 2,243µs/token (49.8% of kernel time) — it's the correct PMAT-054 optimization target. Unfused Q4K GEMV is only 10.7% (480µs). Discovered BrickProfiler instrumentation gap: fused_gate_up_swiglu was MISSING from per-op output, inflating reported "84.7% launch overhead" to include the uncaptured kernel. Corrected overhead: 66.4% without graph. CUDA graph eliminates 771×17.5µs = 13.5ms of launch overhead. Serving overhead: 540µs (8.6%) for HTTP+tokio+SSE. |
 | 3.61.0 | 2026-03-16 | **PMAT-209: ncu per-kernel roofline on RTX 4060L — Q4K GEMV is UNDERUTILIZED, not compute-bound.** Profiled 7 decode kernels via Nsight Compute on yoga (sm_89, 24 SMs). Critical cross-platform finding: the same Q4K GEMV kernel that is compute-bound on Jetson Orin (72% compute, 36% DRAM) is underutilized on the 4060L (23.5% compute, 21.1% DRAM) despite 86% occupancy. The kernel is too fine-grained for 24 SMs — each warp completes in 4.29µs, too short to fill the pipeline. The fused_gate_up_swiglu kernel proves fusion fixes this: 80µs duration, 76% DRAM BW, properly memory-bound. Q6K GEMV remains compute-dominant (42% compute, 23% DRAM) with register pressure limiting occupancy to 75%/56%. Infrastructure kernels (flash_decoding, rmsnorm, residual) are all latency-bound with <4% utilization. Falsification hypotheses resolved: H1 CONFIRMED (coalescing efficient — fused 76% DRAM), H2 CONFIRMED (Q4K 0.0043ms, 12× below threshold), H5 CONFIRMED (occupancy ≠ utilization). H4 still pending (requires full ncu set). Implication: PMAT-054 kernel fusion would transform Q4K from 21% to ~76% DRAM utilization on 4060L, matching the fused kernel's demonstrated efficiency. |
 | 3.60.0 | 2026-03-16 | **PMAT-208: 3-way crossover analysis — vLLM, realizr, llama.cpp at c=5-7.** Measured vLLM at c=5,6,7 to complete the FP8 crossover picture with all 3 batching runtimes. Three competitive layers: (1) realizr beats llama.cpp on per-request decode 1.07-1.27× (FP8 > fused Q4K), (2) vLLM beats realizr 1.88-1.93× on per-request decode (AWQ + continuous batching preserves near-c=1 rates), (3) TTFT gap realizr 95-130ms vs vLLM 22ms drives aggregate. vLLM aggregate 2.9-3.1× realizr at c=5-7 (constant ratio — vLLM scales linearly). Phase 1+CB projection: scheduling fix alone would lift realizr decode from 75-77 to ~144 tok/s (1.9× improvement). ITL finding: realizr beats llama.cpp at c=5-7 (13.0 vs 13.9-16.8ms) despite losing aggregate. |

@@ -3912,3 +3912,38 @@ roadmap:
     Production adds 540µs serving overhead = 6,830µs (146.4 tok/s).
     BrickProfiler bug: fused_gate_up_swiglu MISSING from instrumentation,
     inflating reported launch overhead from 66.4% to 84.7%.
+- id: PMAT-211
+  github_issue: null
+  item_type: task
+  title: 'PMAT-211: nsys serve profile at c=4 — kernel mix shifts from M=1 to M≈4'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys profile of apr serve under c=4 load — DONE'
+  - 'AC2: Kernel mix comparison M=1 vs M≈4 — DONE (GEMV 3.7→47.7%, attn 0.8→21.9%)'
+  - 'AC3: Confirm no FP8 decode at M≤4 — DONE (all E4M3 GEMM is prefill)'
+  - 'AC4: Identify concurrency-dependent optimization targets — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - serve
+  - profiling
+  - batched
+  - 4060L
+  notes: |
+    nsys profile of `apr serve` during c=4 production load (30s capture).
+    Key finding: kernel mix fundamentally shifts from M=1 to M≈4.
+    - M=1: fused_gate_up_swiglu dominates (49.8% of kernel time)
+    - M≈4: batched_hw_dp4a_q4k_gemv dominates (47.7% of GPU time)
+    The batched path un-fuses gate+up into separate batched GEMVs.
+    Attention scales from 0.8% (M=1) to 21.9% (M≈4) via batched_incremental_attention.
+    No FP8 tensor core decode at M≤4 — confirms PMAT-205 threshold.
+    Optimization targets are concurrency-dependent:
+    M=1: kernel fusion, M=2-4: GEMV+attention, M≥5: tensor cores.
+    nsys report: results/nsys-yoga-serve-c4-20260316.nsys-rep
