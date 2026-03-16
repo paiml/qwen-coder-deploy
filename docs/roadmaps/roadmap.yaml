@@ -3780,3 +3780,34 @@ roadmap:
     TTFT determinism: stdev <0.3ms excluding first request.
     Also clarified PMAT-204 nsys kernel attribution: FP8 GEMM in trace is
     prefill (M=32), not decode. FP8 decode threshold is M≥5 in serve mode.
+- id: PMAT-207
+  github_issue: null
+  item_type: task
+  title: 'PMAT-207: Cross-runtime FP8 crossover — realizr decode FASTER at M≥5'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure llama.cpp at c=5,6,7 — DONE'
+  - 'AC2: Compare per-request decode vs realizr — DONE (1.07-1.40x realizr wins)'
+  - 'AC3: Decompose aggregate gap — DONE (scheduling, not kernels)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - fp8
+  - crossover
+  - competitive-analysis
+  - decode
+  notes: |
+    Cross-runtime comparison at the FP8 tensor core crossover point (c=5-8).
+    realizr per-request decode beats llama.cpp fused Q4K GEMV:
+    c=5: 1.07x, c=6: 1.13x, c=7: 1.27x, c=8: 1.40x.
+    But aggregate loses: 0.70x, 0.73x, 0.82x, 0.85x.
+    Gap decomposition: TTFT 95-130ms vs 37-42ms (3x), scheduling util.
+    Key finding: realizr ALREADY has superior decode kernels at M≥5.
+    Phase 1+CB would unlock this advantage at aggregate level.
+    This strengthens the Phase 1 investment case — the kernel work is done.
