@@ -1,0 +1,141 @@
+
+[1;36m=== apr profile (Real Per-Operation Telemetry) ===[0m
+
+  [1;37mModel[0m: /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+  [1;37mFormat[0m: gguf
+
+[2mLoading gguf model for GPU generation profiling...[0m
+[GpuProfile] sm_89: q4k=HwDp4a, q6k=HwDp4a, warps=3, batched_prefill=true, hgemm_decode=false, fused_gate_up=true, fp8_prefill=true, fp8_decode=true, w4a16_il=false, sms=24
+[GH-129] Early kernel preload: 49 modules compiled
+[PMAT-082] cuBLASLt FP8 JIT warmed (1536×16×1536)
+[PMAT-053] FP8 weight cache: 197 matrices cached (1472.1 MB) in 153.1ms
+[1;33m[WARN][0m GPU profiling unavailable, falling back to CPU per-op profiling
+[2mLoading model...[0m
+[2mRunning 3 warmup passes...[0m
+[2mRunning 10 measurement passes (per-op instrumented)...[0m
+╭──────────────┬────────────────────────────────────────────────╮
+│ Architecture │ qwen2 (28 layers, hidden=1,536, vocab=151,936) │
+├──────────────┼────────────────────────────────────────────────┤
+│      Backend │ CPU                                            │
+│       Warmup │ 3 passes                                       │
+│      Measure │ 10 passes                                      │
+╰──────────────┴────────────────────────────────────────────────╯
+
+  [1;32m✓[0m [1;32mREAL PER-OPERATION TELEMETRY[0m
+
+
+  [2m───[0m [36mPer-Operation Hotspots[0m
+
+╭─────┬──────────────────┬──────────┬───────┬───────┬────────────┬────────────────────────┬──────────────────────────────────────────╮
+│ #   │ Operation        │ Time     │ %     │ Calls │ Bottleneck │ Bar                    │ Detail                                   │
+├─────┼──────────────────┼──────────┼───────┼───────┼────────────┼────────────────────────┼──────────────────────────────────────────┤
+│ #1  │ DownProjection   │ 232197µs │ 33.1% │ 280   │ MEMORY     │ [██████░░░░░░░░░░░░░░] │ avg=829.3µs, min=530.6µs, max=1481.0µs   │
+│ #2  │ UpProjection     │ 135184µs │ 19.3% │ 280   │ MEMORY     │ [███░░░░░░░░░░░░░░░░░] │ avg=482.8µs, min=366.6µs, max=708.4µs    │
+│ #3  │ GateProjection   │ 133793µs │ 19.1% │ 280   │ MEMORY     │ [███░░░░░░░░░░░░░░░░░] │ avg=477.8µs, min=381.1µs, max=680.4µs    │
+│ #4  │ OutputProjection │ 56822µs  │ 8.1%  │ 280   │ MEMORY     │ [█░░░░░░░░░░░░░░░░░░░] │ avg=202.9µs, min=128.9µs, max=273.1µs    │
+│ #5  │ LmHead           │ 56288µs  │ 8.0%  │ 10    │ MEMORY     │ [█░░░░░░░░░░░░░░░░░░░] │ avg=5628.8µs, min=5481.9µs, max=5763.6µs │
+│ #6  │ QkvProjection    │ 54436µs  │ 7.8%  │ 280   │ MEMORY     │ [█░░░░░░░░░░░░░░░░░░░] │ avg=194.4µs, min=133.4µs, max=414.9µs    │
+│ #7  │ Activation       │ 23198µs  │ 3.3%  │ 280   │ COMPUTE    │ [░░░░░░░░░░░░░░░░░░░░] │ avg=82.8µs, min=44.5µs, max=119.3µs      │
+│ #8  │ RmsNorm          │ 4322µs   │ 0.6%  │ 570   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=7.6µs, min=3.2µs, max=19.2µs         │
+│ #9  │ RopeEmbedding    │ 2884µs   │ 0.4%  │ 280   │ COMPUTE    │ [░░░░░░░░░░░░░░░░░░░░] │ avg=10.3µs, min=5.4µs, max=19.7µs        │
+│ #10 │ AttentionScore   │ 2561µs   │ 0.4%  │ 280   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=9.1µs, min=5.1µs, max=12.0µs         │
+│ #11 │ Embedding        │ 43µs     │ 0.0%  │ 10    │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │ avg=4.3µs, min=2.6µs, max=7.0µs          │
+╰─────┴──────────────────┴──────────┴───────┴───────┴────────────┴────────────────────────┴──────────────────────────────────────────╯
+
+
+  [2m───[0m [36mCategory Summary[0m
+
+  Attention:  16.6%  [36m██████[0m
+  FFN:        82.7%  [32m█████████████████████████████████[0m
+  Norm:        0.6%  [33m[0m
+  Other:       0.0%  [2m[0m
+
+
+  [2m───[0m [36mPer-Layer Timing (real)[0m
+
+  [1;32m✓[0m [1;32mReal per-layer timing verified[0m (CV=15.3%)
+
+╭──────────┬──────────┬──────────────────────────────────╮
+│ Layer    │ Time     │ Bar                              │
+├──────────┼──────────┼──────────────────────────────────┤
+│ Layer 0  │ 2301.6µs │ [███████████████████████████░░░] │
+│ Layer 1  │ 2219.4µs │ [██████████████████████████░░░░] │
+│ Layer 2  │ 2411.7µs │ [█████████████████████████████░] │
+│ Layer 3  │ 2446.0µs │ [█████████████████████████████░] │
+│ Layer 4  │ 2375.8µs │ [████████████████████████████░░] │
+│ Layer 5  │ 2293.5µs │ [███████████████████████████░░░] │
+│ Layer 6  │ 2248.0µs │ [███████████████████████████░░░] │
+│ Layer 7  │ 2270.9µs │ [███████████████████████████░░░] │
+│ Layer 8  │ 2329.5µs │ [████████████████████████████░░] │
+│ Layer 9  │ 2396.5µs │ [████████████████████████████░░] │
+│ Layer 10 │ 2392.0µs │ [████████████████████████████░░] │
+│ Layer 11 │ 2417.5µs │ [█████████████████████████████░] │
+│ Layer 12 │ 2229.7µs │ [███████████████████████████░░░] │
+│ Layer 13 │ 2178.3µs │ [██████████████████████████░░░░] │
+│ Layer 14 │ 2317.1µs │ [███████████████████████████░░░] │
+│ Layer 15 │ 2194.7µs │ [██████████████████████████░░░░] │
+│ Layer 16 │ 2258.0µs │ [███████████████████████████░░░] │
+│ Layer 17 │ 2476.9µs │ [██████████████████████████████] │
+│ Layer 18 │ 2327.0µs │ [███████████████████████████░░░] │
+│ Layer 19 │ 2173.6µs │ [██████████████████████████░░░░] │
+│ Layer 20 │ 2273.6µs │ [███████████████████████████░░░] │
+│ Layer 21 │ 2125.0µs │ [█████████████████████████░░░░░] │
+│ Layer 22 │ 2241.2µs │ [███████████████████████████░░░] │
+│ Layer 23 │ 2323.5µs │ [███████████████████████████░░░] │
+│ Layer 24 │ 2334.7µs │ [████████████████████████████░░] │
+│ Layer 25 │ 2274.0µs │ [███████████████████████████░░░] │
+│ Layer 26 │ 2213.5µs │ [██████████████████████████░░░░] │
+│ Layer 27 │ 2276.2µs │ [███████████████████████████░░░] │
+╰──────────┴──────────┴──────────────────────────────────╯
+
+
+  [2m───[0m [36mRoofline Analysis[0m
+
+  Hardware:       Unknown Unknown (16 cores, 256) (peak 768.0 GFLOPS, 80.0 GB/s)
+  Achieved:       36.7 GFLOPS, 9.2 GB/s
+  Compute eff:    4.8%
+  Memory eff:     11.5%
+  Arithmetic int: 4.00 (threshold=9.6)
+  [34mℹ[0m [34mMEMORY BOUND[0m
+
+[34m[INFO][0m Decode is memory-bandwidth limited. Matmul operations transfer
+[34m[INFO][0m more bytes than FLOPs computed. Focus on memory access patterns.
+
+
+  [2m───[0m [36mPerformance Grade[0m
+
+  Grade: [1mD[0m  —  Poor — significant optimization needed
+  Efficiency: 11.5%
+
+
+  [2m───[0m [36mGeneration Performance[0m
+
+╭────────────────────┬────────────╮
+│  Decode throughput │ 28.4 tok/s │
+├────────────────────┼────────────┤
+│ Prefill throughput │ 0.0 tok/s  │
+│   Tokens generated │ 20         │
+╰────────────────────┴────────────╯
+
+
+  [2m───[0m [36mLatency Distribution (decode pass)[0m
+
+╭──────────────┬─────────╮
+│ p50 (median) │ 70.1 ms │
+├──────────────┼─────────┤
+│          p95 │ 72.8 ms │
+│          p99 │ 73.3 ms │
+│          min │ 67.9 ms │
+│          max │ 73.4 ms │
+╰──────────────┴─────────╯
+
+
+  [2m───[0m [36mSummary[0m
+
+  [2mAvg forward pass[0m: [1;37m70381.5µs (70.38ms)[0m
+  [2mThroughput[0m: [1;37m28.42[0m [2mtok/s[0m
+  [2mTokens per pass[0m: [1;37m2[0m
+  [2mOperations profiled[0m: [1;37m11[0m
+
+
+[2mProfile completed in 3.53s[0m
