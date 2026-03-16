@@ -1117,17 +1117,17 @@ Measured TTFT scaling across prompt profiles at c=1/4/8 to quantify the prefill 
 
 **llama.cpp prefix cost:** TTFT is prompt-length invariant (10.1ms short, 10.3ms medium, <2% difference). Fused Q4K GEMM processes the prompt in a single kernel pass with negligible scaling. This is the same prompt invariance that PMAT-054 (fused Q4K→GEMM) would give realizr.
 
-**Complete 3-runtime production comparison (PMAT-156, medium prompt + 128 output tokens, yoga 4060L 1900MHz, 60s, warmup 5s, isolated):**
+**Complete 3-runtime production comparison (PMAT-156/202, medium prompt + 128 output tokens, yoga 4060L 1900MHz, 60s, warmup 5s, isolated, vLLM CUDA graphs enabled):**
 
-| c | realizr | llama.cpp | vLLM (0.17 eager†) | r/l ratio | r/v ratio | realizr TTFT | llama.cpp TTFT | vLLM TTFT |
+| c | realizr | llama.cpp | vLLM (0.17 graphs) | r/l ratio | r/v ratio | realizr TTFT | llama.cpp TTFT | vLLM TTFT |
 |---|---------|----------|-------------------|-----------|-----------|-------------|---------------|-----------|
-| 4 | 314.7 | 372.8 | 470.8 | **0.84×** | **0.67×** | 75.7ms | 18.8ms | 31.8ms |
-| 8 | 557.2 | 433.4 | 888.7 | **1.29× W** | 0.63× | 148.0ms | 29.7ms | 55.3ms |
-| 16 | 1003.7 | 1126.1 | 1548.9 | **0.89×** | 0.65× | 281.8ms | 29.1ms | 95.2ms |
+| 4 | 314.7 | 372.8 | **589.3** | **0.84×** | **0.53×** | 75.7ms | 18.8ms | **24.7ms** |
+| 8 | 557.2 | 433.4 | **1115.9** | **1.29× W** | **0.50×** | 148.0ms | 29.7ms | **42.0ms** |
+| 16 | 1003.7 | 1126.1 | **2022.6** | **0.89×** | **0.50×** | 281.8ms | 29.1ms | **48.6ms** |
 | 18 | 1116.1 | — | — | — | — | 315.5ms | — | — |
-| 32 | OOM | — | 2189.1 | — | — | — | — | 127.7ms |
+| 32 | OOM | — | ~2800 | — | — | — | — | — |
 
-†**PMAT-154 used `--enforce-eager`** (pre-V1 compilation cache). PMAT-201 shows graphs-enabled is +21-28% faster — actual vLLM at these workloads would be ~570-600 (c=4), ~1080-1140 (c=8), ~1880-1980 (c=16). realizr/vLLM ratios are conservative.
+vLLM column corrected by PMAT-202 (was 470.8/888.7/1548.9 with enforce-eager, PMAT-154). realizr and llama.cpp unchanged.
 
 **Production-realistic scorecards (probador llm score, throughput profile):**
 
