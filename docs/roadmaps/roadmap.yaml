@@ -4011,3 +4011,42 @@ roadmap:
     Super-linear growth = more decode steps at M>=5 at batch saturation.
     Attention stable at 24.5% (c>=8), 114µs avg (KV length converges).
     nsys report: results/nsys-yoga-serve-c16-20260316.nsys-rep
+- id: PMAT-214
+  github_issue: null
+  item_type: task
+  title: 'PMAT-214: vLLM nsys kernel profile — why 3x scaling advantage'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys vLLM at c=1 — DONE (98.9% cuBLAS GEMV 2.14ms)'
+  - 'AC2: nsys vLLM at c=4 — DONE (95.7% CUTLASS GEMM 2.17ms)'
+  - 'AC3: nsys vLLM at c=16 — DONE (85.0% CUTLASS GEMM 2.20ms, FlashAttn 11.7%)'
+  - 'AC4: Cross-concurrency GEMM time delta — DONE (+2.8% c=1→c=16)'
+  - 'AC5: Comparative table realizr vs vLLM — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - nsys
+  - vllm
+  - kernel-profile
+  - scaling
+  - profiling
+  - 4060L
+  notes: |
+    Root cause of vLLM 3x scaling advantage: SINGLE CUTLASS WMMA GEMM kernel
+    is 95.7% of GPU time at c>=2. GEMM time +2.8% from c=1 to c=16 but
+    processes M tokens per call — linear throughput scaling.
+    At c=1: cuBLAS dispatches to GEMV (same 2.14ms). At c>=2: CUTLASS GEMM.
+    FlashAttention grows 0.1%→11.7% (c=1→c=16) as KV cache grows.
+    This is vLLM asymptote limiter at ~3050 tok/s.
+    realizr: 771 kernels (84µs largest) behind CUDA graph. vLLM: ~113 kernels (2.14ms each).
+    25x longer per-kernel work → launch overhead negligible.
+    The scheduling gap IS the kernel architecture gap.
+    nsys reports: results/nsys-yoga-vllm-c1-kernels-20260316.txt,
+                  results/nsys-yoga-vllm-c4-kernels-20260316.txt,
+                  results/nsys-yoga-vllm-c16-kernels-20260316.txt
