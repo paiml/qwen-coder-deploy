@@ -3844,3 +3844,40 @@ roadmap:
     realizr decode degrades: 75-77 tok/s (vs 148 at c=1) — batch-and-step penalty.
     Phase 1+CB projection: decode improvement from scheduling alone = 1.9x.
     ITL finding: realizr 13.0-13.2ms beats llama.cpp 13.9-16.8ms at c=5-7.
+- id: PMAT-209
+  github_issue: null
+  item_type: task
+  title: 'PMAT-209: ncu per-kernel roofline on RTX 4060L — Q4K underutilized, not compute-bound'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Profile all major decode kernels via ncu on 4060L — DONE (7 kernels)'
+  - 'AC2: Cross-platform roofline comparison vs Jetson Orin — DONE (compute-bound vs underutilized)'
+  - 'AC3: Resolve H1, H2, H5 falsification hypotheses — DONE (H1,H2,H5 confirmed)'
+  - 'AC4: Identify kernel fusion ROI on 4060L — DONE (fused Q4K 76% DRAM vs unfused 21%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - ncu
+  - roofline
+  - profiling
+  - 4060L
+  - falsification
+  notes: |
+    Nsight Compute per-kernel profiling on yoga RTX 4060L (sm_89, 24 SMs).
+    Key finding: Q4K GEMV is UNDERUTILIZED on 4060L (23.5% compute, 21.1% DRAM)
+    despite 86% occupancy. Same kernel is compute-bound on Jetson (72% compute).
+    Root cause: kernel too fine-grained for 24 SMs (4.29µs duration).
+    Fused gate_up_swiglu kernel proves fusion fixes this: 80µs, 76% DRAM BW.
+    Q6K GEMV: compute-dominant (42% compute) on both platforms.
+    Infrastructure kernels (flash, rmsnorm, residual): all latency-bound (<4%).
+    Falsification: H1 confirmed (coalescing efficient), H2 confirmed (0.0043ms),
+    H5 confirmed (occupancy ≠ utilization). H4 pending (needs full ncu set).
+    ncu reports: results/ncu-yoga-decode-skip10k-20260316.ncu-rep,
+    results/ncu-yoga-fused-20260316.ncu-rep, results/ncu-yoga-flash-20260316.ncu-rep,
+    results/ncu-yoga-rmsnorm-20260316.ncu-rep
