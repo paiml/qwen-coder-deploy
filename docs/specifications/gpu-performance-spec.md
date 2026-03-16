@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.59.0
+**Version:** 3.60.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -78,6 +78,21 @@ This specification consolidates all GPU decoder throughput optimization work for
 **Ollama (PMAT-182/191):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate flat at 159-161 tok/s regardless of c (confirmed c=1→32). TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8), **14573ms (c=16), 24419ms (c=32)** — linear with c. Ollama represents the M=1 kernel ceiling without scheduling overhead.
 
 **The gap is NOT kernel speed — realizr's FP8 decode is FASTER than llama.cpp at M≥5 (PMAT-207).** Per-request decode ratio vs llama.cpp: 1.07× (c=5), 1.13× (c=6), 1.27× (c=7), **1.40× (c=8)**. Yet aggregate throughput still loses (0.70-0.85×) because scheduling overhead exceeds the decode advantage. realizr is within 4% of vLLM at c=1 (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
+
+**3-way crossover analysis (PMAT-208, c=5-7, production methodology):**
+
+| c | realizr agg | llama.cpp agg | vLLM agg | r/l agg | r/v agg | realizr dec | llama.cpp dec | vLLM dec | r/l dec | r/v dec |
+|---|------------|--------------|---------|---------|---------|------------|--------------|---------|---------|---------|
+| 5 | 247.7 | 352.5 | **722.8** | 0.70× | 0.34× | **76.9** | 72.1 | 148.2 | **1.07×** | 0.52× |
+| 6 | 287.9 | 394.3 | **850.4** | 0.73× | 0.34× | **76.5** | 67.5 | 144.8 | **1.13×** | 0.53× |
+| 7 | 320.2 | 388.6 | **979.0** | 0.82× | 0.33× | **75.6** | 59.4 | 143.6 | **1.27×** | 0.53× |
+
+**Three layers of competitive dynamics at the FP8 crossover point:**
+1. **realizr beats llama.cpp on per-request decode** (1.07-1.27×) — FP8 tensor core GEMM > fused Q4K GEMV at M≥5
+2. **vLLM beats realizr on per-request decode** (1.88-1.93×) — AWQ INT4 with continuous batching maintains near-c=1 decode rates (144-148 tok/s vs realizr's 75-77). vLLM's scheduling preserves per-request quality; realizr's batch-and-step degrades
+3. **TTFT: vLLM 22ms, llama.cpp 37-42ms, realizr 95-130ms** — 4.3-5.7× gap drives aggregate despite decode parity/advantage
+
+**Implication for Phase 1+CB projection:** After continuous batching, realizr's per-request decode should track vLLM's curve × 0.97 (PMAT-180). At c=5-7 this means ~144 dec tok/s (vs current 75-77) — a **1.9× decode improvement from scheduling alone.**
 
 **Historical short-prompt results (PMAT-109/113, short prompt + fixed 32 tok) — favorable conditions for realizr:**
 - **c=1 decode:** realizr 149.5 vs llama.cpp ~150 (**1.00x**), TTFT 13.2ms vs 10.2ms. TTFT P99 14.2ms (bimodal tail eliminated by PMAT-109)
@@ -3558,6 +3573,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.60.0 | 2026-03-16 | **PMAT-208: 3-way crossover analysis — vLLM, realizr, llama.cpp at c=5-7.** Measured vLLM at c=5,6,7 to complete the FP8 crossover picture with all 3 batching runtimes. Three competitive layers: (1) realizr beats llama.cpp on per-request decode 1.07-1.27× (FP8 > fused Q4K), (2) vLLM beats realizr 1.88-1.93× on per-request decode (AWQ + continuous batching preserves near-c=1 rates), (3) TTFT gap realizr 95-130ms vs vLLM 22ms drives aggregate. vLLM aggregate 2.9-3.1× realizr at c=5-7 (constant ratio — vLLM scales linearly). Phase 1+CB projection: scheduling fix alone would lift realizr decode from 75-77 to ~144 tok/s (1.9× improvement). ITL finding: realizr beats llama.cpp at c=5-7 (13.0 vs 13.9-16.8ms) despite losing aggregate. |
 | 3.59.0 | 2026-03-16 | **PMAT-207: realizr decode FASTER than llama.cpp at M≥5 — gap is entirely scheduling.** Cross-runtime FP8 crossover comparison at c=5,6,7: realizr per-request decode beats llama.cpp's fused Q4K GEMV by 7% (c=5), 13% (c=6), 27% (c=7), 40% (c=8). Yet aggregate throughput loses (0.70-0.85×) due to TTFT/scheduling overhead (realizr 95-130ms vs llama.cpp 37-42ms). Key insight: realizr already has superior decode kernels — Phase 1+CB would unlock this advantage at the aggregate level. Updated exec summary "gap is NOT kernel speed" with precise decode ratios. Also: c=1 score updated 93 A → 95 A+ (PMAT-206 TTFT improvement), c=16 corrected 71→70 B. |
 | 3.58.0 | 2026-03-16 | **PMAT-206: TTFT tail analysis confirms PMAT-109 graph persistence.** 120s c=1 run (128 requests, 10s warmup): 99.2% of requests at 18.7-19.7ms (stdev <0.3ms excluding first request). Single outlier at 41.1ms is request 0 (initial graph capture). Pre-PMAT-109: 5% outlier rate at 42-44ms. Post-PMAT-109: <1% (first request only). Mar 15 comparison: 3.2% outlier rate with 5s warmup → 10s warmup eliminates the mid-session graph rebuild. TTFT P99 = 19.7ms (passes PMAT-109 AC1 threshold of 30ms). Corrected PMAT-204 nsys kernel attribution: FP8 cuBLASLt GEMM in nsys trace is from prefill (M=32), not decode (M=1). FP8 decode fires at M≥5 in serve mode only (realizr `cublas_prefill.rs:fp8_decode && m >= 5`). |
 | 3.57.0 | 2026-03-16 | **PMAT-205: FP8 decode crossover precision — M≥5 is the exact threshold.** Measured c=5,6,7 with FP8_DECODE=0 vs default to find precise crossover between DP4A GEMV and FP8 tensor core GEMM. At c≤4 (M≤4): both paths identical (0.0-0.3% delta). At c=5 (M≈5): FP8 wins +4.6% aggregate / +8.8% decode. Advantage grows monotonically: +11.9% (c=6), +19.1% (c=7), +23.7% (c=8). Per-request decode regression from DP4A is superlinear: +8.8% → +15.6% → +27.3% → +34.2%. The cuBLASLt E4M3 16×8×32 tile becomes advantageous when batch dimension exceeds DP4A GEMV warp cooperation width. Updated PMAT-204 point 6 with precise crossover table. Implication: PMAT-054 fused Q4K GEMM must match tensor core throughput at M≥5 (not M≥8 as initially estimated). |

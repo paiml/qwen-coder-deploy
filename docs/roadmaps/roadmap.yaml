@@ -3811,3 +3811,36 @@ roadmap:
     Key finding: realizr ALREADY has superior decode kernels at M≥5.
     Phase 1+CB would unlock this advantage at aggregate level.
     This strengthens the Phase 1 investment case — the kernel work is done.
+- id: PMAT-208
+  github_issue: null
+  item_type: task
+  title: 'PMAT-208: 3-way crossover analysis — vLLM, realizr, llama.cpp at c=5-7'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure vLLM at c=5,6,7 — DONE (722.8, 850.4, 979.0 tok/s)'
+  - 'AC2: 3-way decode comparison — DONE (realizr beats llama.cpp, vLLM beats both)'
+  - 'AC3: Identify per-request decode gap to vLLM — DONE (0.52-0.53x, constant)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - crossover
+  - competitive-analysis
+  - vllm
+  - 3-way
+  notes: |
+    Completes PMAT-207 2-way comparison with vLLM data at c=5,6,7.
+    Three competitive layers at FP8 crossover:
+    1. realizr beats llama.cpp per-request decode (1.07-1.27x, FP8 > Q4K GEMV)
+    2. vLLM beats realizr per-request decode (1.88-1.93x, AWQ + CB preserves c=1 rates)
+    3. TTFT: vLLM 22ms, llama.cpp 37-42ms, realizr 95-130ms
+    vLLM/realizr aggregate ratio constant ~3.0x at c=5-7 (linear scaling).
+    vLLM decode barely degrades: 144-148 tok/s at c=5-7 (vs 152 at c=1).
+    realizr decode degrades: 75-77 tok/s (vs 148 at c=1) — batch-and-step penalty.
+    Phase 1+CB projection: decode improvement from scheduling alone = 1.9x.
+    ITL finding: realizr 13.0-13.2ms beats llama.cpp 13.9-16.8ms at c=5-7.
