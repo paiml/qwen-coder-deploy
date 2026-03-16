@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.64.0
+**Version:** 3.65.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3508,6 +3508,31 @@ nsys profile of `apr serve` during c=8 production load. Same methodology as PMAT
 
 4. **Overall kernel mix proportions are stable** — DP4A GEMV (~48%), attention (~22-25%), FP8 prefill (~17%), normalization+residual (~6%). The FP8 decode adds ~1% at c=8 (34.3M / 6,493M total). The PMAT-205 throughput improvement (+23.7% at c=8) comes from replacing the slowest M≥5 decode steps with tensor core GEMM, even though total FP8 decode time is small — it eliminates the tail of the decode latency distribution.
 
+### Cross-Concurrency Kernel Mix Summary (PMAT-211/212/213)
+
+**The kernel mix stabilizes at c≥4 — GEMV 48%, attention 24% are invariant.**
+
+| Kernel Category | M=1 (profile) | c=4 (serve) | c=8 (serve) | c=16 (serve) |
+|-----------------|---------------|-------------|-------------|--------------|
+| **DP4A GEMV** | 3.7% (unfused) | **47.7%** | **47.5%** | **47.8%** |
+| **Fused gate_up_swiglu** | **8.1%** | 0% | 0% | 0% |
+| **Attention** | 0.8% | **21.9%** | **24.5%** | **24.5%** |
+| **FP8 cuBLASLt** | 39.8% (prefill) | 17.7% | 17.0% | 17.2% |
+| **128×128 FP8 tile** | 0 inst | 56 inst | 336 inst | **1,400 inst** |
+| FP8 128×128 vs c=4 | — | 1.0× | 6.0× | **25×** |
+| Normalization | 2.0% | 1.6% | 1.6% | 1.6% |
+| Infrastructure | ~10% | ~12% | ~10% | ~9% |
+
+**Key conclusions:**
+
+1. **Kernel mix is concurrency-invariant at c≥4.** DP4A GEMV locks at ~48%, attention at ~24%. The optimization priority does NOT change with concurrency — GEMV and attention are ALWAYS the top two targets in the batched path. This simplifies the optimization roadmap: any GEMV improvement helps all concurrency levels equally.
+
+2. **FP8 decode scales super-linearly with c.** The 128×128×64 tensor core tile (FP8 decode at M≥5) grows 25× from c=4 to c=16, while prefill-proportional tiles grow ~3.6×. At c=16, more decode steps have M≥5 due to batch saturation (batch=16 with slots cycling). FP8 decode time: ~0% (c=4) → ~1% (c=8) → **~0.8% (c=16, 142.8M/17.4B total)**. The FP8 contribution is small in GPU time but disproportionately impacts throughput by accelerating the M≥5 tail.
+
+3. **Attention avg duration is stable** — 102µs (c=4), 114µs (c=8), 114µs (c=16). It stabilizes at c≥8 because the average KV cache length (across all active sequences at any moment) converges as the batch reaches steady state. Attention's 24.5% share is the ceiling for this model size.
+
+4. **LmHead (ampere_sgemm) scales linearly.** 504→560→1,848 instances (1×/1.1×/3.7×). The FP32 vocab projection grows proportionally with total tokens generated. At 18.4µs per call, it's <0.4% — not a bottleneck.
+
 ### Roofline Position
 
 ```
@@ -3740,6 +3765,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.65.0 | 2026-03-16 | **PMAT-213: nsys serve c=16 + cross-concurrency kernel mix summary.** Completed the c=4/8/16 nsys serve trilogy. Critical finding: **kernel mix is concurrency-invariant at c≥4** — DP4A GEMV locks at ~48%, attention at ~24%. Optimization priority does NOT change with concurrency. FP8 decode 128×128 tile scales 25× from c=4 to c=16 (56→1,400 instances) as more decode steps reach M≥5 at batch saturation. Yet FP8 is only ~1% of GPU time — its value is truncating the decode latency tail. Attention stabilizes at 24.5% (c≥8) with avg duration 114µs (KV cache length converges at steady-state). Added consolidated cross-concurrency comparison table. |
 | 3.64.0 | 2026-03-16 | **PMAT-212: nsys serve c=8 — FP8 decode visible via 6× tile growth.** Compared c=4 vs c=8 nsys serve profiles. The 128×128×64 cuBLASLt E4M3 tile grew 6× (56→336 instances) while prefill-proportional tiles grew only 1.4×. The extra 280 instances are FP8 tensor core GEMM in the decode path at M≥5, confirming PMAT-205 crossover IN PRODUCTION (not just benchmarks). DP4A GEMV still dominates (47.5%) because M fluctuates and many steps are M<5. Attention grew 21.9%→24.5% (longer KV caches at c=8). The PMAT-205 +23.7% throughput improvement comes from eliminating the slowest M≥5 decode steps even though total FP8 decode time is only ~1% — it truncates the decode latency tail. |
 | 3.63.0 | 2026-03-16 | **PMAT-211: nsys serve profile at c=4 — kernel mix fundamentally shifts from M=1 to M≈4.** Profiled `apr serve` under c=4 production load via nsys. batched_hw_dp4a_q4k_gemv dominates at 47.7% (replacing fused_gate_up_swiglu which was 49.8% at M=1). The batched path un-fuses gate+up into separate batched GEMVs. batched_incremental_attention emerges at 21.9% (was 0.8% at M=1) — KV cache scan scales with batch size. No FP8 tensor core decode at M≤4 (confirming PMAT-205 M≥5 threshold — all E4M3 GEMM is prefill). Optimization priority shifts: M=1 needs kernel fusion, M=2-4 needs GEMV+attention co-optimization, M≥5 needs tensor core utilization. ampere_sgemm 0.4% is LmHead FP32 projection. |
 | 3.62.0 | 2026-03-16 | **PMAT-210: Decode latency decomposition — fused gate_up_swiglu is 49.8% of kernel time.** Synthesized ncu per-kernel timing (PMAT-209) × nsys instance counts (PMAT-204) into per-token decode budget: 771 kernel launches, 4,505µs kernel time, 1,785µs CUDA graph overhead = 6,290µs total (159.1 tok/s). Fused gate_up_swiglu dominates at 2,243µs/token (49.8% of kernel time) — it's the correct PMAT-054 optimization target. Unfused Q4K GEMV is only 10.7% (480µs). Discovered BrickProfiler instrumentation gap: fused_gate_up_swiglu was MISSING from per-op output, inflating reported "84.7% launch overhead" to include the uncaptured kernel. Corrected overhead: 66.4% without graph. CUDA graph eliminates 771×17.5µs = 13.5ms of launch overhead. Serving overhead: 540µs (8.6%) for HTTP+tokio+SSE. |

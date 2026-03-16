@@ -3978,3 +3978,36 @@ roadmap:
     Attention grew 21.9%→24.5% (longer KV caches). FP8 decode is ~1% of
     total GPU time but eliminates decode latency tail (explains +23.7% throughput).
     nsys report: results/nsys-yoga-serve-c8-20260316.nsys-rep
+- id: PMAT-213
+  github_issue: null
+  item_type: task
+  title: 'PMAT-213: nsys serve c=16 + cross-concurrency kernel mix — invariant at c≥4'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys serve at c=16 — DONE'
+  - 'AC2: Cross-concurrency comparison c=4/8/16 — DONE (invariant: GEMV 48%, attn 24%)'
+  - 'AC3: FP8 decode scaling — DONE (128x128 tile 25x growth c=4→c=16)'
+  - 'AC4: Attention ceiling — DONE (24.5% invariant at c≥8, 114µs avg)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - serve
+  - cross-concurrency
+  - profiling
+  - 4060L
+  notes: |
+    Completed c=4/8/16 nsys serve profile trilogy.
+    CRITICAL: kernel mix is concurrency-invariant at c>=4.
+    DP4A GEMV ~48%, attention ~24%, FP8 prefill ~17%, infra ~10%.
+    Optimization priority unchanged across concurrency levels.
+    FP8 decode 128x128 tile: 56→336→1400 instances (1x/6x/25x).
+    Super-linear growth = more decode steps at M>=5 at batch saturation.
+    Attention stable at 24.5% (c>=8), 114µs avg (KV length converges).
+    nsys report: results/nsys-yoga-serve-c16-20260316.nsys-rep
