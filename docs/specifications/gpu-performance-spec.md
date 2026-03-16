@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.63.0
+**Version:** 3.64.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3483,6 +3483,31 @@ nsys profile of `apr serve` during c=4 production load (medium prompt, uniform:1
 
 5. **ampere_sgemm kernels (0.4%)**: 504+504 instances of FP32 SGEMM 128×128 — likely LmHead projection (vocab 151,936 × hidden 1,536). Not quantized, runs on CUDA cores.
 
+### Nsight Systems Serve Profile (2026-03-16, RTX 4060L, c=8 — PMAT-212)
+
+**FP8 decode activation visible in nsys — 128×128×64 tile grows 6× from c=4 to c=8.**
+
+nsys profile of `apr serve` during c=8 production load. Same methodology as PMAT-211.
+
+**E4M3 cuBLASLt tile growth, c=4 → c=8:**
+
+| Tile (stage) | c=4 instances | c=8 instances | Growth | Decode? |
+|-------------|--------------|--------------|--------|---------|
+| 128×128×64 (stage3) | 56 | 336 | **6.0×** | **YES** — FP8 decode at M≥5 |
+| 64×128×64 (stage4) | 401 | 551 | 1.37× | Prefill only |
+| 64×64×64 (stage6) | 84 | 196 | 2.33× | Likely mixed |
+| 32×64×64 (stage5) | 8,216 | 14,557 | 1.77× | Prefill + partial decode |
+
+**Key findings:**
+
+1. **FP8 decode is visible at c=8.** The 128×128×64 tile grew 6× (56→336) while prefill-proportional tiles grew ~1.4×. The extra 280 instances are FP8 cuBLASLt E4M3 GEMM executing in the decode path when M≥5. This tile provides efficient tensor core utilization only when the batch dimension fills the 128-wide tile.
+
+2. **DP4A GEMV still dominates at 47.5%** (identical to c=4's 47.7%). The batched DP4A GEMV kernel handles ALL decode steps regardless of M — FP8 decode supplements it for specific projections, not replaces it. The batch size M fluctuates as requests arrive and complete, so many decode steps are at M<5 (pure DP4A).
+
+3. **Attention grew from 21.9% to 24.5%** — `batched_incremental_attention` at 114.5µs avg (vs 102.2µs at c=4). The 12% increase in avg duration reflects longer KV caches as c=8 generates more tokens per time window.
+
+4. **Overall kernel mix proportions are stable** — DP4A GEMV (~48%), attention (~22-25%), FP8 prefill (~17%), normalization+residual (~6%). The FP8 decode adds ~1% at c=8 (34.3M / 6,493M total). The PMAT-205 throughput improvement (+23.7% at c=8) comes from replacing the slowest M≥5 decode steps with tensor core GEMM, even though total FP8 decode time is small — it eliminates the tail of the decode latency distribution.
+
 ### Roofline Position
 
 ```
@@ -3715,6 +3740,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.64.0 | 2026-03-16 | **PMAT-212: nsys serve c=8 — FP8 decode visible via 6× tile growth.** Compared c=4 vs c=8 nsys serve profiles. The 128×128×64 cuBLASLt E4M3 tile grew 6× (56→336 instances) while prefill-proportional tiles grew only 1.4×. The extra 280 instances are FP8 tensor core GEMM in the decode path at M≥5, confirming PMAT-205 crossover IN PRODUCTION (not just benchmarks). DP4A GEMV still dominates (47.5%) because M fluctuates and many steps are M<5. Attention grew 21.9%→24.5% (longer KV caches at c=8). The PMAT-205 +23.7% throughput improvement comes from eliminating the slowest M≥5 decode steps even though total FP8 decode time is only ~1% — it truncates the decode latency tail. |
 | 3.63.0 | 2026-03-16 | **PMAT-211: nsys serve profile at c=4 — kernel mix fundamentally shifts from M=1 to M≈4.** Profiled `apr serve` under c=4 production load via nsys. batched_hw_dp4a_q4k_gemv dominates at 47.7% (replacing fused_gate_up_swiglu which was 49.8% at M=1). The batched path un-fuses gate+up into separate batched GEMVs. batched_incremental_attention emerges at 21.9% (was 0.8% at M=1) — KV cache scan scales with batch size. No FP8 tensor core decode at M≤4 (confirming PMAT-205 M≥5 threshold — all E4M3 GEMM is prefill). Optimization priority shifts: M=1 needs kernel fusion, M=2-4 needs GEMV+attention co-optimization, M≥5 needs tensor core utilization. ampere_sgemm 0.4% is LmHead FP32 projection. |
 | 3.62.0 | 2026-03-16 | **PMAT-210: Decode latency decomposition — fused gate_up_swiglu is 49.8% of kernel time.** Synthesized ncu per-kernel timing (PMAT-209) × nsys instance counts (PMAT-204) into per-token decode budget: 771 kernel launches, 4,505µs kernel time, 1,785µs CUDA graph overhead = 6,290µs total (159.1 tok/s). Fused gate_up_swiglu dominates at 2,243µs/token (49.8% of kernel time) — it's the correct PMAT-054 optimization target. Unfused Q4K GEMV is only 10.7% (480µs). Discovered BrickProfiler instrumentation gap: fused_gate_up_swiglu was MISSING from per-op output, inflating reported "84.7% launch overhead" to include the uncaptured kernel. Corrected overhead: 66.4% without graph. CUDA graph eliminates 771×17.5µs = 13.5ms of launch overhead. Serving overhead: 540µs (8.6%) for HTTP+tokio+SSE. |
 | 3.61.0 | 2026-03-16 | **PMAT-209: ncu per-kernel roofline on RTX 4060L — Q4K GEMV is UNDERUTILIZED, not compute-bound.** Profiled 7 decode kernels via Nsight Compute on yoga (sm_89, 24 SMs). Critical cross-platform finding: the same Q4K GEMV kernel that is compute-bound on Jetson Orin (72% compute, 36% DRAM) is underutilized on the 4060L (23.5% compute, 21.1% DRAM) despite 86% occupancy. The kernel is too fine-grained for 24 SMs — each warp completes in 4.29µs, too short to fill the pipeline. The fused_gate_up_swiglu kernel proves fusion fixes this: 80µs duration, 76% DRAM BW, properly memory-bound. Q6K GEMV remains compute-dominant (42% compute, 23% DRAM) with register pressure limiting occupancy to 75%/56%. Infrastructure kernels (flash_decoding, rmsnorm, residual) are all latency-bound with <4% utilization. Falsification hypotheses resolved: H1 CONFIRMED (coalescing efficient — fused 76% DRAM), H2 CONFIRMED (Q4K 0.0043ms, 12× below threshold), H5 CONFIRMED (occupancy ≠ utilization). H4 still pending (requires full ncu set). Implication: PMAT-054 kernel fusion would transform Q4K from 21% to ~76% DRAM utilization on 4060L, matching the fused kernel's demonstrated efficiency. |

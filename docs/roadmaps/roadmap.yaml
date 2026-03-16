@@ -3947,3 +3947,34 @@ roadmap:
     Optimization targets are concurrency-dependent:
     M=1: kernel fusion, M=2-4: GEMV+attention, M≥5: tensor cores.
     nsys report: results/nsys-yoga-serve-c4-20260316.nsys-rep
+- id: PMAT-212
+  github_issue: null
+  item_type: task
+  title: 'PMAT-212: nsys serve c=8 — FP8 decode visible via 6x tile growth'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys profile at c=8 — DONE'
+  - 'AC2: Compare FP8 GEMM tile instances c=4 vs c=8 — DONE (128x128 6x growth)'
+  - 'AC3: Confirm FP8 decode activates in production — DONE (280 extra instances)'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - nsys
+  - serve
+  - fp8
+  - decode
+  - 4060L
+  notes: |
+    Compared nsys serve profiles at c=4 vs c=8. FP8 decode visible via
+    128x128x64 cuBLASLt tile growth: 56→336 instances (6x), while
+    prefill-proportional tiles grew 1.4x. Extra 280 instances are FP8
+    tensor core GEMM in decode at M>=5. DP4A GEMV still 47.5% (M fluctuates).
+    Attention grew 21.9%→24.5% (longer KV caches). FP8 decode is ~1% of
+    total GPU time but eliminates decode latency tail (explains +23.7% throughput).
+    nsys report: results/nsys-yoga-serve-c8-20260316.nsys-rep
