@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.61.0
+**Version:** 3.62.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3395,6 +3395,53 @@ ncu profiling (basic set, 8 replay passes/kernel, CUDA_GRAPH=0, sudo, --launch-s
 | H4 | float4 loads → 2x bandwidth | Not measurable from basic set (needs memory workload analysis). L1 33.6% for Q4K suggests vectorized loads active. | **Pending** (requires full set) |
 | H5 | Occupancy >50% → diminishing returns | Q4K 86% occ + 23% compute vs fused 62% occ + 76% DRAM. Higher occupancy ≠ higher utilization. | ✅ **CONFIRMED** (occupancy is not the bottleneck on 4060L) |
 
+### Decode Latency Decomposition (2026-03-16, RTX 4060L — PMAT-210)
+
+**Where does every microsecond go in a single M=1 decode step?**
+
+Sources: ncu per-kernel timing (PMAT-209) × nsys instance counts (PMAT-204) + BrickProfiler operation counts.
+
+**Per-token kernel time (28 layers, M=1 decode, ncu basic set):**
+
+| Category | Kernel(s) | Count/tok | Time/call (ncu) | Total/tok | % kernel |
+|----------|-----------|-----------|-----------------|-----------|----------|
+| **FFN (fused)** | `fused_gate_up_swiglu_hw_dp4a_q4k` | 28 | 80.1µs | **2,243µs** | **49.8%** |
+| **GEMV (Q4K)** | `hw_dp4a_q4k_gemv` | 112 | 4.29µs | 480µs | 10.7% |
+| **Normalization** | `rmsnorm_vectorized` | 58 | 5.31µs | 308µs | 6.8% |
+| **Residual** | `residual_add` | 140 | 2.46µs | 344µs | 7.6% |
+| **Act quant** | `q8_quantize` | 115 | 2.69µs | 309µs | 6.9% |
+| **Sampling** | `argmax_{block,final}` | 29 | 9.5µs avg | 276µs | 6.1% |
+| **Attention** | `flash_decoding_{chunk,reduce}` | 56 | 3.8µs avg | 212µs | 4.7% |
+| **cuBLAS GEMV** | `gemmSN_{TN,NN}` | 90 | 2.24µs | 201µs | 4.5% |
+| **GEMV (Q6K)** | `hw_dp4a_q6k_gemv` | 31 | 5.79µs | 180µs | 4.0% |
+| **Position** | `rope_neox_indirect` | 56 | 1.34µs | 75µs | 1.7% |
+| **KV cache** | `kv_cache_scatter_indirect` | 56 | 1.14µs | 64µs | 1.4% |
+| | | **~771** | | **4,505µs** | **100%** |
+
+**Full decode step decomposition:**
+
+| Component | Time | % of decode | Source |
+|-----------|------|-------------|--------|
+| **Kernel execution** | 4,505µs | **71.6%** | ncu × nsys instance counts |
+| **CUDA graph dispatch + pipeline** | 1,785µs | **28.4%** | 6,290 − 4,505 |
+| **Total decode step** | **6,290µs** | 100% | `apr profile` (159.1 tok/s) |
+| **+ Serving overhead** | +540µs | +8.6% | production ITL 6,830µs − 6,290 |
+| **Production decode** | **6,830µs** | 108.6% | `probador` (146.4 tok/s) |
+
+**Key findings:**
+
+1. **Fused gate_up_swiglu is 49.8% of kernel time.** This single FFN kernel dominates decode — 2,243µs out of 4,505µs. It reads gate + up projection weights (~2× data) in one kernel, achieving 76% DRAM BW (ncu). This is the correct optimization target for PMAT-054.
+
+2. **BrickProfiler instrumentation gap discovered.** BrickProfiler reports 9 operations totaling 2,049µs/token but MISSING the fused_gate_up_swiglu kernel (2,243µs/token = 52% of actual kernel time). The reported "84.7% launch overhead" is inflated — it includes the uncaptured fused kernel's runtime. Corrected overhead: (13,409 − 4,505) / 13,409 = **66.4%** without CUDA graph (still high, but not 84.7%).
+
+3. **771 kernel launches per decode step.** Under CUDA graph, this is 1 graph replay. Without graph, 771 launches × ~17.5µs overhead/launch ≈ 13,493µs overhead (matches measured 84.7% overhead of BrickProfiler pass). CUDA graph eliminates this entirely.
+
+4. **28.4% of graph-mode decode is NOT kernel execution** — it's CUDA graph replay dispatch, inter-kernel pipeline bubbles, and memory access latency not captured by ncu replay. This ~1.8ms overhead is the irreducible cost of graph mode on sm_89.
+
+5. **Serving overhead is small** — 540µs (8.6%) for HTTP + tokio + SSE framing. c=1 realize is GPU-bound, not serving-bound.
+
+6. **Q4K GEMV (unfused) is only 10.7% of kernel time.** The 112 individual Q4K GEMVs per token (Q, K, V, output projections) total 480µs — dwarfed by the single fused FFN kernel. These are the underutilized kernels (21% DRAM BW from PMAT-209). Fusing QKV into a single kernel (like gate_up) would transform them from underutilized to memory-bound.
+
 ### Roofline Position
 
 ```
@@ -3434,9 +3481,9 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 |---------|-------|---------|
 | A: GQA Fix | 3 | ✅ 3/3 |
 | B: SwiGLU Fusion | 3 | ✅ 3/3 |
-| C: Attention Quant | 3 | Pending |
-| D: Launch Overhead | 3 | Pending |
-| E: APR GPU Regression | 3 | Pending |
+| C: Attention Quant | 3 | Pending (SageAttention not implemented) |
+| D: Launch Overhead | 3 | ✅ **1/3** (D1 confirmed via PMAT-203/209; D2,D3 pending) |
+| E: APR GPU Regression | 3 | ✅ **3/3** (E1-E3 all passing) |
 | F: Batched Decode Correctness | 3 | ✅ **3/3 FIXED (6f75ec3)** |
 
 ### F: Batched Decode Correctness (CORRECTNESS-013) — FIXED
@@ -3627,6 +3674,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.62.0 | 2026-03-16 | **PMAT-210: Decode latency decomposition — fused gate_up_swiglu is 49.8% of kernel time.** Synthesized ncu per-kernel timing (PMAT-209) × nsys instance counts (PMAT-204) into per-token decode budget: 771 kernel launches, 4,505µs kernel time, 1,785µs CUDA graph overhead = 6,290µs total (159.1 tok/s). Fused gate_up_swiglu dominates at 2,243µs/token (49.8% of kernel time) — it's the correct PMAT-054 optimization target. Unfused Q4K GEMV is only 10.7% (480µs). Discovered BrickProfiler instrumentation gap: fused_gate_up_swiglu was MISSING from per-op output, inflating reported "84.7% launch overhead" to include the uncaptured kernel. Corrected overhead: 66.4% without graph. CUDA graph eliminates 771×17.5µs = 13.5ms of launch overhead. Serving overhead: 540µs (8.6%) for HTTP+tokio+SSE. |
 | 3.61.0 | 2026-03-16 | **PMAT-209: ncu per-kernel roofline on RTX 4060L — Q4K GEMV is UNDERUTILIZED, not compute-bound.** Profiled 7 decode kernels via Nsight Compute on yoga (sm_89, 24 SMs). Critical cross-platform finding: the same Q4K GEMV kernel that is compute-bound on Jetson Orin (72% compute, 36% DRAM) is underutilized on the 4060L (23.5% compute, 21.1% DRAM) despite 86% occupancy. The kernel is too fine-grained for 24 SMs — each warp completes in 4.29µs, too short to fill the pipeline. The fused_gate_up_swiglu kernel proves fusion fixes this: 80µs duration, 76% DRAM BW, properly memory-bound. Q6K GEMV remains compute-dominant (42% compute, 23% DRAM) with register pressure limiting occupancy to 75%/56%. Infrastructure kernels (flash_decoding, rmsnorm, residual) are all latency-bound with <4% utilization. Falsification hypotheses resolved: H1 CONFIRMED (coalescing efficient — fused 76% DRAM), H2 CONFIRMED (Q4K 0.0043ms, 12× below threshold), H5 CONFIRMED (occupancy ≠ utilization). H4 still pending (requires full ncu set). Implication: PMAT-054 kernel fusion would transform Q4K from 21% to ~76% DRAM utilization on 4060L, matching the fused kernel's demonstrated efficiency. |
 | 3.60.0 | 2026-03-16 | **PMAT-208: 3-way crossover analysis — vLLM, realizr, llama.cpp at c=5-7.** Measured vLLM at c=5,6,7 to complete the FP8 crossover picture with all 3 batching runtimes. Three competitive layers: (1) realizr beats llama.cpp on per-request decode 1.07-1.27× (FP8 > fused Q4K), (2) vLLM beats realizr 1.88-1.93× on per-request decode (AWQ + continuous batching preserves near-c=1 rates), (3) TTFT gap realizr 95-130ms vs vLLM 22ms drives aggregate. vLLM aggregate 2.9-3.1× realizr at c=5-7 (constant ratio — vLLM scales linearly). Phase 1+CB projection: scheduling fix alone would lift realizr decode from 75-77 to ~144 tok/s (1.9× improvement). ITL finding: realizr beats llama.cpp at c=5-7 (13.0 vs 13.9-16.8ms) despite losing aggregate. |
 | 3.59.0 | 2026-03-16 | **PMAT-207: realizr decode FASTER than llama.cpp at M≥5 — gap is entirely scheduling.** Cross-runtime FP8 crossover comparison at c=5,6,7: realizr per-request decode beats llama.cpp's fused Q4K GEMV by 7% (c=5), 13% (c=6), 27% (c=7), 40% (c=8). Yet aggregate throughput loses (0.70-0.85×) due to TTFT/scheduling overhead (realizr 95-130ms vs llama.cpp 37-42ms). Key insight: realizr already has superior decode kernels — Phase 1+CB would unlock this advantage at the aggregate level. Updated exec summary "gap is NOT kernel speed" with precise decode ratios. Also: c=1 score updated 93 A → 95 A+ (PMAT-206 TTFT improvement), c=16 corrected 71→70 B. |

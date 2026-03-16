@@ -3881,3 +3881,34 @@ roadmap:
     ncu reports: results/ncu-yoga-decode-skip10k-20260316.ncu-rep,
     results/ncu-yoga-fused-20260316.ncu-rep, results/ncu-yoga-flash-20260316.ncu-rep,
     results/ncu-yoga-rmsnorm-20260316.ncu-rep
+- id: PMAT-210
+  github_issue: null
+  item_type: task
+  title: 'PMAT-210: Decode latency decomposition — fused gate_up_swiglu is 49.8% of kernel time'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Per-token kernel time budget — DONE (771 launches, 4505µs, 11 kernel categories)'
+  - 'AC2: CUDA graph overhead quantified — DONE (1785µs = 28.4%)'
+  - 'AC3: Serving overhead quantified — DONE (540µs = 8.6%)'
+  - 'AC4: Identify BrickProfiler instrumentation gap — DONE (fused_gate_up missing)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - latency-decomposition
+  - profiling
+  - decode
+  - 4060L
+  notes: |
+    Synthesized ncu (PMAT-209) + nsys (PMAT-204) + BrickProfiler data into
+    per-token decode budget. Key finding: fused_gate_up_swiglu is 49.8% of
+    all kernel time (2,243µs/token). Unfused Q4K GEMV is only 10.7% (480µs).
+    Total: 4,505µs kernel + 1,785µs graph overhead = 6,290µs (159.1 tok/s).
+    Production adds 540µs serving overhead = 6,830µs (146.4 tok/s).
+    BrickProfiler bug: fused_gate_up_swiglu MISSING from instrumentation,
+    inflating reported launch overhead from 66.4% to 84.7%.
