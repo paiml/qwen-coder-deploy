@@ -2160,6 +2160,28 @@ roadmap:
     Paged KV is the keystone — routing, eviction, disagg all build on it.
     Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
     4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-204
+  title: 'PMAT-204: RTX 4060L nsys kernel profile — FP8 decode path characterization'
+  status: DONE
+  priority: P1
+  spec_version: '3.56.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Run nsys profile on yoga RTX 4060L to get kernel-level timing'
+      status: DONE
+      result: 'FP8 cuBLASLt GEMM 39.8% + FP8 conversion 21.7% = 61.5% FP8 pipeline. DP4A GEMV 24.7%'
+    - criterion: 'A/B test FP8_DECODE=0 to quantify FP8 conversion overhead impact'
+      status: DONE
+      result: 'FALSIFIED: FP8_DECODE=0 regresses c=8 by -19.2% (287 vs 355 tok/s). Tensor cores win at M>=8'
+    - criterion: 'Cross-validate BrickProfiler vs nsys per-op breakdown'
+      status: DONE
+      result: 'RmsNorm 56% (BrickProfiler) vs 2.0% (nsys) — 28x discrepancy from kernel launch overhead'
+  notes: |
+    CRITICAL finding: 4060L uses FP8 tensor core decode (fp8_decode=true), NOT pure DP4A GEMV
+    like the 4090 profile showed. The 21.7% FP8 conversion overhead is NOT wasted — it enables
+    tensor core GEMM which is 19% faster than DP4A GEMV at M=8. PMAT-054 (fused Q4K GEMM) must
+    match cuBLASLt throughput at M>=8 or it will regress concurrency performance. At M=1/M=4,
+    both paths are identical — the crossover is between M=4 and M=8.
 - id: PMAT-203
   title: 'PMAT-203: Fix apr profile GPU fallback + first RTX 4060L GPU profiling'
   status: DONE

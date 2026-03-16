@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.55.0
+**Version:** 3.56.0
 **Status:** ACTIVE
 **Date:** 2026-03-16
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3254,6 +3254,50 @@ Profile uses 5-token prompt (greedy, no streaming overhead), production uses med
 
 **Binary validation:** apr 0.4.11 (a849cfe7) matches 0.4.10 (ea706fe3) baselines — 146.9 vs 146.4 tok/s c=1 (+0.3%), 216.6 vs 216.1 tok/s c=4 (+0.2%). No performance regression.
 
+### Nsight Systems Kernel Profile (2026-03-16, RTX 4060L — PMAT-204)
+
+**CRITICAL: 4060L uses FP8 tensor core decode path (fp8_decode=true), NOT pure DP4A GEMV like the 4090.**
+
+nsys profile of `apr profile` (3 warmup + 10 measurement + 1 BrickProfiler pass):
+
+| Kernel | Time (%) | Instances | Avg (µs) | Category |
+|--------|----------|-----------|----------|----------|
+| `sm89_xmma_gemm_e4m3` (64x128x64) | **23.1%** | 1,344 | 75.1 | FP8 cuBLASLt GEMM |
+| `sm89_xmma_gemm_e4m3` (32x64x64) | **16.7%** | 3,361 | 21.7 | FP8 cuBLASLt GEMM |
+| `hw_dp4a_q6k_gemv` | **12.9%** | 459 | 123.1 | DP4A GEMV |
+| `fused_gate_up_swiglu_hw_dp4a_q4k` | **8.1%** | 420 | 84.3 | DP4A GEMV (fused) |
+| `f32_to_e4m3_scaled` | 8.0% | 197 | 176.8 | FP8 conversion |
+| `absmax_reduce` | 7.8% | 2,885 | 11.9 | FP8 scaling |
+| `q4k_dequant_to_f32` | 5.9% | 168 | 153.5 | FP8 dequant |
+| `hw_dp4a_q4k_gemv` | 3.7% | 1,680 | 9.7 | DP4A GEMV |
+| `q6k_dequant_to_f32` | 2.4% | 29 | 357.3 | FP8 dequant |
+| Other (rmsnorm, residual, rope, etc.) | 11.4% | ~20k | <4 | Infrastructure |
+
+**Category breakdown:**
+
+| Category | 4060L (sm_89) | 4090 (sm_89, Mar 4) | Delta |
+|----------|--------------|---------------------|-------|
+| **FP8 cuBLASLt GEMM** | **39.8%** | 0% | FP8 decode active on 4060L |
+| **FP8 conversion overhead** | **21.7%** | 0% | 2-step dequant→E4M3→GEMM |
+| **DP4A GEMV** | **24.7%** | **77.9%** | DP4A only for Q6K + fused gate+up |
+| **RmsNorm** | 2.0% | 5.3% | Same kernel, proportionally smaller |
+| **Attention** | 1.5% | 9.3% | Flash decoding efficient on 4060L |
+| **Other** | 10.3% | 7.5% | Residual, rope, argmax, KV scatter |
+
+**Analysis — FP8 decode is the 4060L's unique bottleneck:**
+
+1. **FP8 pipeline consumes 61.5% of GPU time** (39.8% GEMM + 21.7% conversion). The 4090 profile used `fp8_decode=false` (defaulting to pure DP4A GEMV), so it never paid this tax. The 2-step pipeline for each Q4K projection: dequant Q4K → F32 (5.9%) → absmax → scale (7.8%) → convert F32 → E4M3 (8.0%) → cuBLASLt E4M3 GEMM (39.8%).
+
+2. **FP8 conversion overhead (21.7%) nearly equals all DP4A GEMV combined (24.7%).** This means realizr spends as much GPU time converting weights to FP8 format as it does on actual matrix computation. On the 4090, 100% of weight compute is DP4A GEMV with zero conversion overhead.
+
+3. **Fused Q4K GEMM (PMAT-054) would eliminate the entire FP8 pipeline (61.5%)**, replacing it with direct fused Q4K decode kernels. The DP4A GEMV path (24.7%) would handle ALL projections, potentially reducing total kernel time by ~40-50%. This is a MUCH larger win on the 4060L than on the 4090 — on the 4090, PMAT-054 would only improve the fused gate+up pattern.
+
+4. **Alternative: disable FP8 decode (`FP8_DECODE=0`).** This would revert the 4060L to the 4090's pure DP4A GEMV path, eliminating the 21.7% conversion overhead. Worth testing as an immediate configuration change before PMAT-054 implementation.
+
+5. **BrickProfiler vs nsys validation:** BrickProfiler showed RmsNorm at 56% (Section 9.3). nsys shows RmsNorm at 2.0%. The 28x discrepancy is entirely kernel launch overhead — each rmsnorm is a 3.5µs kernel with ~30µs launch overhead in the non-graphed BrickProfiler pass.
+
+6. **FP8 decode is a NET WIN at M≥8 — FALSIFIED as optimization target.** A/B test with `FP8_DECODE=0` shows the DP4A-only path regresses 19.2% at c=8 (287.0 vs 355.1 tok/s). At M=1 (c=1): identical (146.9/146.9). At M=4 (c=4): identical (216.2/216.6). At M=8 (c=8): **−19.2%** (DP4A GEMV at M=8 is slower than FP8 tensor core GEMM, even with conversion overhead). The cuBLASLt E4M3 GEMM at M=8 achieves higher arithmetic throughput via tensor cores (16×8×32 tile) than batched DP4A GEMV. The 21.7% conversion overhead is an investment that pays back via ~40% higher GEMM throughput at M≥8. **Implication: PMAT-054 (fused Q4K GEMM) must MATCH cuBLASLt tensor core throughput at M≥8 or it will regress concurrency performance.**
+
 ### Roofline Position
 
 ```
@@ -3484,6 +3528,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.56.0 | 2026-03-16 | **PMAT-204: First nsys kernel profile on RTX 4060L — FP8 tensor core decode path dominates.** nsys profiling reveals the 4060L uses a fundamentally different kernel mix than the 4090: FP8 cuBLASLt GEMM 39.8% + FP8 conversion overhead 21.7% = **61.5% FP8 pipeline** (vs 4090: 0% FP8, 77.9% DP4A GEMV). The 4060L's `fp8_decode=true` uses sm_89 E4M3 tensor cores for Q4K projections. **FP8_DECODE=0 A/B test FALSIFIES conversion overhead as optimization target:** disabling FP8 decode regresses c=8 by −19.2% (287→355 tok/s). FP8 tensor core GEMM at M=8 is faster than DP4A GEMV despite conversion cost. c=1 and c=4: identical (crossover between M=4 and M=8). **Implication for PMAT-054:** fused Q4K GEMM must match cuBLASLt tensor core throughput at M≥8 or it will regress concurrency. RmsNorm: nsys 2.0% vs BrickProfiler 56% — 28× discrepancy confirms BrickProfiler per-op data is launch-overhead-dominated (non-representative). |
 | 3.55.0 | 2026-03-16 | **PMAT-203: First GPU profiling on yoga RTX 4060L + apr profile fix.** Root cause: `apr profile` fell back to CPU (28.8 tok/s) because parity gate (GPU/CPU logits cosine similarity check) has false positive on CUDA 13.1 driver. `apr serve` had `SKIP_PARITY_GATE=1` in forjar config but `apr profile` didn't. Fix committed in aprender (5084c1c2). GPU profiling now works: **159.1 tok/s decode** (vs 28.8 CPU fallback), 469.0 tok/s prefill. Roofline: 12.8% BW efficiency (102.6/800 GB/s), memory-bound at 4.0 FLOP/byte — same classification as 4090 but higher utilization (12.8% vs 8.4%). BrickProfiler per-op breakdown (CUDA graph disabled): RmsNorm 56%, AttentionScore 20.3%, QkvProj 7.8% — caveat: 84.7% kernel launch overhead makes percentages unrepresentative of production (nsys shows GEMV 77.9% under CUDA graph). Binary upgrade 0.4.10→0.4.11 validated: c=1 146.9 vs 146.4 (+0.3%), c=4 216.6 vs 216.1 (+0.2%) — no regression. |
 | 3.54.0 | 2026-03-16 | **PMAT-202: Trajectory re-measurement with CUDA graphs — gap widens to 0.50×.** Re-measured PMAT-154 trajectory (medium+128tok) with vLLM CUDA graphs enabled (correcting PMAT-154's enforce-eager). vLLM c=4: 589.3 (was 470.8, +25%), c=8: 1115.9 (was 888.7, +26%), c=16: 2022.6 (was 1548.9, +31%). Corrected competitive ratios: **0.50-0.53×** (was 0.63-0.67×). TTFT gap widens: realizr 3.1-5.8× vLLM (was 2.4-3.0× with eager). Updated projection table with Phase 1+CB row. vLLM c=16 graphs-enabled matches PMAT-177 production data (2022.6 vs 1982.9, +2%), confirming workload consistency. |
 | 3.53.0 | 2026-03-16 | **PMAT-201: vLLM CUDA graph status — PMAT-154 FALSIFIED.** PMAT-154 (Mar 14) claimed CUDA graphs cause 6× slowdown. FALSIFIED: vLLM 0.17.0 V1 engine FULL_AND_PIECEWISE graphs provide **+21-28% benefit** over enforce-eager (c=1: 153.5 vs 125.9, c=4: 587.2 vs 460.3, c=8: 1107.7 vs 914.7). TTFT −37% (12.7 vs 20.3ms), ITL −18% (6.5 vs 7.9ms). PMAT-154 regression was transient V1 compilation cache issue. All PMAT-177+ production measurements already used graphs-enabled (forjar config has no --enforce-eager). PMAT-154/156 trajectory data used enforce-eager → understates vLLM by 21-28%. Corrected spec: replaced false regression claim, annotated PMAT-156 table. |

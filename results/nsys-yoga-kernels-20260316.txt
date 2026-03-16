@@ -1,0 +1,44 @@
+
+NOTICE: Existing SQLite export found: /tmp/nsys-yoga-profile-20260316.sqlite
+        It is assumed file was previously exported from: /tmp/nsys-yoga-profile-20260316.nsys-rep
+        Consider using --force-export=true if needed.
+
+Processing [/tmp/nsys-yoga-profile-20260316.sqlite] with [/opt/nvidia/nsight-systems/2024.5.1/host-linux-x64/reports/cuda_gpu_kern_sum.py]... 
+
+ ** CUDA GPU Kernel Summary (cuda_gpu_kern_sum):
+
+ Time (%)  Total Time (ns)  Instances  Avg (ns)   Med (ns)   Min (ns)  Max (ns)   StdDev (ns)                                                  Name                                                
+ --------  ---------------  ---------  ---------  ---------  --------  ---------  -----------  ----------------------------------------------------------------------------------------------------
+     23.1      100,883,169      1,344   75,061.9   75,040.0    68,927     85,536      2,309.3  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize64x128x64_stage4_warpsize2x2x1_tensor16x8x32_bias_f…
+     16.7       72,845,342      3,361   21,673.7   13,664.0     6,176     69,312     23,393.5  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize32x64x64_stage5_warpsize2x2x1_tensor16x8x32_bias_f1…
+     12.9       56,491,037        459  123,074.2   66,079.0     3,936  1,073,597    289,488.0  hw_dp4a_q6k_gemv                                                                                    
+      8.1       35,411,394        420   84,312.8   84,384.0    81,024     90,464      1,601.2  fused_gate_up_swiglu_hw_dp4a_q4k_gemv                                                               
+      8.0       34,827,920        197  176,791.5   37,600.0     7,264  5,768,978    426,086.1  f32_to_e4m3_scaled                                                                                  
+      7.8       34,222,765      2,885   11,862.3    1,696.0     1,631  4,397,173     93,990.9  absmax_reduce                                                                                       
+      5.9       25,787,519        168  153,497.1   40,528.0     7,680    345,984    152,028.3  q4k_dequant_to_f32                                                                                  
+      3.7       16,264,016      1,680    9,681.0    7,808.0     2,623     38,848     10,841.6  hw_dp4a_q4k_gemv                                                                                    
+      2.4       10,363,145         29  357,349.8  323,615.0     7,136  5,705,235  1,040,756.4  q6k_dequant_to_f32                                                                                  
+      1.4        6,156,091      4,704    1,308.7    1,184.0     1,119      2,816        225.4  f16_to_f32_act_scaled                                                                               
+      1.1        4,811,291      1,344    3,579.8    3,552.0     3,424      4,864         96.4  batched_rmsnorm_vectorized                                                                          
+      1.0        4,557,571      2,688    1,695.5    1,536.0     1,471      2,784        294.3  f32_to_e4m3_device_scaled                                                                           
+      0.8        3,352,626        420    7,982.4    7,968.0     4,256     11,808      2,209.5  flash_decoding_chunk                                                                                
+      0.8        3,282,266        864    3,798.9    3,776.0     3,648      4,608        100.4  rmsnorm_vectorized                                                                                  
+      0.7        3,082,741        426    7,236.5    7,231.0     6,848      7,775        169.2  argmax_block_reduce                                                                                 
+      0.7        3,016,262      1,344    2,244.2    2,240.0     2,175      2,848         66.1  void gemmSN_TN_kernel<float, (int)128, (int)16, (int)2, (int)4, (int)6, (int)7, (bool)0, cublasGemv…
+      0.7        3,000,681      1,344    2,232.6    2,240.0     2,175      3,423         57.4  void gemmSN_NN_kernel<float, (int)256, (int)4, (int)2, (int)8, (int)5, (int)4, (bool)0, cublasGemvT…
+      0.6        2,696,099      2,100    1,283.9    1,312.0     1,119      2,560        130.7  residual_add                                                                                        
+      0.6        2,666,530      1,719    1,551.2    1,472.0     1,408      3,040        167.3  q8_quantize                                                                                         
+      0.4        1,797,141      1,344    1,337.2    1,376.0     1,183      2,560        132.7  batched_residual_add                                                                                
+      0.4        1,756,198      1,344    1,306.7    1,280.0     1,215      2,656        104.5  batched_bias_broadcast_add_256                                                                      
+      0.3        1,326,628        672    1,974.1    1,984.0     1,920      2,400         34.9  batched_swiglu                                                                                      
+      0.3        1,155,520        672    1,719.5    1,696.0     1,663      1,888         38.2  causal_mask_softmax                                                                                 
+      0.3        1,125,146        840    1,339.5    1,344.0     1,279      2,528         66.1  rope_neox_indirect                                                                                  
+      0.2          972,108        426    2,281.9    2,272.0     2,239      2,432         52.9  argmax_final_reduce                                                                                 
+      0.2          960,943        840    1,144.0    1,152.0     1,088      1,888         32.4  kv_cache_scatter_indirect                                                                           
+      0.2          934,549        672    1,390.7    1,376.0     1,343      2,240         66.3  batched_bias_broadcast_add_1536                                                                     
+      0.2          903,812        672    1,345.0    1,376.0     1,247      2,528         94.7  batched_rope_neox_12_128                                                                            
+      0.2          882,137        672    1,312.7    1,312.0     1,279      1,568         23.6  scatter_packed_kv                                                                                   
+      0.2          778,112        672    1,157.9    1,152.0     1,119      2,528         56.3  batched_rope_neox_2_128                                                                             
+      0.2          678,843        420    1,616.3    1,600.0     1,536      2,368         82.0  flash_decoding_reduce                                                                               
+      0.1          291,327         15   19,421.8   19,424.0    19,168     19,616        142.8  rmsnorm                                                                                             
+
