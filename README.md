@@ -88,7 +88,7 @@ Quality crossover: realizr **beats** vLLM at c=128 (66 C+ vs 63 C+).
 - **Three-level kernel architecture**: realizr (44+ kernels, CUDA graph M=1) → llama.cpp (35 kernels, ncols-templated GEMV) → vLLM (15 kernels, CUTLASS GEMM M=batch)
 - **vLLM GEMM is batch-invariant**: 2,139→2,199µs (+2.8%) from c=1 to c=16 — throughput scales linearly with batch size
 - **realizr CPU blocked 82.4%** in cuStreamSynchronize at c=4 (PMAT-217). M=1 graph invalid for M>1 → 771 kernel launches/step
-- **Prompt length hurts**: realizr/vLLM gap widens from 0.30× (medium c=16) to 0.24× (long c=16). TTFT gap: 14.4× at c=8 with long prompts (PMAT-220)
+- **Prompt length hurts realizr most**: −13-16% long penalty (c≥4) vs llama.cpp −2-9%, vLLM −0-10%. TTFT gap: 24× at c=16 (673ms vs 28ms). FP8 2-step prefill is sole cause (PMAT-227)
 - **⚠️ Quality bug**: realizr batched prefill corrupts KV at long c≥9, medium c≥20 at BATCH=32 (PMAT-221/222). **Workaround: CUDA_MAX_BATCH=16** (PMAT-223)
 - **Heterogeneity penalty**: 37-43% throughput loss from uniform:16,256 vs fixed:128 output. Paged KV (PMAT-052) is highest-ROI fix
 
@@ -108,7 +108,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v3.78.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v3.80.0) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

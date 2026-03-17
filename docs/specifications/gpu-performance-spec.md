@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.79.0
+**Version:** 3.80.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -990,13 +990,22 @@ Each runtime at its best parallelism setting for each concurrency level:
 | medium + fixed 32 | — | 0.81 L | **1.08 W** | 0.72 L | Narrow c=8 win |
 | medium + fixed 128 | — | 0.85 L | **1.29 W** | 0.90 L | Narrow c=8 win |
 | **medium + hetero 16-256** | **0.93** | **0.61 L** | **0.85 L** | **0.65 L** | **No wins. Production-realistic.** |
-| **long + hetero 16-256** | **0.91 L** | **0.55 L** | **0.75 L** | **BUG ‡** | **Worst case — FP8 prefill BW dominates (PMAT-220)** |
+| **long + hetero 16-256** | **0.91 L** | **0.53 L** | **0.77 L** | **0.59 L** | **Worst case — FP8 prefill BW dominates (PMAT-227)** |
 
-‡ realizr generates 0 tokens at c≥9 with long prompts at BATCH=32 (PMAT-221). BATCH=16 workaround safe. llama.cpp --parallel 8 maxes out at c=8.
+**PMAT-227 key finding: long prompts widen the realizr gap at c≥4, confirming PMAT-220.** All runtimes now tested at c=1-16 with BATCH=16 workaround + llama.cpp ctx-size 8192.
 
-**⚠️ PMAT-225 INVALIDATED:** Results used incorrect `--output` flag instead of `--max-tokens-distribution`, producing fixed:128 instead of uniform:16,256 output. Long-prompt ratios revert to PMAT-220 values (0.55× c=4, 0.75× c=8). Fixed:128 long data: realizr 252.5 (c=4), 448.9 (c=8) vs llama.cpp 344.2, 431.0 — realizr wins at c=8 (1.04×) ONLY with fixed output.
+realizr/vLLM (long + hetero): 0.94× (c=1), 0.32× (c=4), 0.28× (c=8), 0.27× (c=16). TTFT gap: 183ms vs 21ms at c=4 (8.7×), 331ms vs 23ms at c=8 (14.4×), 673ms vs 28ms at c=16 (24×).
 
-**PMAT-220 key finding (still valid): long prompts WIDEN the gap.** realizr/vLLM: 0.94×, 0.33×, 0.28× (c=1,4,8). TTFT gap explodes: realizr 175ms vs vLLM 21ms at c=4 (8.3×), 330ms vs 23ms at c=8 (14.4×). FP8 2-step prefill BW overhead scales with prompt length as predicted.
+**PMAT-227: Prompt-length sensitivity (tok/s, long vs medium):**
+
+| c | realizr long | realizr med | Δ | llama.cpp long | llama.cpp med | Δ | vLLM long | vLLM med | Δ |
+|---|-------------|------------|---|---------------|--------------|---|----------|---------|---|
+| 1 | 142.3 | 147.2 | −3% | 155.6 | 158.1 | −2% | 152.1 | 152.4 | 0% |
+| 4 | 182.4 | 217.6 | −16% | 342.2 | 354.4 | −3% | 569.6 | 587.4 | −3% |
+| 8 | 306.3 | 351.7 | −13% | 399.3 | 420.1 | −5% | 1089.4 | 1115.2 | −2% |
+| 16 | 484.2 | 571.3 | −15% | 814.0 | 896.6 | −9% | 1788.8 | 1982.9 | −10% |
+
+realizr: −13-16% long penalty at c≥4 (FP8 2-step prefill). llama.cpp: −2-9% (flash attention). vLLM: −0-10% (CUTLASS GEMM, pressure at c=16). **realizr is the most prompt-sensitive runtime** — the 2-step FP8 convert+GEMM pipeline is the sole cause. Fused Q4K→GEMM (PMAT-054) would eliminate this.
 
 **⚠️ PMAT-221: Critical realizr quality bug — two degradation patterns:**
 
@@ -3074,8 +3083,9 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-227** | **Long-prompt production refresh (correct flags, BATCH=16)** | **realizr −13-16% long penalty; llama.cpp/vLLM nearly invariant** | ✅ MEASURED. 3-runtime sweep c=1-16, long prompt + uniform:16,256, BATCH=16 workaround, llama.cpp ctx-size 8192 (p=16). realizr: 142.3/182.4/306.3/484.2. llama.cpp: 155.6/342.2/399.3/814.0. vLLM: 152.1/569.6/1089.4/1788.8. Prompt sensitivity: realizr −3/−16/−13/−15%, llama.cpp −2/−3/−5/−9%, vLLM 0/−3/−2/−10%. realizr/llama.cpp: 0.91×/0.53×/0.77×/0.59×. realizr/vLLM: 0.94×/0.32×/0.28×/0.27×. c=16 long data now available (was BUG in PMAT-220). TTFT gap at c=16: 673ms vs 28ms (24×). Confirms PMAT-220: long prompts widen gap. vLLM shows −10% at c=16 (not fully prompt-invariant under load). |
 | **PMAT-226** | **Heterogeneity penalty quantification** | **37-43% throughput loss from uniform:16,256 vs fixed:128** | ✅ DERIVED from PMAT-224 error. fixed:128 vs uniform:16,256: c=1 0%, c=4 −31%, c=8 −37%, c=16 −43%. Penalty grows with concurrency (more slots = more KV waste from early completions). Paged KV (PMAT-052) is single highest-ROI fix. |
-| **PMAT-225** | **Long-prompt competitive refresh** | **⚠️ INVALIDATED: used wrong flag (--output not --max-tokens-distribution)** | ⚠️ INVALIDATED. Results used `--output uniform:16,256` (file path) instead of `--max-tokens-distribution uniform:16,256` (token distribution), producing fixed:128 output. The "1.04× win at c=8" was with fixed:128 output, not heterogeneous. With correct heterogeneous output, PMAT-220 ratios stand (0.55× c=4, 0.75× c=8). Fixed:128 data valid as separate workload. |
+| **PMAT-225** | **Long-prompt competitive refresh** | **⚠️ INVALIDATED: used wrong flag (--output not --max-tokens-distribution)** | ⚠️ INVALIDATED. Results used `--output uniform:16,256` (file path) instead of `--max-tokens-distribution uniform:16,256` (token distribution), producing fixed:128 output. The "1.04× win at c=8" was with fixed:128 output, not heterogeneous. With correct heterogeneous output, PMAT-220 ratios stand (0.55× c=4, 0.75× c=8). Fixed:128 data valid as separate workload. Superseded by PMAT-227 (correct flags + c=16 data). |
 | **PMAT-224** | **Full production refresh — CORRECTED** | **⚠️ INVALIDATED then CORRECTED: no improvement with correct flags** | ⚠️ CORRECTED. Initial results used `--output` (file path) instead of `--max-tokens-distribution` (token distribution), producing fixed:128 output. With correct flags: realizr c=1 147.2, c=4 217.6, c=8 351.7, c=16 571.3 — matches PMAT-177 within ±2.6% noise. **No measurable throughput improvement from Mar 16 binary under production conditions.** Fixed:128 data (c=4: 316, c=8: 560, c=16: 1008 tok/s) valid for that workload, showing 37-43% heterogeneity penalty. |
 | **PMAT-223** | **CUDA_MAX_BATCH=16 workaround for batched prefill bug** | **BATCH=16 eliminates bug, −33% asymptote (1500→1010 tok/s)** | ✅ VERIFIED. CUDA_MAX_BATCH=16 produces correct output at ALL concurrency levels and prompt lengths. Production sweep (medium, c=1-128): c=1 147.2, c=4 316.1, c=8 560.2, c=16 1008.1, c=32 1009.9, c=64 1010.0, c=128 1010.3 tok/s. Asymptote 1010 vs 1500 at BATCH=32 (−33%). Long c=32 at BATCH=16: correct (avg_tok=255.8). Also corrected medium threshold from c=18→c=20 (earlier c=18 result was from contaminated server; fresh-start c=19 OK, c=20 broken). BATCH=18 with c=18 medium: OK. Bug is specifically about workspace allocation at the configured BATCH size, not just active slot count. |
 | **PMAT-222** | **Falsify total-token hypothesis from PMAT-221** | **FALSIFIED: bug is prompt-length×slots×BATCH_SIZE, not total tokens** | ✅ FALSIFIED. Short c=128 works (32×23=736 per-batch) — higher total tokens than medium threshold. Corrected thresholds (BATCH=32): medium c=19 OK / c=20 BROKEN (earlier c=18 was contaminated server), long c=8 OK / c=9 BROKEN. BATCH=16 eliminates bug entirely (PMAT-223). Bug is in workspace allocation at CUDA_MAX_BATCH size × prompt length interaction, not in active slot count or total tokens. |
@@ -4038,6 +4048,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.80.0 | 2026-03-17 | **PMAT-227: Long-prompt production refresh with correct flags + BATCH=16.** 3-runtime (realizr/llama.cpp/vLLM) c=1-16 sweep with long prompt + uniform:16,256. realizr shows −13-16% long penalty at c≥4, llama.cpp −2-9%, vLLM −0-10%. c=16 long data now available (was BUG in PMAT-220). realizr/llama.cpp: 0.91/0.53/0.77/0.59×. realizr/vLLM: 0.94/0.32/0.28/0.27×. TTFT gap at c=16: 673ms vs 28ms vLLM (24×). vLLM not fully prompt-invariant at c=16 (−10%). Supersedes PMAT-220/225 long-prompt data. |
 | 3.79.0 | 2026-03-17 | **PMAT-226: Heterogeneity penalty quantification.** Using PMAT-224's fixed:128 data vs corrected uniform:16,256: 0% (c=1), −31% (c=4), −37% (c=8), −43% (c=16). Penalty grows with concurrency as more slots waste KV on early completions. Paged KV (PMAT-052) identified as single highest-ROI optimization. |
 | 3.78.0 | 2026-03-17 | **CRITICAL CORRECTION: PMAT-224/225 used wrong flag (`--output` vs `--max-tokens-distribution`).** Corrected re-run matches PMAT-177 within ±2.6%: realizr c=4 217.6, c=8 351.7, c=16 571.3. NO improvement from Mar 16 binary under production conditions. The +46-72% was entirely from fixed:128 vs uniform:16,256 (37-43% heterogeneity penalty). Reverted competitive matrix and interpretation to PMAT-177 values. PMAT-224 fixed:128 data valid as separate workload. |
 | 3.77.0 | 2026-03-17 | ~~PMAT-225: Long-prompt competitive ratios improved.~~ **INVALIDATED** — used `--output` instead of `--max-tokens-distribution`. Fixed:128 data only. |

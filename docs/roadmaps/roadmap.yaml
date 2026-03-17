@@ -4464,3 +4464,37 @@ roadmap:
     from requests that complete early (16 tok) while others still generating (256 tok).
     Paged KV (PMAT-052) eliminates this by reclaiming completed KV positions.
     This is the DOMINANT factor at c>=4, larger than TTFT penalty or scheduling gap.
+- id: PMAT-227
+  github_issue: null
+  item_type: task
+  title: 'PMAT-227: Long-prompt production refresh — realizr −13-16% penalty, 24× TTFT gap at c=16'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 3-runtime sweep c=1-16 long+hetero — DONE (realizr/llama.cpp/vLLM)'
+  - 'AC2: Correct probador flags — DONE (--max-tokens-distribution uniform:16,256)'
+  - 'AC3: c=16 data (was BUG in PMAT-220) — DONE (BATCH=16 workaround, llama.cpp ctx=8192)'
+  - 'AC4: Prompt sensitivity matrix — DONE (realizr -13-16%, llama.cpp -2-9%, vLLM -0-10%)'
+  - 'AC5: Update spec competitive matrix — DONE (long row c=16 no longer BUG)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - production
+  - 4060L
+  - long-prompt
+  notes: |
+    Supersedes PMAT-220 long-prompt data and PMAT-225 (invalidated).
+    Key findings:
+    - realizr most prompt-sensitive (-13-16% at c>=4), 2-step FP8 prefill is sole cause
+    - llama.cpp nearly invariant (-2-9%), flash attention handles long prompts well
+    - vLLM mostly invariant but -10% at c=16 (prefill pressure at high batch)
+    - TTFT gap explodes with concurrency: 8.7x (c=4), 14.4x (c=8), 24x (c=16)
+    - c=16 long data now available: realizr 484, llama.cpp 814, vLLM 1789 tok/s
+    - realizr/vLLM ratio at c=16 long: 0.27x (worse than medium 0.29x)
+    - llama.cpp needed ctx-size 8192 (vs 4096) to handle long prompts with p=16

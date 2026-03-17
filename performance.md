@@ -315,6 +315,27 @@ realizr produces 0 tokens when too many slots prefill simultaneously with non-sh
 
 ⚠️ BATCH=32 c=32 data was bug-affected (avg_tok=67.2). BATCH=16 asymptote is 1,010 tok/s (−33% from 1,500), but output is always correct. **Recommended for production until batch_prefill.rs is fixed.**
 
+### PMAT-227: Long-Prompt Production Refresh (2026-03-17, BATCH=16, correct flags)
+
+3-runtime sweep with long prompt (~311 tok) + uniform:16,256 output + streaming + 60s. BATCH=16 workaround. llama.cpp ctx-size 8192 (required for long prompts at p=16).
+
+| c | realizr | llama.cpp | vLLM | realizr/lcpp | realizr/vLLM |
+|---|---------|-----------|------|-------------|-------------|
+| 1 | 142.3 | 155.6 | 152.1 | 0.91× | 0.94× |
+| 4 | 182.4 | 342.2 | 569.6 | 0.53× | 0.32× |
+| 8 | 306.3 | 399.3 | 1,089.4 | 0.77× | 0.28× |
+| 16 | 484.2 | 814.0 | 1,788.8 | 0.59× | 0.27× |
+
+**Prompt-length sensitivity (long vs medium % change):**
+
+| Runtime | c=1 | c=4 | c=8 | c=16 |
+|---------|-----|-----|-----|------|
+| realizr | −3% | −16% | −13% | −15% |
+| llama.cpp | −2% | −3% | −5% | −9% |
+| vLLM | 0% | −3% | −2% | −10% |
+
+**realizr has the largest long-prompt penalty** (FP8 2-step prefill). TTFT gap grows: 8.7× (c=4), 14.4× (c=8), **24× (c=16)**. vLLM shows unexpected −10% at c=16 (prefill pressure at high batch). Supersedes PMAT-220/225 data.
+
 ### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
 **c=4 provides zero batching benefit on 8 SMs:**
