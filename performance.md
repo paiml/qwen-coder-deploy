@@ -22,17 +22,17 @@ c=1-16: PMAT-177 (BATCH=32, confirmed ±2.6% by PMAT-224). c=32-128 realizr: PMA
 
 ### Scorecards (probador llm score)
 
-| c | realizr (BATCH=16) | llama.cpp | vLLM | ollama |
-|---|-------------------|-----------|------|--------|
-| 1 | 93 A | 96 A+ | 98 A+ | 89 A- |
-| 4 | 58 C | 73 B | 98 A+ | 39 D |
-| 8 | 65 C+ | 63 C+ | 97 A+ | — |
-| 16 | 71 B | 67 C+ | 94 A | — |
-| 32 | 53 C | 62 C | 86 A- | — |
-| 64 | 54 C | — | 74 B | — |
-| 128 | 53 C | — | 63 C+ | — |
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 94 A | 97 A+ | 97 A+ | 78 B |
+| 4 | 58 C | 73 B | 97 A+ | 58 C |
+| 8 | 64 C+ | 65 C+ | 96 A+ | 58 C |
+| 16 | 70 B | 72 B | 94 A | 58 C |
+| 32 | 66 C+ | 51 C | 86 A- | 57 C |
+| 64 | 68 C+ | — | 73 B | — |
+| 128 | **67 C+** | — | 63 C+ | — |
 
-c=1-16 realizr scores from PMAT-216 (BATCH=32, same throughput). c=32-128 from PMAT-228 (BATCH=16). Quality crossover with vLLM at c=128 no longer occurs at BATCH=16 (53 C vs 63 C+).
+PMAT-229 definitive combined scoring (4-runtime, best-in-class bonuses applied). realizr BATCH=16 at c=32-128, BATCH=32-equivalent at c=1-16. **Quality crossover preserved at c=128** (67 vs 63 C+) — realizr's stable decode (41 tok/s) beats vLLM's degraded decode (15 tok/s).
 
 ### Asymptotes (PMAT-192/195/197)
 

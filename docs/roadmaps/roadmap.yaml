@@ -4527,3 +4527,33 @@ roadmap:
     -41% from BATCH=32 asymptote, -13% from fixed:128 heterogeneity penalty.
     TTFT grows linearly with queue depth: 2273ms (c=32), 7178ms (c=64), 16588ms (c=128).
     Decode rate constant at 56-58 tok/s across c=32-128 (16 slots saturated).
+- id: PMAT-229
+  github_issue: null
+  item_type: task
+  title: 'PMAT-229: Definitive combined scoring — quality crossover preserved at c=128'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Fix runtime_name in corrected results — DONE'
+  - 'AC2: 4-runtime combined scoring with best-in-class bonuses — DONE'
+  - 'AC3: Verify quality crossover at c=128 — DONE (67 vs 63 C+, preserved)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - scoring
+  - analysis
+  - 4060L
+  notes: |
+    Fixed runtime_name='unknown' in PMAT-224 corrected results (c=1-16).
+    Ran 4-runtime combined scoring at all c=1-128.
+    Key correction: isolated scoring (53 C) missed best-in-class bonuses.
+    Combined scoring: realizr 94A/58C/64C+/70B/66C+/68C+/67C+.
+    Quality crossover at c=128 PRESERVED (67 vs 63 C+) because:
+    - realizr decode caps at 41 tok/s (BATCH=16 ceiling)
+    - vLLM decode degrades to 15 tok/s (continuous degradation)
+    - realizr gets +5 best-in-class bonus on decode/ITL dimensions

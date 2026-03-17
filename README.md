@@ -55,17 +55,17 @@ make load                    # Load tests
 
 realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hetero) / 1,010 (fixed:128). BATCH=32 bug at c≥20 medium (PMAT-221).
 
-### Scorecards (probador llm score, PMAT-216/228)
+### Scorecards (probador llm score, PMAT-229 — definitive combined scoring)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 93 A | 96 A+ | 98 A+ | 89 A- |
-| 4 | 58 C | 73 B | 98 A+ | 39 D |
-| 8 | 65 C+ | 63 C+ | 97 A+ | — |
-| 16 | 71 B | 67 C+ | 94 A | — |
-| 32 | 53 C | 62 C | 86 A- | — |
-| 64 | 54 C | — | 74 B | — |
-| 128 | 53 C | — | 63 C+ | — |
+| 1 | 94 A | 97 A+ | 97 A+ | 78 B |
+| 4 | 58 C | 73 B | 97 A+ | 58 C |
+| 8 | 64 C+ | 65 C+ | 96 A+ | 58 C |
+| 16 | 70 B | 72 B | 94 A | 58 C |
+| 32 | 66 C+ | 51 C | 86 A- | 57 C |
+| 64 | 68 C+ | — | 73 B | — |
+| 128 | **67 C+** | — | 63 C+ | — |
 
 ### Asymptotes (PMAT-192/195/197)
 
@@ -76,7 +76,9 @@ realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hete
 | llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | Serial FIFO |
 
-realizr at BATCH=32: 1,500 tok/s but has quality bug at c≥20 (PMAT-221). BATCH=16 asymptote: 880 (hetero) / 1,010 (fixed:128). Quality crossover with vLLM at c=128 no longer occurs at BATCH=16 (53 C vs 63 C+).
+realizr at BATCH=32: 1,500 tok/s but has quality bug at c≥20 (PMAT-221). BATCH=16 asymptote: 880 (hetero) / 1,010 (fixed:128).
+
+Quality crossover: realizr **beats** vLLM at c=128 (67 C+ vs 63 C+) even at BATCH=16.
 
 ### Cross-Platform Decode (c=1, isolated, streaming)
 

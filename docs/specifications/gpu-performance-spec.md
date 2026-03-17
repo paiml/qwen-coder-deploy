@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.81.0
+**Version:** 3.82.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -59,19 +59,19 @@ realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hete
 
 **⚠️ PMAT-224 CORRECTION:** The initial PMAT-224 results (showing +46-72% realizr improvement) were INVALID — `--output` was incorrectly used as `--max-tokens-distribution`, resulting in fixed:128 output instead of uniform:16,256. With correct flags, realizr numbers match PMAT-177 within noise (±2.6%). The Mar 16 binary update had **no measurable throughput improvement** under production conditions. However, PMAT-224 fixed:128 data is valid for that workload (c=1: 147, c=4: 316, c=8: 560, c=16: 1008 tok/s).
 
-**Scorecards (probador llm score, PMAT-186/206/228 — complete c=1→128, realizr at BATCH=16):**
+**Scorecards (probador llm score, PMAT-229 — definitive combined scoring, realizr at BATCH=16):**
 
 | c | vLLM | llama.cpp | realizr | ollama |
 |---|------|-----------|---------|--------|
-| 1 | **98 A+** | 97 A+ | 93 A | 78 B |
-| 4 | **98 A+** | 73 B | 58 C | 58 C |
-| 8 | **97 A+** | 65 C+ | 65 C+ | 58 C |
-| 16 | **94 A** | 72 B | 71 B | 58 C |
-| 32 | **86 A-** | 62 C | 53 C | 57 C |
-| 64 | **74 B** | — | 54 C | — |
-| 128 | **63 C+** | — | 53 C | — |
+| 1 | **97 A+** | 97 A+ | 94 A | 78 B |
+| 4 | **97 A+** | 73 B | 58 C | 58 C |
+| 8 | **96 A+** | 65 C+ | 64 C+ | 58 C |
+| 16 | **94 A** | 72 B | 70 B | 58 C |
+| 32 | **86 A-** | 51 C | 66 C+ | 57 C |
+| 64 | **73 B** | — | 68 C+ | — |
+| 128 | 63 C+ | — | **67 C+** | — |
 
-**realizr loses to vLLM at all concurrency levels.** At BATCH=16 (production workaround), realizr scores 53-54 C at c=32-128 vs vLLM's 63-86. The quality crossover at c=128 (previously 66 vs 63 C+ at BATCH=32) **no longer occurs** because BATCH=16 limits peak throughput to ~880 tok/s. vLLM degrades: 98 A+ → 86 A- → 74 B → 63 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but serial processing gives 58-57 C at c≥4. Two structural deficits (PMAT-179 decomposition, exact at all c):
+**realizr loses to vLLM at c=1-64 but WINS at c=128 (67 vs 63 C+) even at BATCH=16.** The quality crossover persists because realizr's batch=16 caps decode degradation (41 tok/s constant at c=64/128) while vLLM's per-request decode keeps halving (31→15 tok/s). At c=32, realizr (66 C+) overtakes llama.cpp (51 C). vLLM degrades: 97 A+ → 86 A- → 73 B → 63 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but serial processing gives 58-57 C at c≥4. Two structural deficits (PMAT-179 decomposition, exact at all c):
 1. **Per-request decode rate** (0.52-0.57× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching per-token dispatch
 2. **Scheduling utilization** (0.52-0.67× factor — batch-and-step waste compounds with c, PMAT-179) → paged KV (PMAT-052) + continuous batching. vLLM maintains ~98% utilization at all c; realizr drops from 66% at c=4 to 51% at c=16
    - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
@@ -3099,6 +3099,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-229** | **Definitive combined scoring (4-runtime, best-in-class)** | **Quality crossover PRESERVED at c=128 (67 vs 63 C+)** | ✅ SCORED. Fixed runtime_name in corrected results, ran 4-runtime combined scoring at all c. Best-in-class bonuses change isolated scores significantly. realizr 94A/58C/64C+/70B/66C+/68C+/**67C+**. vLLM 97A+/97A+/96A+/94A/86A-/73B/63C+. Quality crossover at c=128 persists (67 vs 63) because realizr decode caps at 41 tok/s while vLLM degrades to 15 tok/s. Earlier isolated scoring (53 C) was missing best-in-class bonuses. |
 | **PMAT-228** | **Production medium sweep at BATCH=16 (c=32-128)** | **realizr asymptote 880 tok/s (−41% from BATCH=32)** | ✅ MEASURED. realizr c=32/64/128 medium + uniform:16,256 at BATCH=16: 867.3/887.4/857.1 tok/s. Asymptote ~880 (hetero) vs 1010 (fixed:128) vs 1500 (BATCH=32). TTFT linear with queue: 2273ms (c=32), 7178ms (c=64), 16588ms (c=128). Decode constant 56-58 tok/s (16 slots saturated). Heterogeneity penalty at saturation: −13% (880/1010), less severe than −37-43% at c=8-16 because batch always full. |
 | **PMAT-227** | **Long-prompt production refresh (correct flags, BATCH=16)** | **realizr −13-16% long penalty; vLLM prompt-invariant (±10% noise)** | ✅ MEASURED. Full sweep c=1-64 (realizr/vLLM), c=1-16 (llama.cpp). Long prompt + uniform:16,256, BATCH=16, llama.cpp ctx=8192. realizr: 142/182/306/484/692/705 tok/s (c=1-64). vLLM: 152/570/1089/1789/2798/3252 tok/s. llama.cpp: 156/342/399/814. realizr/vLLM: 0.94/0.32/0.28/0.27/0.25/**0.22×** (monotonically widening). TTFT at c=64: 9071ms vs 63ms (**144×**). Prompt sensitivity: realizr −13-16% at c≥4, llama.cpp −2-9%, vLLM ±10% noise (c=32 +1%, c=64 +7% — confirmed prompt-invariant). realizr long asymptote 705 tok/s (BATCH=16), −52% vs medium BATCH=32 (1484). |
 | **PMAT-226** | **Heterogeneity penalty quantification** | **37-43% throughput loss from uniform:16,256 vs fixed:128** | ✅ DERIVED from PMAT-224 error. fixed:128 vs uniform:16,256: c=1 0%, c=4 −31%, c=8 −37%, c=16 −43%. Penalty grows with concurrency (more slots = more KV waste from early completions). Paged KV (PMAT-052) is single highest-ROI fix. |
@@ -4065,6 +4066,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.82.0 | 2026-03-17 | **PMAT-229: Definitive combined scoring.** Fixed runtime_name in corrected results. 4-runtime combined scoring with best-in-class bonuses. Quality crossover at c=128 PRESERVED (67 vs 63 C+) — earlier isolated scoring (53 C) was missing bonuses. realizr decode caps at 41 tok/s while vLLM degrades to 15 tok/s. Exec summary scorecards corrected. |
 | 3.81.0 | 2026-03-17 | **PMAT-228: Production medium sweep at BATCH=16 (c=32-128).** realizr 867/887/857 tok/s. Asymptote ~880 tok/s (hetero) — −41% from BATCH=32 (1500). TTFT: 2273/7178/16588ms. Decode constant 56-58 tok/s. README and performance.md updated with definitive BATCH=16 production numbers. |
 | 3.80.0 | 2026-03-17 | **PMAT-227: Long-prompt production refresh with correct flags + BATCH=16.** Full c=1-64 sweep (realizr/vLLM), c=1-16 (llama.cpp). realizr −13-16% long penalty, vLLM ±10% noise (confirmed prompt-invariant at c=32 +1%, c=64 +7%). realizr/vLLM widens monotonically: 0.94→0.32→0.28→0.27→0.25→**0.22×**. TTFT gap at c=64: **9071ms vs 63ms (144×)**. realizr long asymptote 705 tok/s at BATCH=16 (−52% vs medium BATCH=32). Long-prompt scorecards: realizr 47D-88A−, vLLM 94A-98A+. Supersedes PMAT-220/225 long-prompt data. |
 | 3.79.0 | 2026-03-17 | **PMAT-226: Heterogeneity penalty quantification.** Using PMAT-224's fixed:128 data vs corrected uniform:16,256: 0% (c=1), −31% (c=4), −37% (c=8), −43% (c=16). Penalty grows with concurrency as more slots waste KV on early completions. Paged KV (PMAT-052) identified as single highest-ROI optimization. |
