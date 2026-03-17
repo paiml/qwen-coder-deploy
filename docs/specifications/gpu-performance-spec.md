@@ -3735,28 +3735,33 @@ At c=1: 4,611 graph launches in ~30s = one per decode step. Graph launch (30.6µ
 
 H4 hypothesis: "float4 vectorized loads → 2x bandwidth" — CONFIRMED with 3.2× potential.
 
-**Q4K GEMV sector utilization (ncu Memory Workload Analysis):**
+**Sector utilization across all GEMV kernels (ncu `--set full` Memory Workload Analysis):**
 
-| Kernel | Bytes/sector | Excessive sectors | DRAM BW | Duration | Throughput |
-|--------|-------------|-------------------|---------|----------|------------|
-| hw_dp4a_q4k_gemv | **9.9/32** (31%) | **57%** (221K/389K) | 56.6% | 9.3µs | 143.8 GB/s |
-| fused_gate_up_swiglu | **10.4/32** (32.5%) | **52%** (1.5M/2.9M) | **74.1%** | 81.8µs | 189.3 GB/s |
+| Kernel | Bytes/sector | Excessive sectors | DRAM BW | L1 BW | Mem Pipe | Duration |
+|--------|-------------|-------------------|---------|-------|---------|----------|
+| hw_dp4a_q4k_gemv | **9.9/32** (31%) | **57%** (221K/389K) | 56.6% | 62.3% | 56.6% | 9.3µs |
+| fused_gate_up_swiglu | **10.4/32** (32.5%) | **52%** (1.5M/2.9M) | **74.1%** | 60.0% | 74.1% | 81.8µs |
+| hw_dp4a_q6k_gemv | **1.8/32** (5.6%) | ~94%* | 59.9% | **88.3%** | **87.8%** | 1,262µs |
+
+*Q6K excessive sector count estimated from 5.6% utilization. Grid=384 is the LmHead (151K×1536).
 
 **Key findings:**
 
-1. **Both kernels have identical per-sector utilization** (~31-32%, ~10/32 bytes used per sector). The Q4K block layout causes strided access in both fused and unfused variants. Each Q4K super block interleaves scales (4 bytes), mins (4 bytes), and quantized data (128 bytes) — thread access strides across this structure.
+1. **Both Q4K kernels have identical per-sector utilization** (~31-32%, ~10/32 bytes used per sector). The Q4K block layout causes strided access in both fused and unfused variants. Each Q4K super block interleaves scales (4 bytes), mins (4 bytes), and quantized data (128 bytes) — thread access strides across this structure.
 
-2. **The fused kernel achieves 74% DRAM BW despite 52% excessive sectors** because its 81.8µs duration fills the memory pipeline. The unfused kernel at 9.3µs is too short for the pipeline to reach steady state (56.6% vs 74.1% — pipeline warmup penalty).
+2. **Q6K GEMV has the worst coalescing: 1.8/32 bytes (5.6%)** — 5.6× worse than Q4K. The Q6K super block layout (210 bytes with interleaved 6-bit quantized data + scales across sub-blocks) creates severe strided access. Yet Q6K achieves **87.8% memory pipe utilization** (highest of all kernels) because the L1 cache absorbs the 94% excess sectors (88.3% L1 throughput). The kernel is operating at the hardware limit — ncu says ">80% utilized."
 
-3. **Vectorized loads would provide 3.2× effective bandwidth improvement** (current 31% → theoretical 100% sector utilization). This exceeds the H4 prediction threshold of 2.0×.
+3. **The fused kernel achieves 74% DRAM BW despite 52% excessive sectors** because its 81.8µs duration fills the memory pipeline. The unfused kernel at 9.3µs is too short for the pipeline to reach steady state (56.6% vs 74.1% — pipeline warmup penalty).
 
-4. **The root cause is Q4K block structure, not instruction selection.** The strided access is inherent to GGUF's Q4K layout. float4 loads alone won't fix it — the data must be transposed into a coalesced layout (SoA instead of AoS per super block). This is exactly what PMAT-054 (fused Q4K GEMM) should do: pre-transpose Q4K blocks into coalesced format at model load time.
+4. **Vectorized loads would provide 3.2× bandwidth improvement for Q4K, 18× for Q6K** (current 31%/5.6% → theoretical 100% sector utilization). Both exceed H4's 2.0× threshold.
 
-5. **FP32 instruction fusion opportunity**: ncu identified 32-34% potential improvement from converting non-fused FP32 pairs to FMA instructions. This is a secondary optimization after coalescing.
+5. **The root cause is GGUF block structure, not instruction selection.** The strided access is inherent to GGUF's Q4K/Q6K layout. float4 loads alone won't fix it — the data must be transposed into a coalesced layout (SoA instead of AoS per super block). This is exactly what PMAT-054 (fused Q4K GEMM) should do: pre-transpose Q4K blocks into coalesced format at model load time.
 
-6. **Scheduler utilization**: Unfused GEMV has 1.82 eligible warps/cycle out of 10.76 active (memory-stall limited). Fused kernel worse at 0.99/7.43 — more warps stalled waiting for memory, but higher overall throughput from amortized pipeline latency.
+6. **FP32 instruction fusion opportunity**: ncu identified 32-40% potential improvement from converting non-fused FP32 pairs to FMA instructions (Q6K worst at 40%: 3.6M non-fused vs 912K fused). This is a secondary optimization after coalescing.
 
-**Implication for PMAT-054:** A fused Q4K GEMM kernel that pre-transposes weights into coalesced SoA layout would achieve both: (a) 3.2× bandwidth from coalesced loads, and (b) batch-invariant GEMM (like vLLM's CUTLASS). This is the convergence of H4 and PMAT-217 — the two highest-value fixes for the same kernel.
+7. **Q6K's L1 cache strategy is at its limit**: 0.84 eligible warps/cycle (63% cycles with NO eligible warp). The kernel compensates for terrible coalescing via L1 reuse, but is scheduler-starved. Register pressure (block limit: 12 from registers vs 24 from SM) limits occupancy. Improving coalescing would reduce L1 pressure → more DRAM bandwidth → DRAM-bound at ~60% (which is already near-optimal for Q6K).
+
+**Implication for PMAT-054:** A fused Q4K GEMM kernel that pre-transposes weights into coalesced SoA layout would achieve both: (a) 3.2-18× bandwidth from coalesced loads, and (b) batch-invariant GEMM (like vLLM's CUTLASS). This is the convergence of H4 and PMAT-217 — the two highest-value fixes for the same kernel.
 
 ### Roofline Position
 
