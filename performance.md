@@ -1,20 +1,23 @@
 # LLM Inference Performance
 
-## Production Methodology — RTX 4060 Laptop (PMAT-224, 2026-03-17)
+## Production Methodology — RTX 4060 Laptop (PMAT-177/224, 2026-03-17)
 
 Medium prompt (~102 tok), uniform:16,256 output, streaming, 5s warmup, 60s duration, locked 1900MHz.
 Each runtime deployed in isolation via forjar (serial benchmarks).
 
 ### 4-Runtime Aggregate Throughput (tok/s)
 
-| c | realizr | llama.cpp | vLLM | r/llama | r/vLLM |
-|---|---------|-----------|------|---------|--------|
-| 1 | 147.3 | 158.8 | 152.2 | 0.93× | 0.97× |
-| 4 | 315.6 | 367.7 | 583.9 | 0.86× | 0.54× |
-| 8 | **559.6** | 429.4 | 1,119.8 | **1.30×** | 0.50× |
-| 16 | 1,008.1 | 1,120.1 | 2,043.8 | 0.90× | 0.49× |
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 147.2 | 158.1 | 152.4 | 151.8 |
+| 4 | 217.6 | 354.4 | 587.4 | 160.1 |
+| 8 | 351.7 | 420.1 | 1,115.2 | 159.4 |
+| 16 | 571.3 | 896.6 | 1,982.9 | 161.0 |
+| 32 | — | 943.2 | 2,757.6 | 159.0 |
+| 64 | — | — | 3,036.1 | — |
+| 128 | — | — | 3,049.4 | — |
 
-PMAT-224 supersedes PMAT-177 (realizr binary updated Mar 16: +46-72% scheduling). llama.cpp rebuilt latest HEAD (+25% at c=16). vLLM stable. BATCH=32 c≥20 medium bug-affected; BATCH=16 workaround available (1,010 tok/s asymptote).
+PMAT-177 data confirmed by corrected PMAT-224 re-run (±2.6%). BATCH=32 c≥20 medium: bug (PMAT-221). BATCH=16 workaround: correct at all c (PMAT-223).
 
 ### Scorecards (probador llm score)
 
