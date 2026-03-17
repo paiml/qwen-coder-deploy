@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.80.0
+**Version:** 3.81.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3096,6 +3096,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-228** | **Production medium sweep at BATCH=16 (c=32-128)** | **realizr asymptote 880 tok/s (−41% from BATCH=32)** | ✅ MEASURED. realizr c=32/64/128 medium + uniform:16,256 at BATCH=16: 867.3/887.4/857.1 tok/s. Asymptote ~880 (hetero) vs 1010 (fixed:128) vs 1500 (BATCH=32). TTFT linear with queue: 2273ms (c=32), 7178ms (c=64), 16588ms (c=128). Decode constant 56-58 tok/s (16 slots saturated). Heterogeneity penalty at saturation: −13% (880/1010), less severe than −37-43% at c=8-16 because batch always full. |
 | **PMAT-227** | **Long-prompt production refresh (correct flags, BATCH=16)** | **realizr −13-16% long penalty; vLLM prompt-invariant (±10% noise)** | ✅ MEASURED. Full sweep c=1-64 (realizr/vLLM), c=1-16 (llama.cpp). Long prompt + uniform:16,256, BATCH=16, llama.cpp ctx=8192. realizr: 142/182/306/484/692/705 tok/s (c=1-64). vLLM: 152/570/1089/1789/2798/3252 tok/s. llama.cpp: 156/342/399/814. realizr/vLLM: 0.94/0.32/0.28/0.27/0.25/**0.22×** (monotonically widening). TTFT at c=64: 9071ms vs 63ms (**144×**). Prompt sensitivity: realizr −13-16% at c≥4, llama.cpp −2-9%, vLLM ±10% noise (c=32 +1%, c=64 +7% — confirmed prompt-invariant). realizr long asymptote 705 tok/s (BATCH=16), −52% vs medium BATCH=32 (1484). |
 | **PMAT-226** | **Heterogeneity penalty quantification** | **37-43% throughput loss from uniform:16,256 vs fixed:128** | ✅ DERIVED from PMAT-224 error. fixed:128 vs uniform:16,256: c=1 0%, c=4 −31%, c=8 −37%, c=16 −43%. Penalty grows with concurrency (more slots = more KV waste from early completions). Paged KV (PMAT-052) is single highest-ROI fix. |
 | **PMAT-225** | **Long-prompt competitive refresh** | **⚠️ INVALIDATED: used wrong flag (--output not --max-tokens-distribution)** | ⚠️ INVALIDATED. Results used `--output uniform:16,256` (file path) instead of `--max-tokens-distribution uniform:16,256` (token distribution), producing fixed:128 output. The "1.04× win at c=8" was with fixed:128 output, not heterogeneous. With correct heterogeneous output, PMAT-220 ratios stand (0.55× c=4, 0.75× c=8). Fixed:128 data valid as separate workload. Superseded by PMAT-227 (correct flags + c=16 data). |
@@ -4061,6 +4062,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.81.0 | 2026-03-17 | **PMAT-228: Production medium sweep at BATCH=16 (c=32-128).** realizr 867/887/857 tok/s. Asymptote ~880 tok/s (hetero) — −41% from BATCH=32 (1500). TTFT: 2273/7178/16588ms. Decode constant 56-58 tok/s. README and performance.md updated with definitive BATCH=16 production numbers. |
 | 3.80.0 | 2026-03-17 | **PMAT-227: Long-prompt production refresh with correct flags + BATCH=16.** Full c=1-64 sweep (realizr/vLLM), c=1-16 (llama.cpp). realizr −13-16% long penalty, vLLM ±10% noise (confirmed prompt-invariant at c=32 +1%, c=64 +7%). realizr/vLLM widens monotonically: 0.94→0.32→0.28→0.27→0.25→**0.22×**. TTFT gap at c=64: **9071ms vs 63ms (144×)**. realizr long asymptote 705 tok/s at BATCH=16 (−52% vs medium BATCH=32). Long-prompt scorecards: realizr 47D-88A−, vLLM 94A-98A+. Supersedes PMAT-220/225 long-prompt data. |
 | 3.79.0 | 2026-03-17 | **PMAT-226: Heterogeneity penalty quantification.** Using PMAT-224's fixed:128 data vs corrected uniform:16,256: 0% (c=1), −31% (c=4), −37% (c=8), −43% (c=16). Penalty grows with concurrency as more slots waste KV on early completions. Paged KV (PMAT-052) identified as single highest-ROI optimization. |
 | 3.78.0 | 2026-03-17 | **CRITICAL CORRECTION: PMAT-224/225 used wrong flag (`--output` vs `--max-tokens-distribution`).** Corrected re-run matches PMAT-177 within ±2.6%: realizr c=4 217.6, c=8 351.7, c=16 571.3. NO improvement from Mar 16 binary under production conditions. The +46-72% was entirely from fixed:128 vs uniform:16,256 (37-43% heterogeneity penalty). Reverted competitive matrix and interpretation to PMAT-177 values. PMAT-224 fixed:128 data valid as separate workload. |

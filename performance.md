@@ -1,9 +1,10 @@
 # LLM Inference Performance
 
-## Production Methodology — RTX 4060 Laptop (PMAT-177/224, 2026-03-17)
+## Production Methodology — RTX 4060 Laptop (PMAT-177/228, 2026-03-17)
 
 Medium prompt (~102 tok), uniform:16,256 output, streaming, 5s warmup, 60s duration, locked 1900MHz.
 Each runtime deployed in isolation via forjar (serial benchmarks).
+realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround for PMAT-221 batched prefill bug).
 
 ### 4-Runtime Aggregate Throughput (tok/s)
 
@@ -13,11 +14,11 @@ Each runtime deployed in isolation via forjar (serial benchmarks).
 | 4 | 217.6 | 354.4 | 587.4 | 160.1 |
 | 8 | 351.7 | 420.1 | 1,115.2 | 159.4 |
 | 16 | 571.3 | 896.6 | 1,982.9 | 161.0 |
-| 32 | — | 943.2 | 2,757.6 | 159.0 |
-| 64 | — | — | 3,036.1 | — |
-| 128 | — | — | 3,049.4 | — |
+| 32 | 867.3 | 943.2 | 2,757.6 | 159.0 |
+| 64 | 887.4 | — | 3,036.1 | — |
+| 128 | 857.1 | — | 3,049.4 | — |
 
-PMAT-177 data confirmed by corrected PMAT-224 re-run (±2.6%). BATCH=32 c≥20 medium: bug (PMAT-221). BATCH=16 workaround: correct at all c (PMAT-223).
+c=1-16: PMAT-177 (BATCH=32, confirmed ±2.6% by PMAT-224). c=32-128 realizr: PMAT-228 (BATCH=16, heterogeneous output). realizr asymptote ~880 tok/s at BATCH=16 (−41% vs BATCH=32 1500 tok/s, but correct output at all c).
 
 ### Scorecards (probador llm score)
 
@@ -36,7 +37,8 @@ PMAT-177 data confirmed by corrected PMAT-224 re-run (±2.6%). BATCH=32 c≥20 m
 | Runtime | Asymptote | Saturation c | Architecture |
 |---------|-----------|-------------|-------------|
 | vLLM | 3,050 tok/s | c=64 | PagedAttention, continuous batching, CUTLASS GEMM |
-| realizr | 1,500 tok/s | c=64 | Batch-and-step, queue+batch=32, CUDA graph M=1 |
+| realizr (BATCH=16) | 880 tok/s (hetero) / 1,010 (fixed) | c=32 | Batch-and-step, queue+batch=16 (workaround) |
+| realizr (BATCH=32) | 1,500 tok/s (⚠️ bug at c≥20 medium) | c=64 | Batch-and-step, queue+batch=32 |
 | llama.cpp | 943 tok/s | c=32 | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | c=1 (serial) | Serial FIFO |
 

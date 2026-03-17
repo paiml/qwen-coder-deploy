@@ -4499,3 +4499,31 @@ roadmap:
     - realizr long asymptote 705 tok/s at BATCH=16 (-52% vs medium BATCH=32 1484)
     - TTFT at c=64: 9071ms (9 seconds!) — complete prefill saturation
     - llama.cpp needed ctx-size 8192 (vs 4096) to handle long prompts with p=16
+- id: PMAT-228
+  github_issue: null
+  item_type: task
+  title: 'PMAT-228: Production medium sweep at BATCH=16 — asymptote 880 tok/s'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr c=32,64,128 medium+hetero at BATCH=16 — DONE'
+  - 'AC2: Determine BATCH=16 production asymptote — DONE (880 tok/s hetero)'
+  - 'AC3: Update README/performance.md with definitive BATCH=16 numbers — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - production
+  - 4060L
+  notes: |
+    Fills missing data: realizr c=32-128 with medium+uniform:16,256 at BATCH=16.
+    Results: c=32 867.3, c=64 887.4, c=128 857.1 tok/s.
+    Asymptote ~880 tok/s (heterogeneous) vs 1010 (fixed:128) vs 1500 (BATCH=32).
+    -41% from BATCH=32 asymptote, -13% from fixed:128 heterogeneity penalty.
+    TTFT grows linearly with queue depth: 2273ms (c=32), 7178ms (c=64), 16588ms (c=128).
+    Decode rate constant at 56-58 tok/s across c=32-128 (16 slots saturated).

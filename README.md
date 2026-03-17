@@ -39,7 +39,7 @@ make load                    # Load tests
 | vLLM | 8084 | AWQ INT4 | CUDA (PagedAttention, CUTLASS GEMM) |
 
 <!-- PERFORMANCE_START -->
-## Performance — RTX 4060 Laptop (2026-03-17, PMAT-177/224, locked 1900MHz)
+## Performance — RTX 4060 Laptop (2026-03-17, PMAT-177/228, locked 1900MHz)
 
 ### Production Methodology (medium prompt ~102 tok, uniform:16,256 output, streaming, 60s)
 
@@ -49,11 +49,11 @@ make load                    # Load tests
 | 4 | 217.6 | 354.4 | 587.4 | 160.1 |
 | 8 | 351.7 | 420.1 | 1,115.2 | 159.4 |
 | 16 | 571.3 | 896.6 | 1,982.9 | 161.0 |
-| 32 | — | 943.2 | 2,757.6 | 159.0 |
-| 64 | — | — | 3,036.1 | — |
-| 128 | — | — | 3,049.4 | — |
+| 32 | 867.3 | 943.2 | 2,757.6 | 159.0 |
+| 64 | 887.4 | — | 3,036.1 | — |
+| 128 | 857.1 | — | 3,049.4 | — |
 
-c≥20 medium with BATCH=32: bug (PMAT-221). **BATCH=16 workaround**: correct at all c, ~1,010 tok/s asymptote (fixed:128 workload).
+realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hetero) / 1,010 (fixed:128). BATCH=32 bug at c≥20 medium (PMAT-221).
 
 ### Scorecards (probador llm score, PMAT-216)
 
@@ -69,11 +69,11 @@ c≥20 medium with BATCH=32: bug (PMAT-221). **BATCH=16 workaround**: correct at
 | Runtime | Asymptote | Architecture |
 |---------|-----------|-------------|
 | vLLM | **3,050** tok/s | PagedAttention, continuous batching, CUTLASS GEMM |
-| realizr | 1,500 tok/s | Batch-and-step, queue+batch=32 |
+| realizr | 880 tok/s (BATCH=16) | Batch-and-step, queue+batch=16 (workaround) |
 | llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | Serial FIFO |
 
-Quality crossover: realizr **beats** vLLM at c=128 (66 C+ vs 63 C+).
+realizr at BATCH=32: 1,500 tok/s but has quality bug at c≥20 (PMAT-221). BATCH=16 asymptote: 880 (hetero) / 1,010 (fixed:128).
 
 ### Cross-Platform Decode (c=1, isolated, streaming)
 
