@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.82.0
+**Version:** 3.83.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1666,16 +1666,16 @@ The 3-factor model fits c=4 and c=8 (≤6% error) but overpredicts c=16 by 23%. 
 
 **Phase impact projections across concurrency (PMAT-180 — 2-factor corrected):**
 
-| c | Current | Phase 0 | Phase 1 (no CB) | Phase 0+1 (no CB) | Paged KV + CB | vs vLLM |
-|---|---------|---------|----------------|------------------|--------------|---------|
-| 4 | 216 | 220 (+2%) | 338 (+56%) | 344 (+59%) | **568** | **0.97×** |
-| 8 | 355 | 378 (+6%) | 555 (+56%) | 591 (+66%) | **1078** | **0.97×** |
-| 16 | 587 | 687 (+17%) | 916 (+56%) | 1074 (+83%) | **1918** | **0.97×** |
-| 32 | 945 | — | — | — | **2671** | **0.97×** |
-| 64 | 1484 | — | — | — | **2941** | **0.97×** |
-| 128 | 1506 | — | — | — | **2955** | **0.97×** |
+| c | Current (BATCH=16) | Phase 0 | Phase 1 (no CB) | Phase 0+1 (no CB) | Paged KV + CB | vs vLLM | CB lift |
+|---|-------------------|---------|----------------|------------------|--------------|---------|---------|
+| 4 | 218 | 222 (+2%) | 340 (+56%) | 347 (+59%) | **568** | **0.97×** | 2.6× |
+| 8 | 352 | 374 (+6%) | 549 (+56%) | 584 (+66%) | **1078** | **0.97×** | 3.1× |
+| 16 | 571 | 669 (+17%) | 891 (+56%) | 1045 (+83%) | **1918** | **0.97×** | 3.4× |
+| 32 | 867 | — | — | — | **2671** | **0.97×** | 3.1× |
+| 64 | 887 | — | — | — | **2941** | **0.97×** | 3.3× |
+| 128 | 857 | — | — | — | **2955** | **0.97×** | 3.4× |
 
-*Phase 0 = fused Q4K GEMM. Phase 1 = paged KV (batch-and-step scheduler unchanged). CB = continuous batching (per-token decode dispatch). With CB, per-request decode tracks vLLM's curve × 0.97 (Q4K vs AWQ weight format, c=1 ratio). c=32-128 projections: 0.97 × vLLM measured aggregate (2758/3036/3049).*
+*Phase 0 = fused Q4K GEMM. Phase 1 = paged KV (batch-and-step scheduler unchanged). CB = continuous batching (per-token decode dispatch). With CB, per-request decode tracks vLLM's curve × 0.97 (Q4K vs AWQ weight format, c=1 ratio). c=32-128 projections: 0.97 × vLLM measured aggregate (2758/3036/3049). "Current" updated to BATCH=16 production baseline (PMAT-230). CB lift is larger at c=32+ vs BATCH=32 baseline (was 1.96-2.83×) because BATCH=16 workaround caps aggregate at ~880 tok/s.*
 
 **Key finding (PMAT-180):** Continuous batching is the binding fix. "Paged KV + CB" reaches 0.97× vLLM at **all concurrency levels** — Phase 0 (fused Q4K) adds zero additional throughput because its TTFT improvement is subsumed by the scheduling efficiency of continuous batching. Phase 0's value is c=1 latency (TTFT) only.
 
@@ -1703,11 +1703,11 @@ Phase 0's throughput gain is entirely determined by TTFT's share of total reques
 
 Using the scoring contract (v3.0.0 absolute thresholds, throughput profile weights) and PMAT-180 throughput projections:
 
-| c | Current (PMAT-186) | Phase 1+CB | All fixes | vLLM (ref) |
-|---|-------------------|-----------|-----------|-----------|
-| 4 | 58 C | **95 A** (+37) | 98 A+ (+40) | 98 A+ |
-| 8 | 65 C+ | **90 A** (+25) | 96 A+ (+31) | 97 A+ |
-| 16 | 71 B | **87 A-** (+16) | 92 A (+21) | 96 A+ |
+| c | Current (PMAT-229, BATCH=16) | Phase 1+CB | All fixes | vLLM (ref) |
+|---|------------------------------|-----------|-----------|-----------|
+| 4 | 58 C | **95 A** (+37) | 98 A+ (+40) | 97 A+ |
+| 8 | 64 C+ | **90 A** (+26) | 96 A+ (+32) | 96 A+ |
+| 16 | 70 B | **87 A-** (+17) | 92 A (+22) | 94 A |
 
 *Phase 1+CB assumes: aggregate = PMAT-180 projections, per-request decode restored to c=1 level (148 tok/s), ITL ≈ 6.8ms, TTFT still FP8 (40-150ms by c). All fixes adds fused Q4K TTFT → 20-60ms.*
 
@@ -1717,16 +1717,16 @@ Using the scoring contract (v3.0.0 absolute thresholds, throughput profile weigh
 
 Using PMAT-180 aggregate projections + quality assumptions (decode restored to ~144 tok/s, ITL ~6.8ms, TTFT 40-150ms conservative):
 
-| Quality constraint | Current c | Current agg | Post Phase 1+CB c | Post agg | Improvement |
-|-------------------|----------|------------|-------------------|---------|-------------|
-| ITL ≤ 12ms | c=4 | 216 | c=16 | 1918 | **8.9×** |
-| ITL ≤ 15ms | c=32 | 945 | c=32+ | ~2800* | **3.0×** |
-| TTFT ≤ 100ms | c=4 | 216 | c=8-16 | 1078-1918 | **5.0-8.9×** |
-| Score ≥ 70 B | c=32 | 945 | c=32+ | ~2800* | **3.0×** |
+| Quality constraint | Current c (BATCH=16) | Current agg | Post Phase 1+CB c | Post agg | Improvement |
+|-------------------|---------------------|------------|-------------------|---------|-------------|
+| ITL ≤ 12ms | c=4 | 218 | c=16 | 1918 | **8.8×** |
+| ITL ≤ 15ms | c=16 | 571 | c=32+ | ~2800* | **4.9×** |
+| TTFT ≤ 100ms | c=4 | 218 | c=8-16 | 1078-1918 | **4.9-8.8×** |
+| Score ≥ 70 B | c=16 | 571 | c=32+ | ~2800* | **4.9×** |
 
-*c=32+ extrapolated from PMAT-192 saturation model (asymptote ~1500 tok/s measured) with CB-corrected decode preservation. CB target: maintain ~144 tok/s decode at c=16+ vs current 72→49 decay.*
+*c=32+ extrapolated from PMAT-192 saturation model with CB-corrected decode preservation. CB target: maintain ~144 tok/s decode at c=16+ vs current 71→57 decay. Updated to BATCH=16 baseline (PMAT-230): ITL ≤15ms drops from c=32→c=16 (BATCH=16 c=32 ITL=17.7ms > 15ms), Score ≥70 drops from c=32→c=16 (BATCH=16 c=32 score=66 C+).*
 
-The iso-quality gap vs vLLM shrinks from **12.8× to ~1.4×** at ITL ≤12ms (realizr c=16 at 1918 vs vLLM c=32 at 2758). **This is the single strongest quantitative argument for Phase 1+CB investment.** Note: the aggregate asymptote at ~1500 tok/s (PMAT-192 measured) means CB can only improve per-request quality, not raw aggregate. The iso-quality win comes from maintaining decode rate (144 vs 49 tok/s) at high c, not from increasing aggregate throughput.
+The iso-quality gap vs vLLM shrinks from **12.8× to ~1.4×** at ITL ≤12ms (realizr c=16 at 1918 vs vLLM c=32 at 2758). **This is the single strongest quantitative argument for Phase 1+CB investment.** The BATCH=16 workaround (PMAT-223) makes the investment case even stronger: improvement ratios at ITL ≤15ms and Score ≥70 increase from 3.0× (BATCH=32) to **4.9×** (BATCH=16) because the workaround caps aggregate at ~880 tok/s. CB would also eliminate the PMAT-221 bug that necessitates BATCH=16, restoring the full ~1500 tok/s asymptote.
 
 After Phase 0+1+CB (fused Q4K TTFT + continuous batching), TTFT drops to 20-60ms:
 - TTFT ≤100ms achievable at c=32+ → iso-quality gap essentially eliminated
@@ -1762,7 +1762,7 @@ vLLM scheduling utilization is **~98% constant** across concurrency — continuo
 
 **Resolution of the "4th factor" mystery (PMAT-174):** The PMAT-173 model used c=8-specific hetero/TTFT factors and assumed they'd hold at c=16. They don't — the scheduling utilization gap widens from 38pp to 47pp. There is no mysterious 4th factor; the 3-factor model simply didn't account for concurrency-dependent scheduling waste. The 2-factor decomposition subsumes all three original factors and is exact.
 
-**Phase 1 target (updated):** Paged KV + continuous batching must lift realizr scheduling utilization from 51-66% to >90% (vLLM range). At c=16, this alone would take realizr from 587 to ~1130 tok/s (0.57× vLLM → 0.93× if decode factor improves proportionally).
+**Phase 1 target (updated):** Paged KV + continuous batching must lift realizr scheduling utilization from 51-66% to >90% (vLLM range). At c=16, this alone would take realizr from 571 to ~1100 tok/s (0.57× vLLM → 0.93× if decode factor improves proportionally). With BATCH=16 workaround (PMAT-223), the c=32+ gap is even larger (867→2671 = 3.1× lift needed vs BATCH=32's 945→2671 = 2.8×), reinforcing CB as the binding fix.
 
 **CUDA_MAX_BATCH is NOT a factor (PMAT-175):** BATCH=16 vs BATCH=32 at c=16 fixed:128 produces identical results (1006.9 vs 1003.3 tok/s, +0.3%). Decode rate unchanged (72.7 vs 72.5). Heterogeneous: BATCH=16 is 2.2% slower (653.7 vs 668.5) because reduced queue headroom limits pipelining. The pre-allocated batch size does not affect the decode kernel — realizr only processes active sequences, not the full batch matrix.
 
@@ -3099,6 +3099,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-230** | **Phase 1+CB projections rebased to BATCH=16 production** | **CB lift increases from 2.0-2.8× (BATCH=32) to 2.6-3.4× (BATCH=16)** | ✅ ANALYTICAL. Updated projection table "Current" column to BATCH=16 production numbers (PMAT-228). Phase 0/Phase 1 intermediate projections recalculated. "Paged KV + CB" unchanged (0.97× vLLM). CB lift ratio added: 2.6× (c=4) to 3.4× (c=16/128). Iso-quality: ITL≤15ms drops c=32→c=16 (BATCH=16 c=32 ITL=17.7ms), Score≥70 drops c=32→c=16 (66 C+). Improvement ratios increase from 3.0× to **4.9×**, strengthening the CB investment case. CB would also eliminate PMAT-221 bug, restoring full ~1500 tok/s asymptote. |
 | **PMAT-229** | **Definitive combined scoring (4-runtime, best-in-class)** | **Quality crossover PRESERVED at c=128 (67 vs 63 C+)** | ✅ SCORED. Fixed runtime_name in corrected results, ran 4-runtime combined scoring at all c. Best-in-class bonuses change isolated scores significantly. realizr 94A/58C/64C+/70B/66C+/68C+/**67C+**. vLLM 97A+/97A+/96A+/94A/86A-/73B/63C+. Quality crossover at c=128 persists (67 vs 63) because realizr decode caps at 41 tok/s while vLLM degrades to 15 tok/s. Earlier isolated scoring (53 C) was missing best-in-class bonuses. |
 | **PMAT-228** | **Production medium sweep at BATCH=16 (c=32-128)** | **realizr asymptote 880 tok/s (−41% from BATCH=32)** | ✅ MEASURED. realizr c=32/64/128 medium + uniform:16,256 at BATCH=16: 867.3/887.4/857.1 tok/s. Asymptote ~880 (hetero) vs 1010 (fixed:128) vs 1500 (BATCH=32). TTFT linear with queue: 2273ms (c=32), 7178ms (c=64), 16588ms (c=128). Decode constant 56-58 tok/s (16 slots saturated). Heterogeneity penalty at saturation: −13% (880/1010), less severe than −37-43% at c=8-16 because batch always full. |
 | **PMAT-227** | **Long-prompt production refresh (correct flags, BATCH=16)** | **realizr −13-16% long penalty; vLLM prompt-invariant (±10% noise)** | ✅ MEASURED. Full sweep c=1-64 (realizr/vLLM), c=1-16 (llama.cpp). Long prompt + uniform:16,256, BATCH=16, llama.cpp ctx=8192. realizr: 142/182/306/484/692/705 tok/s (c=1-64). vLLM: 152/570/1089/1789/2798/3252 tok/s. llama.cpp: 156/342/399/814. realizr/vLLM: 0.94/0.32/0.28/0.27/0.25/**0.22×** (monotonically widening). TTFT at c=64: 9071ms vs 63ms (**144×**). Prompt sensitivity: realizr −13-16% at c≥4, llama.cpp −2-9%, vLLM ±10% noise (c=32 +1%, c=64 +7% — confirmed prompt-invariant). realizr long asymptote 705 tok/s (BATCH=16), −52% vs medium BATCH=32 (1484). |
@@ -4066,6 +4067,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.83.0 | 2026-03-17 | **PMAT-230: Phase 1+CB projections rebased to BATCH=16 production.** Updated projection table "Current" to BATCH=16 (PMAT-228). Added "CB lift" column showing 2.6-3.4× improvement ratio (was 2.0-2.8× at BATCH=32). Iso-quality table: ITL≤15ms now c=16 (571 tok/s), Score≥70 now c=16 (571 tok/s) — both dropped from c=32 due to BATCH=16. Improvement ratios increase to 4.9× (from 3.0×), strengthening CB investment case. Projected composite scores updated to reference PMAT-229 combined scoring. |
 | 3.82.0 | 2026-03-17 | **PMAT-229: Definitive combined scoring.** Fixed runtime_name in corrected results. 4-runtime combined scoring with best-in-class bonuses. Quality crossover at c=128 PRESERVED (67 vs 63 C+) — earlier isolated scoring (53 C) was missing bonuses. realizr decode caps at 41 tok/s while vLLM degrades to 15 tok/s. Exec summary scorecards corrected. |
 | 3.81.0 | 2026-03-17 | **PMAT-228: Production medium sweep at BATCH=16 (c=32-128).** realizr 867/887/857 tok/s. Asymptote ~880 tok/s (hetero) — −41% from BATCH=32 (1500). TTFT: 2273/7178/16588ms. Decode constant 56-58 tok/s. README and performance.md updated with definitive BATCH=16 production numbers. |
 | 3.80.0 | 2026-03-17 | **PMAT-227: Long-prompt production refresh with correct flags + BATCH=16.** Full c=1-64 sweep (realizr/vLLM), c=1-16 (llama.cpp). realizr −13-16% long penalty, vLLM ±10% noise (confirmed prompt-invariant at c=32 +1%, c=64 +7%). realizr/vLLM widens monotonically: 0.94→0.32→0.28→0.27→0.25→**0.22×**. TTFT gap at c=64: **9071ms vs 63ms (144×)**. realizr long asymptote 705 tok/s at BATCH=16 (−52% vs medium BATCH=32). Long-prompt scorecards: realizr 47D-88A−, vLLM 94A-98A+. Supersedes PMAT-220/225 long-prompt data. |

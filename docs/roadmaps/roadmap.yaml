@@ -4557,3 +4557,33 @@ roadmap:
     - realizr decode caps at 41 tok/s (BATCH=16 ceiling)
     - vLLM decode degrades to 15 tok/s (continuous degradation)
     - realizr gets +5 best-in-class bonus on decode/ITL dimensions
+- id: PMAT-230
+  github_issue: null
+  item_type: task
+  title: 'PMAT-230: Phase 1+CB projections rebased to BATCH=16 production baseline'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Projection table Current column updated to BATCH=16 — DONE'
+  - 'AC2: Iso-quality table updated with BATCH=16 thresholds — DONE'
+  - 'AC3: CB lift ratio quantified — DONE (2.6-3.4× vs 2.0-2.8× at BATCH=32)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - analysis
+  - projections
+  - 4060L
+  notes: |
+    Analytical update — no new benchmarks.
+    Projection table: Current column updated from BATCH=32 (PMAT-177) to BATCH=16 (PMAT-228).
+    Key changes at c=32+: 945→867, 1484→887, 1506→857.
+    CB lift ratio (Paged KV+CB / Current): 2.6×(c=4) to 3.4×(c=16/128).
+    Was 2.0-2.8× at BATCH=32 — BATCH=16 workaround makes CB ROI even stronger.
+    Iso-quality: ITL≤15ms drops c=32(945)→c=16(571), Score≥70 drops c=32(945)→c=16(571).
+    Improvement ratios increase from 3.0× to 4.9×.
+    BATCH=16 ITL data: c=1 6.7ms, c=4 12.1ms, c=8 13.5ms, c=16 14.0ms, c=32 17.7ms.
