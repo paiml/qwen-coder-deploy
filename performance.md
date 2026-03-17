@@ -69,6 +69,27 @@ vLLM: 11,467 pre-captured graph launches, event-based sync, 18.9µs median sync.
 **Per-step c=4 budget**: 1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms → 216 tok/s.
 **Fix projection**: per-M graph + event sync → +85% to ~400 tok/s at c=4.
 
+### Prompt-Length Sensitivity (PMAT-219/220)
+
+Competitive ratios (realizr/llama.cpp) across prompt lengths with heterogeneous output:
+
+| Workload | c=1 | c=4 | c=8 | c=16 |
+|----------|-----|-----|-----|------|
+| short + hetero | 0.95 | 0.70 | 0.95 | 0.78 |
+| medium + hetero | 0.93 | 0.61 | 0.85 | 0.65 |
+| long + hetero | 0.91 | 0.55 | 0.75 | — † |
+
+realizr/vLLM ratios:
+
+| Workload | c=1 | c=4 | c=8 | c=16 |
+|----------|-----|-----|-----|------|
+| short + hetero | 0.97 | 0.41 | 0.34 | 0.32 |
+| medium + hetero | 0.96 | 0.37 | 0.32 | 0.30 |
+| long + hetero | 0.94 | 0.33 | 0.28 | 0.24 |
+
+† realizr c=16 long: output degradation (p50=10 tokens).
+Prompt length monotonically hurts realizr. FP8 prefill BW overhead scales linearly.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
