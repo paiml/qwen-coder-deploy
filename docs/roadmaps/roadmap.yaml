@@ -4671,3 +4671,34 @@ roadmap:
     c=64 within ±10-15% high-concurrency variance band.
     Per-request decode at c=64: realizr 57.5 > vLLM 50.5 (1.14×).
     This decode advantage is the mechanism behind quality crossover at c=128.
+- id: PMAT-234
+  github_issue: null
+  item_type: task
+  title: 'PMAT-234: Tail latency & jitter scaling — 4-runtime analysis'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 4-runtime jitter table (TPOT P99/ITL P50) — DONE'
+  - 'AC2: Jitter ranking established — DONE (ollama < vLLM < realizr < llama.cpp)'
+  - 'AC3: llama.cpp error rate documented — DONE (1-2% at all c)'
+  - 'AC4: TTFT tail ratio analysis — DONE (realizr tightest at c=4-64)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - tail-latency
+  - 4060L
+  notes: |
+    Analytical — derived from existing PMAT-177/228 production results.
+    Jitter = TPOT P99 / ITL P50, lower is better.
+    ollama: 1.00-1.01x (serial = perfect ITL consistency).
+    vLLM: 1.00-1.10x (continuous batching, event sync).
+    realizr B16: 1.00-1.18x at c<=64, 1.49x at c=128 (128/16 slot contention).
+    llama.cpp: 1.01-1.38x (worst jitter) + only runtime with 1-2% errors.
+    llama.cpp avg_tok ~92 (vs ~136) — ctx_size=4096/parallel=16 = 256 tok/slot.
+    realizr TTFT tail P99/P50: 1.01-1.12x at c=4-64 (batch scheduling deterministic).

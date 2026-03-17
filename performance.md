@@ -71,6 +71,17 @@ c=64 confirmed clean same-session (avg ~135 tokens both). Tradeoff: −40% aggre
 - Score≥70: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
 - After Phase 1+CB: iso-quality gap shrinks from 12.8× to ~1.4× at ITL≤12ms
 
+### Tail Latency & Jitter (PMAT-234)
+
+| Runtime | Jitter (max) | Error rate | TTFT tail (P99/P50) |
+|---------|-------------|------------|---------------------|
+| ollama | **1.01×** (perfect) | 0% | 1.10-1.14× |
+| vLLM | 1.10× | 0% | 1.06-2.49× |
+| realizr (B16) | 1.18× (c≤64), 1.49× (c=128) | 0% | **1.01-1.12×** (tightest) |
+| llama.cpp | **1.38×** (worst) | **1-2%** | 1.10-1.57× |
+
+Jitter = TPOT P99 / ITL P50. llama.cpp is the only runtime with errors (avg_tok ~92 vs ~136, ctx_size constraint).
+
 ### Three-Way Kernel Architecture (PMAT-209→217, nsys/ncu profiling)
 
 | Dimension | realizr | llama.cpp | vLLM |
