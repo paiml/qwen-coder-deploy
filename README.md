@@ -89,7 +89,7 @@ Quality crossover: realizr **beats** vLLM at c=128 (66 C+ vs 63 C+).
 - **Scheduling gap root cause**: per-step budget = 1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms → 216 tok/s
 - **Fix projection**: per-M graph + event sync → +85% to ~400 tok/s at c=4
 - **Prompt length hurts**: realizr/vLLM gap widens from 0.30× (medium c=16) to 0.24× (long c=16). TTFT gap: 14.4× at c=8 with long prompts (PMAT-220)
-- **⚠️ Quality bug**: realizr batched prefill corrupts KV at long c≥9, medium c≥18 (PMAT-221). Total-token hypothesis FALSIFIED (PMAT-222) — bug is prompt-length-dependent
+- **⚠️ Quality bug**: realizr batched prefill corrupts KV at long c≥9, medium c≥20 at BATCH=32 (PMAT-221). **Workaround: CUDA_MAX_BATCH=16** eliminates bug, −33% asymptote (1500→1010 tok/s) (PMAT-223)
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
@@ -107,7 +107,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v3.74.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v3.75.0) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

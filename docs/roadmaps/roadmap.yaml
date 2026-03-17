@@ -4334,9 +4334,43 @@ roadmap:
   - 4060L
   notes: |
     FALSIFIED: total-token hypothesis from PMAT-221 is wrong.
-    Per-batch token products: long 8×311=2488 (OK), medium 17×102=1734 (OK),
-    short 32×23=736 (OK). But medium 18×102=1836 BREAKS while long 2488 works.
-    The bug is prompt-length-dependent, not total-token-dependent.
-    Hypothesized: shared memory or workspace alignment in batch_prefill.rs
-    has a per-slot capacity that decreases non-linearly with prompt length.
+    Corrected thresholds (BATCH=32): medium c=19 OK / c=20 broken (NOT c=18 as initially
+    reported — that was from contaminated server). Long c=8 OK / c=9 broken. Short never.
+    BATCH=16 eliminates bug entirely (PMAT-223). Bug is workspace-allocation-dependent.
     Each fresh restart required between tests (long c=9 corrupts permanently).
+- id: PMAT-223
+  github_issue: null
+  item_type: task
+  title: 'PMAT-223: CUDA_MAX_BATCH=16 workaround for batched prefill bug'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: BATCH=16 medium c=32 correct — DONE (avg_tok=126.7, [115,127,128,128])'
+  - 'AC2: BATCH=16 medium c=64,128 correct — DONE ([114,126,128,128], [113,127,128,128])'
+  - 'AC3: BATCH=16 long c=16,32 correct — DONE (avg_tok=255.8)'
+  - 'AC4: Measure throughput tradeoff — DONE (1010 vs 1500 tok/s, -33%)'
+  - 'AC5: Correct medium threshold — DONE (c=19 OK, c=20 broken at BATCH=32)'
+  - 'AC6: Verify BATCH=18 works — DONE (c=18 medium OK at BATCH=18)'
+  - 'AC7: Full production sweep — DONE (c=1-128 correct, asymptote 1010 tok/s)'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - bug
+  - workaround
+  - production
+  - 4060L
+  notes: |
+    CUDA_MAX_BATCH=16 is a practical workaround for the PMAT-221 batched prefill bug.
+    Eliminates KV corruption at ALL concurrency levels and prompt lengths.
+    Throughput tradeoff: asymptote 1010 tok/s vs 1500 at BATCH=32 (-33%).
+    This is acceptable for production until batch_prefill.rs is fixed.
+    Production sweep (medium, BATCH=16):
+    c=1: 147.2, c=4: 316.1, c=8: 560.2, c=16: 1008.1, c=32: 1009.9,
+    c=64: 1010.0, c=128: 1010.3 tok/s. All output correct.
+    Also corrected medium threshold: c=19 OK / c=20 broken (not c=18 — contaminated).
+    BATCH=18 with c=18 medium: works. Confirms bug is workspace-allocation-dependent.

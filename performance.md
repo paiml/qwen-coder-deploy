@@ -288,17 +288,30 @@ Ollama: serial prefill — TTFT 612ms at c=4, aggregate flat vs c=1. Production-
 | realizr | 78 B | 67 C+ | **49 D** | −30 points |
 | llama.cpp | 70 B | 71 B | 67 C+ | −3 points |
 
-### ⚠️ PMAT-221/222: Batched Prefill Quality Bug
+### ⚠️ PMAT-221/222/223: Batched Prefill Quality Bug & Workaround
 
-realizr produces 0 tokens when too many slots prefill simultaneously with non-short prompts:
+realizr produces 0 tokens when too many slots prefill simultaneously with non-short prompts (CUDA_MAX_BATCH=32):
 
 | Profile | c_max OK | c_min BROKEN | Per-batch tokens OK | Per-batch tokens BROKEN |
 |---------|----------|--------------|---------------------|-------------------------|
 | short (23 tok) | 32+ | never | 736 | never |
-| medium (102 tok) | 17 | 18 | 1,734 | 1,836 |
+| medium (102 tok) | 19 | 20 | 1,938 | 2,040 |
 | long (311 tok) | 8 | 9 | 2,488 | 2,799 |
 
-**Total-token hypothesis FALSIFIED (PMAT-222):** long 8×311=2,488 per-batch tokens works, but medium 18×102=1,836 breaks. The bug is prompt-length-dependent — per-slot limit in batched prefill decreases non-linearly with sequence length. Long-prompt corruption is persistent (server requires restart); medium is transient. vLLM and llama.cpp unaffected.
+**Total-token hypothesis FALSIFIED (PMAT-222):** long 2,488 works but medium 2,040 breaks — bug is prompt-length-dependent, not total-token.
+
+**CUDA_MAX_BATCH=16 workaround (PMAT-223):** Eliminates bug at ALL concurrency levels and prompt lengths:
+
+| c | BATCH=32 (tok/s) | BATCH=16 (tok/s) | BATCH=16 correct? |
+|---|-------------------|-------------------|-------------------|
+| 1 | 146.4 | 147.2 | ✅ |
+| 4 | 216.1 | 316.1 | ✅ |
+| 8 | 355.1 | 560.2 | ✅ |
+| 16 | 586.5 | 1,008.1 | ✅ |
+| 32 | 944.7 ⚠️ | 1,009.9 | ✅ |
+| 128 | 1,505.6 | 1,010.3 | ✅ |
+
+⚠️ BATCH=32 c=32 data was bug-affected (avg_tok=67.2). BATCH=16 asymptote is 1,010 tok/s (−33% from 1,500), but output is always correct. **Recommended for production until batch_prefill.rs is fixed.**
 
 ### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
