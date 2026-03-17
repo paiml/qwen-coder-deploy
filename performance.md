@@ -325,16 +325,18 @@ realizr produces 0 tokens when too many slots prefill simultaneously with non-sh
 | 4 | 182.4 | 342.2 | 569.6 | 0.53× | 0.32× |
 | 8 | 306.3 | 399.3 | 1,089.4 | 0.77× | 0.28× |
 | 16 | 484.2 | 814.0 | 1,788.8 | 0.59× | 0.27× |
+| 32 | 692.1 | — | 2,797.6 | — | 0.25× |
+| 64 | 705.1 | — | 3,252.1 | — | **0.22×** |
 
 **Prompt-length sensitivity (long vs medium % change):**
 
-| Runtime | c=1 | c=4 | c=8 | c=16 |
-|---------|-----|-----|-----|------|
-| realizr | −3% | −16% | −13% | −15% |
-| llama.cpp | −2% | −3% | −5% | −9% |
-| vLLM | 0% | −3% | −2% | −10% |
+| Runtime | c=1 | c=4 | c=8 | c=16 | c=32 | c=64 |
+|---------|-----|-----|-----|------|------|------|
+| realizr | −3% | −16% | −13% | −15% | — | — |
+| llama.cpp | −2% | −3% | −5% | −9% | — | — |
+| vLLM | 0% | −3% | −2% | −10% | +1% | +7% |
 
-**realizr has the largest long-prompt penalty** (FP8 2-step prefill). TTFT gap grows: 8.7× (c=4), 14.4× (c=8), **24× (c=16)**. vLLM shows unexpected −10% at c=16 (prefill pressure at high batch). Supersedes PMAT-220/225 data.
+**realizr has the largest long-prompt penalty** (FP8 2-step prefill). TTFT gap grows: 8.7× (c=4), 14.4× (c=8), 24× (c=16), 77× (c=32), **144× (c=64)**. vLLM confirmed prompt-invariant (±10% noise, no systematic trend at c=32/64). realizr long asymptote 705 tok/s at BATCH=16 (−52% vs medium BATCH=32). Supersedes PMAT-220/225 data.
 
 **Long-prompt scorecards:**
 

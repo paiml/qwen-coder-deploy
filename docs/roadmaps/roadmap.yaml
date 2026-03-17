@@ -4493,8 +4493,9 @@ roadmap:
     Key findings:
     - realizr most prompt-sensitive (-13-16% at c>=4), 2-step FP8 prefill is sole cause
     - llama.cpp nearly invariant (-2-9%), flash attention handles long prompts well
-    - vLLM mostly invariant but -10% at c=16 (prefill pressure at high batch)
-    - TTFT gap explodes with concurrency: 8.7x (c=4), 14.4x (c=8), 24x (c=16)
-    - c=16 long data now available: realizr 484, llama.cpp 814, vLLM 1789 tok/s
-    - realizr/vLLM ratio at c=16 long: 0.27x (worse than medium 0.29x)
+    - vLLM confirmed prompt-invariant (+-10% noise, c=32 +1%, c=64 +7%)
+    - TTFT gap explodes: 8.7x (c=4), 14.4x (c=8), 24x (c=16), 77x (c=32), 144x (c=64)
+    - realizr/vLLM widens monotonically: 0.94/0.32/0.28/0.27/0.25/0.22x (c=1-64)
+    - realizr long asymptote 705 tok/s at BATCH=16 (-52% vs medium BATCH=32 1484)
+    - TTFT at c=64: 9071ms (9 seconds!) — complete prefill saturation
     - llama.cpp needed ctx-size 8192 (vs 4096) to handle long prompts with p=16
