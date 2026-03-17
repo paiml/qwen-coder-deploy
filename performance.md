@@ -339,6 +339,7 @@ realizr produces 0 tokens when too many slots prefill simultaneously with non-sh
 | realizr | −3% | −16% | −13% | −15% | — | — |
 | llama.cpp | −2% | −3% | −5% | −9% | — | — |
 | vLLM | 0% | −3% | −2% | −10% | +1% | +7% |
+| ollama | 0% | 0% | — | — | — | — |
 
 **realizr has the largest long-prompt penalty** (FP8 2-step prefill). TTFT gap grows: 8.7× (c=4), 14.4× (c=8), 24× (c=16), 77× (c=32), **144× (c=64)**. vLLM confirmed prompt-invariant (±10% noise, no systematic trend at c=32/64). realizr long asymptote 705 tok/s at BATCH=16 (−52% vs medium BATCH=32). Supersedes PMAT-220/225 data.
 

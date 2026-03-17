@@ -1010,7 +1010,7 @@ realizr/vLLM (long + hetero): 0.94× (c=1), 0.32× (c=4), 0.28× (c=8), 0.27× (
 | 32 | 692.1 | — | — | — | 943.2 | — | 2797.6 | 2757.6 | +1% |
 | 64 | 705.1 | — | — | — | — | — | 3252.1 | 3036.1 | +7% |
 
-realizr: −13-16% long penalty at c≥4 (FP8 2-step prefill). llama.cpp: −2-9% (flash attention). vLLM: ±10% noise (c=32 +1%, c=64 +7% — no systematic prompt sensitivity). **realizr is the only runtime with prompt-length sensitivity** — the 2-step FP8 convert+GEMM pipeline is the sole cause. Fused Q4K→GEMM (PMAT-054) would eliminate this.
+realizr: −13-16% long penalty at c≥4 (FP8 2-step prefill). llama.cpp: −2-9% (flash attention). vLLM: ±10% noise. ollama: 0% (serial, prompt-invariant). **realizr is the only runtime with prompt-length sensitivity** — the 2-step FP8 convert+GEMM pipeline is the sole cause. All three fused-GEMM runtimes (ollama, llama.cpp, vLLM) are prompt-invariant. Fused Q4K→GEMM (PMAT-054) would eliminate this.
 
 **Long-prompt scorecards (PMAT-227, probador llm score):**
 
