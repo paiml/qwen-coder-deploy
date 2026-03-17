@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.71.0
+**Version:** 3.72.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -981,7 +981,7 @@ Each runtime at its best parallelism setting for each concurrency level:
 |----------|-----|-----|------|
 | medium + uniform:16,256 | 0.62 L | 0.84 L | 0.64 L |
 
-**Updated competitive picture (PMAT-219, Mar 17 — adds short+hetero row):**
+**Updated competitive picture (PMAT-220, Mar 17 — adds long+hetero row):**
 
 | Workload | c=1 | c=4 | c=8 | c=16 | Notes |
 |----------|-----|-----|-----|------|-------|
@@ -991,13 +991,18 @@ Each runtime at its best parallelism setting for each concurrency level:
 | medium + fixed 32 | — | 0.81 L | **1.08 W** | 0.72 L | Narrow c=8 win |
 | medium + fixed 128 | — | 0.85 L | **1.29 W** | 0.90 L | Narrow c=8 win |
 | **medium + hetero 16-256** | **0.93** | **0.61 L** | **0.85 L** | **0.65 L** | **No wins. Production-realistic.** |
+| **long + hetero 16-256** | **0.91 L** | **0.55 L** | **0.75 L** | **— ‡** | **Worst case — FP8 prefill BW dominates (PMAT-220)** |
+
+‡ llama.cpp --parallel 8 maxes out at c=8. realizr c=16 output degradation (p50=10 tokens vs expected ~136).
+
+**PMAT-220 key finding: long prompts WIDEN the gap.** realizr/vLLM: 0.94×, 0.33×, 0.28×, 0.24× (vs medium 0.96/0.37/0.32/0.30×). TTFT gap explodes: realizr 175ms vs vLLM 21ms at c=4 (8.3×), 330ms vs 23ms at c=8 (14.4×). FP8 2-step prefill BW overhead scales with prompt length as predicted. realizr c=16 shows output quality degradation: 448 requests but p50=10 tokens output (many near-empty responses), inflating aggregate to 439.8 tok/s on truncated completions.
 
 **PMAT-219 key finding: short prompt helps +0.09 to +0.13 vs llama.cpp, but the c=8 win (1.47x) was ENTIRELY an artifact of uniform output.** With heterogeneous output (uniform:16,256), short prompt only recovers to 0.95x at c=8 — still a loss. Short vs medium realizr aggregate: +1.6% (c=1), +10.9% (c=4), +8.8% (c=8), +11.8% (c=16). The FP8 prefill sensitivity adds ~10% penalty at medium vs short. But output heterogeneity costs ~40%.
 
 **realizr/vLLM ratios (PMAT-219, short + uniform:16,256):** c=1: 0.97×, c=4: 0.41×, c=8: 0.34×, c=16: 0.32×. Barely changes from medium (0.96/0.37/0.32/0.30×). vLLM's advantage is scheduling architecture, not prompt-related.
 
-**Revised interpretation:** realizr's c=8 advantage was an artifact of two favorable benchmark conditions: (1) uniform output length creating ideal batching, and (2) short prompts minimizing TTFT penalty. Under ANY heterogeneous output condition, **realizr loses at ALL concurrency levels regardless of prompt length.** The competitive picture has three layers:
-1. **TTFT penalty** (FP8 2-step prefill): costs 10-40 scoring points vs llama.cpp → fused Q4K GEMM (PMAT-054) fixes this
+**Revised interpretation:** realizr's c=8 advantage was an artifact of two favorable benchmark conditions: (1) uniform output length creating ideal batching, and (2) short prompts minimizing TTFT penalty. Under ANY heterogeneous output condition, **realizr loses at ALL concurrency levels regardless of prompt length.** Long prompts make it worse: the FP8 prefill BW overhead scales linearly with prompt length, growing the TTFT gap from 3.1× (c=1) to 14.4× (c=8). The competitive picture has three layers:
+1. **TTFT penalty** (FP8 2-step prefill): costs 10-40 scoring points vs llama.cpp → fused Q4K GEMM (PMAT-054) fixes this. **Prompt-length dependent: 3× at short, 8× at medium, 14× at long (c=8)**
 2. **Output heterogeneity penalty** (contiguous KV waste): costs 31-42% aggregate → paged KV (PMAT-052) fixes this
 3. **Architectural ceiling** (fixed-slot batch-and-step): vLLM 0.38-0.46× ahead under production conditions → full Dynamo replication (Phases 0-3) needed
 
@@ -3043,6 +3048,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-220** | **Long-prompt production methodology (long + uniform:16,256)** | **Long prompts WIDEN gap: 0.24× vLLM at c=16, TTFT 14.4× at c=8** | ✅ MEASURED. 3-runtime sweep (realizr, llama.cpp --parallel 8, vLLM) at c=1,4,8,16 with long prompt + uniform:16,256 output. realizr/llama.cpp: 0.91×, 0.55×, 0.75× (all losses, llama.cpp capped at c=8). realizr/vLLM: 0.94×, 0.33×, 0.28×, 0.24× (WIDER than medium 0.96/0.37/0.32/0.30×). TTFT gap explodes: 8.3× at c=4, 14.4× at c=8 (vs 5.8× at medium). ⚠️ realizr c=16 output degradation: p50=10 tokens (expected ~136), many near-empty responses. llama.cpp --parallel 8 required (--parallel 16 can't serve long prompts, 256 tok/slot < ~353 prompt). Confirms FP8 prefill BW overhead scales linearly with prompt length. Data: results/{realizr,llamacpp,vllm}-yoga-long-prod-c{1,4,8,16}-20260317.json |
 | **PMAT-154** | **Trajectory baseline: medium+128tok measured** | **realizr 0.63-0.67× vLLM (not 0.28×)** | ✅ MEASURED. realizr c=4-18 vs vLLM c=4-32, medium+128tok, yoga 4060L. Gap is consistent 0.63-0.67× across all c, TTFT-dominated (2.4-3.0× vLLM). Ceiling c=18 (OOM at c=20). ⚠️ CUDA graph regression claim FALSIFIED by PMAT-201 (was transient V1 cache issue). vLLM enforce-eager understates by 21-28%. |
 | **PMAT-177** | **Comprehensive production benchmark refresh (c=1-16, 60s)** | **Baseline confirmed: realizr 93A/58C/65C+/71B, vLLM 98A+/99A+/99A+/96A+** | ✅ MEASURED. Fresh 60s production sweep (medium + uniform:16,256) for all 3 runtimes at c=1,4,8,16. realizr numbers identical to PMAT-157 (<0.3% variance). Scorecards via probador llm score: realizr 93→71 (A→B), vLLM 98→96 (A+→A+), llama.cpp 98→72 (A+→B). At c=8/16, realizr matches llama.cpp (65/71 vs 65/72). Gap is entirely vs vLLM. Makefile updated with `bench-yoga-prod` targets for production-realistic methodology. |
 | **PMAT-176** | **Phase 0 ROI by output length (16-256 tokens)** | **Phase 0 gain = +49% at 16 tok, +7% at 128, +4% at 256 — code completion optimization** | ✅ DERIVED from PMAT-171/173 data. Phase 0 throughput gain depends entirely on TTFT's share of total request time. At 16-token output (code completion), TTFT is 42% of request → +49% gain. At 128 tokens, only 8% → +7%. At 256 tokens, 4% → +4%. Formula: gain ≈ TTFT_excess / (TTFT_excess + decode_time). Phase 0 is a code-completion optimization, not a generation optimization. For generation workloads, only Phase 1 matters. |
@@ -4000,6 +4006,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.72.0 | 2026-03-17 | **PMAT-220: Long-prompt production methodology — gap widens to 0.24× vLLM.** 3-runtime sweep (realizr, llama.cpp --parallel 8, vLLM) with long prompt + uniform:16,256 output at c=1,4,8,16. Long prompts amplify FP8 prefill BW overhead: realizr/vLLM drops from 0.30× (medium c=16) to 0.24× (long c=16). TTFT gap explodes to 14.4× at c=8 (vs 5.8× medium). realizr c=16 output degradation: p50=10 tokens (expected ~136). llama.cpp --parallel 8 required for long prompts (--parallel 16 can't serve). Competitive matrix now complete across short/medium/long × fixed/hetero. Prompt length monotonically hurts realizr under production conditions. |
 | 3.71.0 | 2026-03-17 | **PMAT-219: Short-prompt production methodology — c=8 win was ENTIRELY output-length artifact.** Ran 3-runtime production methodology (short prompt + uniform:16,256 output) at c=1/4/8/16. The c=8 win (1.47× from PMAT-113 with fixed 32-tok output) vanishes completely: now 0.95× LOSS. Short prompt helps realizr +9-13% vs llama.cpp and +10-12% vs medium prompt (FP8 prefill sensitivity), but output heterogeneity costs ~40%. realizr/vLLM ratios barely change from medium (0.97/0.41/0.34/0.32× vs 0.96/0.37/0.32/0.30×). Under ANY heterogeneous output, realizr loses at ALL concurrency regardless of prompt length. Updated competitive matrix with short+hetero row. |
 | 3.70.0 | 2026-03-17 | **PMAT-218: H4 vectorization falsification — CONFIRMED 3.2× gain potential.** ncu `--set full` on Q4K GEMV kernels reveals only 9.9/32 bytes (31%) per sector utilized, with 57% excessive (wasted) sectors. Both unfused and fused GEMV have identical ~31% utilization — the Q4K block layout (AoS with interleaved scales/mins/quants) inherently creates strided access. Fused kernel reaches 74% DRAM BW despite low utilization by amortizing pipeline latency (82µs vs 9.3µs). H4 CONFIRMED: vectorized/coalesced loads would provide 3.2× effective bandwidth (>2.0× threshold). Root cause is data layout, not instruction selection — float4 loads alone won't fix it, need SoA transpose. This directly informs PMAT-054: fused Q4K GEMM must pre-transpose weights into coalesced format. Convergence with PMAT-217: the two highest-value fixes target the same kernel path. All 5 original hypotheses (H1-H5) now resolved. |
 | 3.69.0 | 2026-03-17 | **PMAT-217: CUDA API scheduling analysis — the 82% CPU block.** Extracted CUDA API traces for all three runtimes at c=4 via nsys. Definitive root cause: realizr makes only 117 CUDA graph launches (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms). The M=1 graph can't be reused when batch size varies. llama.cpp dynamically re-captures graphs (103 captures) with non-blocking 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with event-based 18.9µs median sync. Per-step budget: 1.6ms launch overhead + 7ms GPU + 10.4ms blocking sync = 12.5ms/step × 2.7 tok/step = 216 tok/s. Fix: per-M graph + event sync → projected +85% to ~400 tok/s. |

@@ -4225,3 +4225,38 @@ roadmap:
     Short prompt helps realizr +9-13% vs medium, but output heterogeneity costs ~40%.
     vLLM ratios barely change from medium prompt (prompt-invariant confirmed).
     Data: results/{realizr,llamacpp,vllm}-yoga-short-prod-c{1,4,8,16}-20260317.json
+- id: PMAT-220
+  github_issue: null
+  item_type: task
+  title: 'PMAT-220: Long-prompt production methodology — gap widens to 0.24× vLLM'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 3-runtime sweep (realizr, llama.cpp --parallel 8, vLLM) at c=1,4,8,16 — DONE'
+  - 'AC2: Long prompt + uniform:16,256 output + streaming + 60s — DONE'
+  - 'AC3: Compare to medium-prompt production (PMAT-177+) — DONE'
+  - 'AC4: Competitive matrix updated with long+hetero row — DONE'
+  - 'AC5: TTFT scaling quantified (3× short, 8× medium, 14× long at c=8) — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - benchmark
+  - long-prompt
+  - production-methodology
+  - falsification
+  - 4060L
+  notes: |
+    Long prompts (~311 tok) amplify FP8 2-step prefill BW overhead.
+    realizr/vLLM: 0.94, 0.33, 0.28, 0.24 at c=1,4,8,16 (wider than medium).
+    realizr/llama.cpp: 0.91, 0.55, 0.75 at c=1,4,8 (llama.cpp --parallel 8 max c=8).
+    TTFT gap: realizr 175ms vs vLLM 21ms at c=4 (8.3x), 330ms vs 23ms at c=8 (14.4x).
+    realizr c=16 output degradation: p50=10 tokens (expected ~136), many near-empty.
+    llama.cpp --parallel 8 required (--parallel 16 slot too small for long prompts).
+    Competitive matrix now complete: short/medium/long × fixed/hetero.
+    Prompt length monotonically hurts realizr under production conditions.
+    Data: results/{realizr,llamacpp,vllm}-yoga-long-prod-c{1,4,8,16}-20260317.json
