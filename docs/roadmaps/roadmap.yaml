@@ -4298,9 +4298,45 @@ roadmap:
        32 × 144 = 4608 total KV positions. Recovers at lower concurrency.
     3. Medium c=64/128: NORMAL. Batch staggering prevents all slots from prefilling
        simultaneously, keeping per-batch token count below threshold.
-    Root cause: batched prefill corrupts KV when total simultaneous prompt tokens
-    exceeds internal limit. Long-prompt corruption permanent (workspace not recycled);
-    medium-prompt transient (stale KV evicted on next request cycle).
+    Root cause: NOT total tokens (FALSIFIED by PMAT-222). Bug is prompt-length-dependent:
+    per-slot limit in batched prefill decreases non-linearly with seq_len.
+    Long 8×311=2488 per-batch tokens WORKS, medium 18×102=1836 BREAKS — total tokens
+    cannot be discriminator. Some shared memory/workspace/alignment constraint in
+    batch_prefill.rs has a per-slot capacity that shrinks with prompt length.
+    Medium thresholds refined: c=17 OK (avg_tok=126.2), c=18 BROKEN ([0,0,128,128]),
+    c=24 worse (avg_tok=1.7), c=32 fully broken (0/0/0/0).
     PMAT-220 c=16 long data: INVALIDATED. PMAT-177 c=32 data: AFFECTED.
     vLLM and llama.cpp unaffected at equivalent concurrency.
     Fix needed in realizr: src/cuda/batch_prefill.rs or workspace allocation.
+- id: PMAT-222
+  github_issue: null
+  item_type: task
+  title: 'PMAT-222: Falsify total-token hypothesis from PMAT-221'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Test short c=128 — DONE (works, 32×23=736 per-batch, total 8320 tokens OK)'
+  - 'AC2: Verify medium c=17/c=18 boundary — DONE (c=17 OK avg_tok=126.2, c=18 BROKEN avg_tok=62.2)'
+  - 'AC3: Verify long c=8/c=9 boundary — DONE (c=8 OK avg_tok=256.0, c=9 BROKEN avg_tok=123.5)'
+  - 'AC4: Falsify total-token hypothesis — DONE (long 2488 works > medium 1836 breaks)'
+  - 'AC5: Test medium c=24/c=32 — DONE (c=24 avg_tok=1.7, c=32 fully 0/0/0/0)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - bug
+  - falsification
+  - correctness
+  - 4060L
+  notes: |
+    FALSIFIED: total-token hypothesis from PMAT-221 is wrong.
+    Per-batch token products: long 8×311=2488 (OK), medium 17×102=1734 (OK),
+    short 32×23=736 (OK). But medium 18×102=1836 BREAKS while long 2488 works.
+    The bug is prompt-length-dependent, not total-token-dependent.
+    Hypothesized: shared memory or workspace alignment in batch_prefill.rs
+    has a per-slot capacity that decreases non-linearly with prompt length.
+    Each fresh restart required between tests (long c=9 corrupts permanently).

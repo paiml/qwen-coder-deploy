@@ -288,6 +288,18 @@ Ollama: serial prefill — TTFT 612ms at c=4, aggregate flat vs c=1. Production-
 | realizr | 78 B | 67 C+ | **49 D** | −30 points |
 | llama.cpp | 70 B | 71 B | 67 C+ | −3 points |
 
+### ⚠️ PMAT-221/222: Batched Prefill Quality Bug
+
+realizr produces 0 tokens when too many slots prefill simultaneously with non-short prompts:
+
+| Profile | c_max OK | c_min BROKEN | Per-batch tokens OK | Per-batch tokens BROKEN |
+|---------|----------|--------------|---------------------|-------------------------|
+| short (23 tok) | 32+ | never | 736 | never |
+| medium (102 tok) | 17 | 18 | 1,734 | 1,836 |
+| long (311 tok) | 8 | 9 | 2,488 | 2,799 |
+
+**Total-token hypothesis FALSIFIED (PMAT-222):** long 8×311=2,488 per-batch tokens works, but medium 18×102=1,836 breaks. The bug is prompt-length-dependent — per-slot limit in batched prefill decreases non-linearly with sequence length. Long-prompt corruption is persistent (server requires restart); medium is transient. vLLM and llama.cpp unaffected.
+
 ### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
 **c=4 provides zero batching benefit on 8 SMs:**
