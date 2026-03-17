@@ -4271,14 +4271,16 @@ roadmap:
   updated: 2026-03-17T00:00:00Z
   spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: Reproduce 0-token output — DONE (c=9-16 all produce 0/0/0/0)'
-  - 'AC2: Find exact threshold — DONE (c=8 OK, c=9 BROKEN)'
-  - 'AC3: Verify persistence — DONE (once triggered, stays broken until restart)'
+  - 'AC1: Reproduce 0-token output — DONE (long c=9-16 all 0/0/0/0)'
+  - 'AC2: Find exact long threshold — DONE (c=8 OK, c=9 BROKEN)'
+  - 'AC3: Verify persistence — DONE (long: persistent. Medium: NOT persistent)'
   - 'AC4: Verify competitors unaffected — DONE (vLLM c=16 OK, llama.cpp c=8 OK)'
-  - 'AC5: Invalidate PMAT-220 c=16 data — DONE'
+  - 'AC5: Invalidate affected data — DONE (PMAT-220 c=16, PMAT-177 c=32 affected)'
+  - 'AC6: Find medium threshold — DONE (c=17 OK, c=18 partially broken, c=32 ~50% broken)'
+  - 'AC7: Verify c=64/128 unaffected — DONE (batch staggering prevents issue)'
   phases: []
   subtasks: []
-  estimated_effort: 30m
+  estimated_effort: 60m
   labels:
   - bug
   - quality
@@ -4287,12 +4289,18 @@ roadmap:
   - critical
   - 4060L
   notes: |
-    CRITICAL BUG: realizr generates 0 tokens at c>=9 with long prompts (~353 tokens).
-    Exact threshold: c=8 works perfectly (64/64/64/64), c=9 produces 0/0/0/0.
-    Once triggered, server stays in degraded state until restart.
-    Reproducible with both fixed:64 and uniform:16,256 output.
-    vLLM c=16 long produces p50=140 tokens (normal). llama.cpp c=8 OK.
-    PMAT-220 c=16 data (avg_tok=63) was from partially degraded state — INVALIDATED.
-    Likely root cause: KV workspace or CUDA graph corruption at M>=9 with large KV.
-    9 requests × 353 tokens = 3177 total KV positions may exceed some internal limit.
-    This bug needs to be fixed in realizr (src/cuda/ or src/serving/).
+    TWO DEGRADATION PATTERNS:
+    1. Long prompt c>=9: 100% broken (0/0/0/0), PERSISTENT until restart.
+       Threshold: c=8 OK (64/64/64/64), c=9 BROKEN (0/0/0/0).
+       9 × 353 = 3177 total KV positions.
+    2. Medium prompt c=32: ~50% broken (p50=32 vs expected ~136), NOT persistent.
+       Threshold: c=17 OK, c=18 partial, c=32 ~50% degraded.
+       32 × 144 = 4608 total KV positions. Recovers at lower concurrency.
+    3. Medium c=64/128: NORMAL. Batch staggering prevents all slots from prefilling
+       simultaneously, keeping per-batch token count below threshold.
+    Root cause: batched prefill corrupts KV when total simultaneous prompt tokens
+    exceeds internal limit. Long-prompt corruption permanent (workspace not recycled);
+    medium-prompt transient (stale KV evicted on next request cycle).
+    PMAT-220 c=16 long data: INVALIDATED. PMAT-177 c=32 data: AFFECTED.
+    vLLM and llama.cpp unaffected at equivalent concurrency.
+    Fix needed in realizr: src/cuda/batch_prefill.rs or workspace allocation.
