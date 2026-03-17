@@ -4702,3 +4702,33 @@ roadmap:
     llama.cpp: 1.01-1.38x (worst jitter) + only runtime with 1-2% errors.
     llama.cpp avg_tok ~92 (vs ~136) — ctx_size=4096/parallel=16 = 256 tok/slot.
     realizr TTFT tail P99/P50: 1.01-1.12x at c=4-64 (batch scheduling deterministic).
+- id: PMAT-235
+  github_issue: null
+  item_type: task
+  title: 'PMAT-235: Scaling efficiency analysis — concurrency to throughput conversion'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Scaling efficiency table — DONE (vLLM 0.96 at c=4 vs realizr 0.37)'
+  - 'AC2: Marginal throughput analysis — DONE (vLLM 145 vs realizr 23.5 tok/s/req)'
+  - 'AC3: Scaling knee points identified — DONE (same c=64, 3.4x different levels)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - scaling
+  - 4060L
+  notes: |
+    Analytical — derived from production data.
+    Scaling efficiency = (agg_c / agg_1) / c, perfect = 1.0.
+    vLLM: 0.96 (c=4), 0.91 (c=8), 0.81 (c=16) — near-perfect.
+    realizr: 0.37 (c=4), 0.30 (c=8), 0.24 (c=16) — 2.6x less efficient.
+    Marginal throughput: vLLM +145 vs realizr +23.5 tok/s/req at c=1->4.
+    Same knee at c=64 but 887 vs 3036 tok/s (3.4x gap).
+    realizr marginal goes negative at c=128 (-0.5 tok/s/req).
+    This gap is exactly what CB fixes: lift 0.37->0.90 at c=4.

@@ -71,6 +71,19 @@ c=64 confirmed clean same-session (avg ~135 tokens both). Tradeoff: −40% aggre
 - Score≥70: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
 - After Phase 1+CB: iso-quality gap shrinks from 12.8× to ~1.4× at ITL≤12ms
 
+### Scaling Efficiency (PMAT-235)
+
+Scaling efficiency = (agg_c / agg_1) / c. Perfect = 1.0.
+
+| c | vLLM | realizr | llama.cpp | ollama |
+|---|------|---------|-----------|--------|
+| 4 | **0.96** | 0.37 | 0.56 | 0.26 |
+| 8 | **0.91** | 0.30 | 0.33 | 0.13 |
+| 16 | **0.81** | 0.24 | 0.35 | 0.07 |
+| 32 | 0.57 | 0.18 | 0.19 | 0.03 |
+
+vLLM is 2.6× more efficient than realizr at c=4. Same scaling knee (c=64) at 3.4× different levels.
+
 ### Tail Latency & Jitter (PMAT-234)
 
 | Runtime | Jitter (max) | Error rate | TTFT tail (P99/P50) |

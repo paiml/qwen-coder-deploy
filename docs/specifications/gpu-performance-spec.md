@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.87.0
+**Version:** 3.88.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1076,6 +1076,28 @@ The penalty grows with concurrency because more active slots = more wasted KV po
 3. **realizr: moderate jitter, c=128 spike (1.49×)** — batch-and-step is deterministic at c≤64 (1.11× plateau) but 128 requests competing for 16 decode slots creates scheduling variance.
 4. **llama.cpp: worst jitter (1.38×) + only runtime with errors (1-2%)** — 16 fixed slots with ncols-templated dispatch creates contention at c=16+. avg_tok systematically low (~92 vs ~136) due to ctx_size=4096/parallel=16 = 256 tokens/slot.
 5. **realizr TTFT tail is tightest**: P99/P50 ratio 1.01-1.12× at c=4-64 (batch scheduling makes TTFT deterministic). vLLM TTFT tail widens more: 1.06× (c=1) → 2.49× (c=32).
+
+**PMAT-235: Scaling Efficiency (concurrency → throughput conversion):**
+
+Scaling efficiency = (agg_c / agg_1) / c. Perfect linear scaling = 1.0.
+
+| c | realizr | vLLM | llama.cpp | ollama |
+|---|---------|------|-----------|--------|
+| 1 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 4 | 0.37 | **0.96** | 0.56 | 0.26 |
+| 8 | 0.30 | **0.91** | 0.33 | 0.13 |
+| 16 | 0.24 | **0.81** | 0.35 | 0.07 |
+| 32 | 0.18 | 0.57 | 0.19 | 0.03 |
+| 64 | 0.09 | 0.31 | — | — |
+| 128 | 0.05 | 0.16 | — | — |
+
+**Key findings:**
+1. **vLLM scaling is near-perfect at c≤8** (0.91-0.96). Each additional request generates ~145 tok/s of marginal throughput — nearly the full c=1 rate of 152 tok/s. The CUTLASS GEMM is batch-invariant (+2.8% from c=1→c=16), so more requests = proportionally more output.
+2. **realizr scaling is 2.6× less efficient than vLLM at c=4** (0.37 vs 0.96). Each additional request generates only 23.5 tok/s marginal throughput (vs vLLM's 145). The batch-GEMV KV scan penalty immediately degrades per-request decode.
+3. **Scaling knees**: ollama c=4 (serial), llama.cpp c=32 (16-slot ceiling), realizr c=64 (BATCH=16 ceiling), vLLM c=64 (GPU compute saturation). **realizr and vLLM have the same knee (c=64)** but at 3.4× different absolute levels (887 vs 3036 tok/s).
+4. **Marginal throughput goes negative** at c=128 for realizr (−0.5 tok/s per request) — BATCH=16 queue contention actually reduces aggregate as prefill backlog grows.
+
+**Implication for Phase 1+CB:** Continuous batching would lift realizr's c=4 scaling efficiency from 0.37 to ~0.90 (matching vLLM × 0.97). The 2.6× efficiency gap at c=4 is the quantitative measure of what CB fixes. At c=16, the gap widens to 3.4× (0.24 vs 0.81) — this compounds into the 3.5× aggregate gap.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
@@ -3135,6 +3157,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-235** | **Scaling efficiency analysis (concurrency→throughput conversion)** | **vLLM 0.96 at c=4 (near-perfect) vs realizr 0.37. Same knee (c=64) at 3.4× different levels** | ✅ ANALYTICAL. Scaling efficiency = (agg_c / agg_1) / c. vLLM near-perfect at c≤8 (0.91-0.96), marginal throughput 145 tok/s/request. realizr 0.37 at c=4, marginal 23.5 tok/s/request (2.6× less efficient). Both hit knee at c=64 but realizr 887 vs vLLM 3036 (3.4× absolute gap). Marginal throughput goes negative at c=128 for realizr. Efficiency gap is the quantitative measure of what CB fixes. |
 | **PMAT-234** | **Tail latency & jitter scaling (4-runtime, production methodology)** | **Jitter ranking: ollama ≤1.01× > vLLM ≤1.10× > realizr ≤1.18× > llama.cpp 1.38×. llama.cpp only runtime with errors (1-2%)** | ✅ ANALYTICAL from existing results. Jitter = TPOT P99 / ITL P50. ollama: perfect 1.00-1.01× (serial). vLLM: ≤1.10× even at c=128 (continuous batching). realizr BATCH=16: 1.00-1.18× at c≤64, spikes to 1.49× at c=128 (128 reqs / 16 slots). llama.cpp: worst jitter 1.38× at c=16 (fixed-slot contention) + 1-2% error rate at all c. llama.cpp avg_tok ~92 (vs ~136) due to ctx_size/parallel constraint. realizr TTFT tail tightest: P99/P50 1.01-1.12× at c=4-64. |
 | **PMAT-233** | **vLLM cross-validation + same-session decode comparison** | **vLLM Δ<0.1% at c=1, <0.04% at c=16, +3.7% at c=64. realizr wins per-request decode 1.14× at c=64** | ✅ MEASURED. Same-session on yoga RTX 4060L. vLLM c=1: 153.5 tok/s (vs PMAT-177 153.4, Δ<0.1%). c=16: 1983.6 (vs 1982.9, Δ<0.04%). c=64: 3148.6 (vs 3036.1, +3.7% — within ±10-15% high-c variance). Same-session c=64 decode: realizr 57.5 vs vLLM 50.5 (1.14× realizr advantage). The decode advantage is the mechanism behind the quality crossover: BATCH=16's 57 tok/s floor beats vLLM's degraded 50 tok/s at c=64 and 15 tok/s at c=128. |
 | **PMAT-232** | **Same-session BATCH=16 vs BATCH=32 decode comparison (c=32, c=64)** | **c=64 confirmed: BATCH=16 57.5 vs BATCH=32 48.9 (+17.6%); c=32 confounded by quality bug** | ✅ MEASURED. Same-session on yoga RTX 4060L, locked 1900MHz. c=64: clean comparison (avg ~135 tokens both), BATCH=16 57.5 dec / 17.4ms ITL vs BATCH=32 48.9 dec / 20.5ms ITL (+17.6% decode, −15.1% ITL). c=32: BATCH=32 output corrupted (avg_tok=67, min=0, p50=20 vs expected ~136). PMAT-177 c=32 decode of 69.7 tok/s was measured with degraded output (confirmed same avg_tok=67.2). BATCH=32 c=32 decode inflated by shorter bug-corrupted sequences. |
@@ -4107,6 +4130,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.88.0 | 2026-03-17 | **PMAT-235: Scaling efficiency analysis.** Scaling efficiency = (agg_c/agg_1)/c. vLLM: 0.96 at c=4 (near-perfect), 0.81 at c=16. realizr: 0.37 at c=4, 0.24 at c=16 — 2.6× less efficient. Marginal throughput: vLLM +145 tok/s/req vs realizr +23.5 at c=1→4. Same scaling knee (c=64) at 3.4× different absolute levels. realizr marginal goes negative at c=128. CB projected to lift c=4 efficiency from 0.37→~0.90. |
 | 3.87.0 | 2026-03-17 | **PMAT-234: Tail latency & jitter scaling analysis.** 4-runtime jitter table (TPOT P99/ITL P50). Ranking: ollama ≤1.01× (serial=perfect), vLLM ≤1.10× (continuous batching), realizr ≤1.18× at c≤64 (batch-and-step, 1.49× at c=128 due to 128/16 slot contention), llama.cpp ≤1.38× (worst, fixed-slot). llama.cpp is the ONLY runtime with errors (1-2% at all c). llama.cpp avg_tok ~92 (vs ~136) from ctx_size constraint. realizr TTFT tail tightest: P99/P50 1.01-1.12×. |
 | 3.86.0 | 2026-03-17 | **PMAT-233: vLLM cross-validation + same-session decode comparison.** vLLM Δ<0.1% (c=1), <0.04% (c=16), +3.7% (c=64) vs PMAT-177/195 — all measurements rock-solid. Same-session c=64 decode: realizr 57.5 vs vLLM 50.5 (1.14× realizr advantage). This decode advantage mechanism enables the quality crossover at c≥128. |
 | 3.85.0 | 2026-03-17 | **PMAT-232: Same-session BATCH=16 vs BATCH=32 empirical validation.** c=64 confirmed clean: BATCH=16 57.5 tok/s (+17.6%) and 17.4ms ITL (−15.1%) vs BATCH=32 48.9/20.5ms. c=32 confounded: BATCH=32 quality bug produces avg_tok=67 (min=0, p50=20), inflating decode rate vs BATCH=16's healthy avg_tok=126. PMAT-177 c=32 decode of 69.7 confirmed bug-affected (same avg_tok=67.2). |
