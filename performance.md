@@ -44,15 +44,32 @@ PMAT-229 definitive combined scoring (4-runtime, best-in-class bonuses applied).
 | llama.cpp | 943 tok/s | c=32 | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | c=1 (serial) | Serial FIFO |
 
-### Quality Crossover (PMAT-192)
+### Quality Crossover (PMAT-192/229/233)
 
-realizr **beats** vLLM at c=128: 66 C+ vs 63 C+.
-batch=32 caps decode at 49 tok/s; vLLM degrades to 24 tok/s.
+realizr **beats** vLLM at c=128: 67 C+ vs 63 C+.
+BATCH=16 decode floor 57 tok/s (vs BATCH=32 49 tok/s); vLLM degrades to 15 tok/s.
+Same-session c=64 decode: realizr 57.5 vs vLLM 50.5 — **realizr wins per-request decode 1.14×** despite 3.5× aggregate deficit. Crossover mechanism: BATCH=16 caps KV scan growth, preserving per-request quality at high concurrency.
 
-### Iso-Quality Gap (PMAT-187/193)
+### BATCH=16 vs BATCH=32 Decode Preservation (PMAT-231/232)
 
-- ITL≤12ms: 12.8× (vLLM c=32 vs realizr c=4)
-- ITL≤21ms: 2.0× (vLLM c=64 vs realizr c=128)
+| c | BATCH=32 dec | BATCH=16 dec | B32 pres | B16 pres | Note |
+|---|-------------|-------------|----------|----------|------|
+| 1 | 148.3 | 149.2 | 100% | 100% | same |
+| 4 | 81.7 | 82.4 | 55% | 55% | same |
+| 16 | 72.2 | 71.3 | 49% | 48% | same |
+| 32 | 69.7† | 56.5 | 47% | 38% | B32 bug-inflated |
+| 64 | 48.9 | **57.5** | 33% | **39%** | B16 wins +17.6% |
+| 128 | 48.8 | **57.1** | 33% | **38%** | B16 wins +17% |
+
+†BATCH=32 c=32 decode inflated by quality bug (avg_tok=67 vs expected ~136, PMAT-232 confirmed).
+c=64 confirmed clean same-session (avg ~135 tokens both). Tradeoff: −40% aggregate for +17% per-request decode at c≥64.
+
+### Iso-Quality Gap (PMAT-187/193/230)
+
+- ITL≤12ms: 12.8× (vLLM c=32 2758 tok/s vs realizr c=4 218 tok/s)
+- ITL≤15ms: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
+- Score≥70: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
+- After Phase 1+CB: iso-quality gap shrinks from 12.8× to ~1.4× at ITL≤12ms
 
 ### Three-Way Kernel Architecture (PMAT-209→217, nsys/ncu profiling)
 
