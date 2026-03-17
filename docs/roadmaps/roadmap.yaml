@@ -4643,3 +4643,31 @@ roadmap:
     c=32 (confounded): B32 avg_tok=67 (min=0, p50=20 — PMAT-221 bug).
     B16 avg_tok=126 (healthy). B32 decode inflated by shorter sequences.
     PMAT-177 c=32 data (69.7 tok/s, avg_tok=67.2) confirmed bug-affected.
+- id: PMAT-233
+  github_issue: null
+  item_type: task
+  title: 'PMAT-233: vLLM cross-validation + same-session decode comparison at c=64'
+  status: completed
+  priority: low
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=1 drift check — DONE (153.5 tok/s, Δ<0.1% vs PMAT-177)'
+  - 'AC2: vLLM c=16 drift check — DONE (1983.6 tok/s, Δ<0.04%)'
+  - 'AC3: vLLM c=64 drift check — DONE (3148.6 tok/s, +3.7%)'
+  - 'AC4: Same-session decode comparison — DONE (realizr 57.5 vs vLLM 50.5 at c=64)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - validation
+  - vllm
+  - 4060L
+  notes: |
+    Same-session on yoga RTX 4060L, locked 1900MHz.
+    vLLM measurements rock-solid: <0.1% variance at c=1, <0.04% at c=16.
+    c=64 within ±10-15% high-concurrency variance band.
+    Per-request decode at c=64: realizr 57.5 > vLLM 50.5 (1.14×).
+    This decode advantage is the mechanism behind quality crossover at c=128.
