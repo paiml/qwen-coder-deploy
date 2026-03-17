@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.78.0
+**Version:** 3.79.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1021,7 +1021,16 @@ Each runtime at its best parallelism setting for each concurrency level:
 2. **Output heterogeneity penalty** (contiguous KV waste): costs 31-43% aggregate vs fixed:128 → paged KV (PMAT-052) fixes this
 3. **Architectural ceiling** (fixed-slot batch-and-step): vLLM ~3× ahead under production conditions → full Dynamo replication (Phases 0-3) needed
 
-**Note:** With fixed:128 output, realizr is significantly faster (c=8: 560 vs 352 tok/s) because contiguous KV slots are perfectly utilized. The heterogeneous output penalty is the **dominant factor** at c≥4. PMAT-052 (paged KV) is the highest-ROI fix.
+**PMAT-226: Heterogeneity penalty quantification** (from PMAT-224 fixed:128 vs corrected uniform:16,256):
+
+| c | fixed:128 | uniform:16,256 | penalty |
+|---|-----------|----------------|---------|
+| 1 | 147.3 | 147.2 | 0% |
+| 4 | 315.6 | 217.6 | −31% |
+| 8 | 559.6 | 351.7 | −37% |
+| 16 | 1,008.1 | 571.3 | −43% |
+
+The penalty grows with concurrency because more active slots = more wasted KV positions from early completions. At c=1, there's no waste (single slot). At c=16, almost half the decode compute is wasted on empty slots. **Paged KV (PMAT-052) is the single highest-ROI optimization** — it would close this gap entirely.
 
 **Both PMAT-054 and PMAT-052 are required for competitive parity.** Neither alone is sufficient.
 
@@ -3065,6 +3074,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-226** | **Heterogeneity penalty quantification** | **37-43% throughput loss from uniform:16,256 vs fixed:128** | ✅ DERIVED from PMAT-224 error. fixed:128 vs uniform:16,256: c=1 0%, c=4 −31%, c=8 −37%, c=16 −43%. Penalty grows with concurrency (more slots = more KV waste from early completions). Paged KV (PMAT-052) is single highest-ROI fix. |
 | **PMAT-225** | **Long-prompt competitive refresh** | **⚠️ INVALIDATED: used wrong flag (--output not --max-tokens-distribution)** | ⚠️ INVALIDATED. Results used `--output uniform:16,256` (file path) instead of `--max-tokens-distribution uniform:16,256` (token distribution), producing fixed:128 output. The "1.04× win at c=8" was with fixed:128 output, not heterogeneous. With correct heterogeneous output, PMAT-220 ratios stand (0.55× c=4, 0.75× c=8). Fixed:128 data valid as separate workload. |
 | **PMAT-224** | **Full production refresh — CORRECTED** | **⚠️ INVALIDATED then CORRECTED: no improvement with correct flags** | ⚠️ CORRECTED. Initial results used `--output` (file path) instead of `--max-tokens-distribution` (token distribution), producing fixed:128 output. With correct flags: realizr c=1 147.2, c=4 217.6, c=8 351.7, c=16 571.3 — matches PMAT-177 within ±2.6% noise. **No measurable throughput improvement from Mar 16 binary under production conditions.** Fixed:128 data (c=4: 316, c=8: 560, c=16: 1008 tok/s) valid for that workload, showing 37-43% heterogeneity penalty. |
 | **PMAT-223** | **CUDA_MAX_BATCH=16 workaround for batched prefill bug** | **BATCH=16 eliminates bug, −33% asymptote (1500→1010 tok/s)** | ✅ VERIFIED. CUDA_MAX_BATCH=16 produces correct output at ALL concurrency levels and prompt lengths. Production sweep (medium, c=1-128): c=1 147.2, c=4 316.1, c=8 560.2, c=16 1008.1, c=32 1009.9, c=64 1010.0, c=128 1010.3 tok/s. Asymptote 1010 vs 1500 at BATCH=32 (−33%). Long c=32 at BATCH=16: correct (avg_tok=255.8). Also corrected medium threshold from c=18→c=20 (earlier c=18 result was from contaminated server; fresh-start c=19 OK, c=20 broken). BATCH=18 with c=18 medium: OK. Bug is specifically about workspace allocation at the configured BATCH size, not just active slot count. |
@@ -4028,6 +4038,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.79.0 | 2026-03-17 | **PMAT-226: Heterogeneity penalty quantification.** Using PMAT-224's fixed:128 data vs corrected uniform:16,256: 0% (c=1), −31% (c=4), −37% (c=8), −43% (c=16). Penalty grows with concurrency as more slots waste KV on early completions. Paged KV (PMAT-052) identified as single highest-ROI optimization. |
 | 3.78.0 | 2026-03-17 | **CRITICAL CORRECTION: PMAT-224/225 used wrong flag (`--output` vs `--max-tokens-distribution`).** Corrected re-run matches PMAT-177 within ±2.6%: realizr c=4 217.6, c=8 351.7, c=16 571.3. NO improvement from Mar 16 binary under production conditions. The +46-72% was entirely from fixed:128 vs uniform:16,256 (37-43% heterogeneity penalty). Reverted competitive matrix and interpretation to PMAT-177 values. PMAT-224 fixed:128 data valid as separate workload. |
 | 3.77.0 | 2026-03-17 | ~~PMAT-225: Long-prompt competitive ratios improved.~~ **INVALIDATED** — used `--output` instead of `--max-tokens-distribution`. Fixed:128 data only. |
 | 3.76.0 | 2026-03-17 | ~~PMAT-224: Full production refresh — realizr +46-72%.~~ **INVALIDATED then CORRECTED** — used `--output` instead of `--max-tokens-distribution`. Corrected results match PMAT-177. |

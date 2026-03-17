@@ -4432,9 +4432,35 @@ roadmap:
   - long-prompt
   - 4060L
   notes: |
-    Long-prompt competitive ratios improved with Mar 16 binary:
-    realizr/llama.cpp: c=4 0.55->0.73 (+33%), c=8 0.75->1.04 (+39%).
-    realizr now wins at c=8 even with long prompts (448.9 vs 431.0).
-    Scheduling improvement overcomes FP8 prefill penalty at c=8 but not c=4.
-    TTFT gap remains: 177ms vs 18ms (c=4), 331ms vs 32ms (c=8).
-    BATCH=16 workaround used, all output correct.
+    INVALIDATED: used --output (file path) instead of --max-tokens-distribution.
+    Results were with fixed:128 output, not heterogeneous uniform:16,256.
+    The "1.04x win at c=8" was from fixed output, not production conditions.
+    Fixed:128 long data valid as separate workload but not comparable to PMAT-220.
+- id: PMAT-226
+  github_issue: null
+  item_type: task
+  title: 'PMAT-226: Heterogeneity penalty quantification — 37-43% at c=8-16'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Quantify penalty per concurrency — DONE (0% c=1, -31% c=4, -37% c=8, -43% c=16)'
+  - 'AC2: Identify root cause — DONE (contiguous KV waste from early completions)'
+  - 'AC3: Identify fix — DONE (paged KV PMAT-052 highest-ROI)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - analysis
+  - 4060L
+  notes: |
+    Derived from PMAT-224 error: comparing fixed:128 (wrong flag) vs uniform:16,256 (correct).
+    Heterogeneity penalty: c=1 0%, c=4 -31%, c=8 -37%, c=16 -43%.
+    Penalty grows with concurrency: more active slots = more wasted KV positions
+    from requests that complete early (16 tok) while others still generating (256 tok).
+    Paged KV (PMAT-052) eliminates this by reclaiming completed KV positions.
+    This is the DOMINANT factor at c>=4, larger than TTFT penalty or scheduling gap.
