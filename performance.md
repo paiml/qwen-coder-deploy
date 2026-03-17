@@ -1,5 +1,80 @@
 # LLM Inference Performance
 
+## Production Methodology — RTX 4060 Laptop (PMAT-177→217, 2026-03-15/16)
+
+Medium prompt (~102 tok), uniform:16,256 output, streaming, 5s warmup, 60s duration, locked 1900MHz.
+Each runtime deployed in isolation via forjar (serial benchmarks).
+
+### 4-Runtime Aggregate Throughput (tok/s)
+
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 146.4 | 158.1 | 152.4 | 151.8 |
+| 4 | 216.1 | 354.4 | 587.4 | 160.1 |
+| 8 | 355.1 | 420.1 | 1,115.2 | 159.4 |
+| 16 | 586.5 | 896.6 | 1,982.9 | 161.0 |
+| 32 | 944.7 | 943.2 | 2,757.6 | 159.0 |
+| 64 | 1,484.4 | — | 3,036.1 | — |
+| 128 | 1,505.6 | — | 3,049.4 | — |
+
+### Scorecards (probador llm score)
+
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 93 A | 96 A+ | 98 A+ | 89 A- |
+| 4 | 58 C | 73 B | 98 A+ | 39 D |
+| 8 | 65 C+ | 63 C+ | 97 A+ | — |
+| 16 | 71 B | 67 C+ | 94 A | — |
+| 32 | 70 B | 62 C | 86 A- | — |
+| 64 | 64 C+ | — | 74 B | — |
+| 128 | 66 C+ | — | 63 C+ | — |
+
+### Asymptotes (PMAT-192/195/197)
+
+| Runtime | Asymptote | Saturation c | Architecture |
+|---------|-----------|-------------|-------------|
+| vLLM | 3,050 tok/s | c=64 | PagedAttention, continuous batching, CUTLASS GEMM |
+| realizr | 1,500 tok/s | c=64 | Batch-and-step, queue+batch=32, CUDA graph M=1 |
+| llama.cpp | 943 tok/s | c=32 | Fixed 16 slots, ncols-templated GEMV |
+| ollama | 160 tok/s | c=1 (serial) | Serial FIFO |
+
+### Quality Crossover (PMAT-192)
+
+realizr **beats** vLLM at c=128: 66 C+ vs 63 C+.
+batch=32 caps decode at 49 tok/s; vLLM degrades to 24 tok/s.
+
+### Iso-Quality Gap (PMAT-187/193)
+
+- ITL≤12ms: 12.8× (vLLM c=32 vs realizr c=4)
+- ITL≤21ms: 2.0× (vLLM c=64 vs realizr c=128)
+
+### Three-Way Kernel Architecture (PMAT-209→217, nsys/ncu profiling)
+
+| Dimension | realizr | llama.cpp | vLLM |
+|-----------|---------|-----------|------|
+| Weight format | Q4K GGUF + DP4A INT8 | Q4K/Q6K GGUF | AWQ INT4 → FP16 GEMM |
+| Decode dispatch | CUDA graph (M=1 only) | ncols-templated GEMV (M=1-4) | CUTLASS GEMM (M=batch) |
+| Dominant kernel | fused_gate_up DP4A 49.8% | Q4K ncols=4 GEMV 21% | CUTLASS GEMM 95.7% |
+| Per-call time | 84µs (fused) | 37.6µs (Q4K ncols=4) | 2,165µs |
+| Kernel types | 44+ | ~35 | ~15 |
+| Launches/step | 771 (no graph), 1 (graph) | ~350 | ~113 |
+
+### CUDA API Root Cause (PMAT-217)
+
+At c=4, realizr CPU spends **82.4%** of time blocked in cuStreamSynchronize (10.4ms median).
+M=1 graph is invalid for M>1 → 771 individual kernel launches per decode step.
+llama.cpp: 3,579 graph launches, dynamic re-capture, 0.46µs median sync.
+vLLM: 11,467 pre-captured graph launches, event-based sync, 18.9µs median sync.
+
+**Per-step c=4 budget**: 1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms → 216 tok/s.
+**Fix projection**: per-M graph + event sync → +85% to ~400 tok/s at c=4.
+
+### Reproducibility (PMAT-216)
+
+Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
+
+---
+
 ## GPU (RTX 4090, Qwen2.5-Coder-1.5B Q4_K_M)
 
 ### Competition Benchmarks (2026-03-04, c=4, 60s, 5s warmup)
