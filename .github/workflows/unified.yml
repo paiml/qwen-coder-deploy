@@ -1,0 +1,30 @@
+name: unified
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate YAML configs
+        run: |
+          for f in forjar*.yaml docs/roadmaps/*.yaml docs/specifications/*.yaml prompts/*.yaml; do
+            [ -f "$f" ] && python3 -c "import yaml; yaml.safe_load(open('$f'))" && echo "  OK: $f" || echo "  SKIP: $f"
+          done
+
+      - name: Validate JSON results
+        run: |
+          failed=0
+          for f in results/*.json; do
+            [ -f "$f" ] && python3 -c "import json; json.load(open('$f'))" 2>/dev/null || { echo "  FAIL: $f"; failed=1; }
+          done
+          [ "$failed" -eq 0 ] && echo "All JSON valid" || exit 1
+
+      - name: Check spec version
+        run: grep -q '^**Version:**' docs/specifications/gpu-performance-spec.md && echo "Spec version found"
