@@ -1014,12 +1014,12 @@ Each runtime at its best parallelism setting for each concurrency level:
 
 **realizr/vLLM ratios (PMAT-219, short + uniform:16,256):** c=1: 0.97×, c=4: 0.41×, c=8: 0.34×, c=16: 0.32×. Barely changes from medium (0.96/0.37/0.32/0.30×). vLLM's advantage is scheduling architecture, not prompt-related.
 
-**Revised interpretation:** realizr's c=8 advantage was an artifact of two favorable benchmark conditions: (1) uniform output length creating ideal batching, and (2) short prompts minimizing TTFT penalty. Under ANY heterogeneous output condition, **realizr loses at ALL concurrency levels regardless of prompt length.** Long prompts make it worse: the FP8 prefill BW overhead scales linearly with prompt length, growing the TTFT gap from 3.1× (c=1) to 14.4× (c=8). The competitive picture has three layers:
-1. **TTFT penalty** (FP8 2-step prefill): costs 10-40 scoring points vs llama.cpp → fused Q4K GEMM (PMAT-054) fixes this. **Prompt-length dependent: 3× at short, 8× at medium, 14× at long (c=8)**
-2. **Output heterogeneity penalty** (contiguous KV waste): costs 31-42% aggregate → paged KV (PMAT-052) fixes this
-3. **Architectural ceiling** (fixed-slot batch-and-step): vLLM 0.38-0.46× ahead under production conditions → full Dynamo replication (Phases 0-3) needed
+**Revised interpretation (PMAT-224/225, Mar 16 binary):** The Mar 16 scheduling improvement FALSIFIED the earlier claim that "realizr loses at ALL concurrency levels." realizr now **beats llama.cpp at c=8** under production conditions: 1.30× medium, 1.04× long. At c=1,4,16: realizr still behind llama.cpp (0.86-0.93×). The competitive picture vs llama.cpp is now:
+1. **c≤4**: llama.cpp wins (0.86-0.93×) — FP8 prefill overhead dominates at low batch sizes
+2. **c=8**: **realizr wins** (1.30× medium, 1.04× long) — scheduling improvement overcomes prefill penalty
+3. **c=16+**: llama.cpp wins again (0.90×) — llama.cpp's ncols-templated GEMV scales better at high M
 
-**Both PMAT-054 and PMAT-052 are required for competitive parity.** Neither alone is sufficient.
+The remaining gap vs vLLM (0.49-0.54×) requires Phase 1 (continuous batching) + Phase 0 (fused prefill). PMAT-054 alone would close the TTFT gap but not the scheduling gap.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
