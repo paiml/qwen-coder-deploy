@@ -4192,3 +4192,36 @@ roadmap:
     FP32 instruction fusion: additional 32-34% potential from FMA conversion.
     All 5 original hypotheses (H1-H5) now resolved.
     Data: results/ncu-yoga-h4-vectorization-20260317.csv
+- id: PMAT-219
+  github_issue: null
+  item_type: task
+  title: 'PMAT-219: Short-prompt production methodology — c=8 win was uniform-output artifact'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 3-runtime sweep (realizr, llama.cpp, vLLM) at c=1,4,8,16 — DONE'
+  - 'AC2: Short prompt + uniform:16,256 output + streaming + 60s — DONE'
+  - 'AC3: Compare to medium-prompt production (PMAT-177+) — DONE'
+  - 'AC4: Competitive matrix updated with short+hetero row — DONE'
+  - 'AC5: Falsification verdict documented — c=8 win artifact confirmed'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - benchmark
+  - short-prompt
+  - production-methodology
+  - falsification
+  - 4060L
+  notes: |
+    PMAT-113 showed 1.47x realizr win at c=8 with fixed 32-tok output.
+    PMAT-219 tests whether this survives heterogeneous output (uniform:16,256).
+    Result: c=8 win ENTIRELY artifact of uniform output length.
+    With hetero output: realizr/llama.cpp ratios = 0.95, 0.70, 0.95, 0.78 (all losses).
+    Short prompt helps realizr +9-13% vs medium, but output heterogeneity costs ~40%.
+    vLLM ratios barely change from medium prompt (prompt-invariant confirmed).
+    Data: results/{realizr,llamacpp,vllm}-yoga-short-prod-c{1,4,8,16}-20260317.json

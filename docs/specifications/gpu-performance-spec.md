@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.70.0
+**Version:** 3.71.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -981,17 +981,22 @@ Each runtime at its best parallelism setting for each concurrency level:
 |----------|-----|-----|------|
 | medium + uniform:16,256 | 0.62 L | 0.84 L | 0.64 L |
 
-**Updated competitive picture (PMAT-159, Mar 14):**
+**Updated competitive picture (PMAT-219, Mar 17 — adds short+hetero row):**
 
-| Workload | c=4 | c=8 | c=16 | Notes |
-|----------|-----|-----|------|-------|
-| short + fixed 32 | 1.01 | **1.47 W** | **1.09 W** | Best case — TTFT diluted, uniform batch |
-| short + fixed 128 | 1.02 | — | **1.43 W** | Short prompt + long output = win |
-| medium + fixed 32 | 0.81 L | **1.08 W** | 0.72 L | Narrow c=8 win |
-| medium + fixed 128 | 0.85 L | **1.29 W** | 0.90 L | Narrow c=8 win |
-| **medium + hetero 16-256** | **0.62 L** | **0.84 L** | **0.64 L** | **No wins. Production-realistic.** |
+| Workload | c=1 | c=4 | c=8 | c=16 | Notes |
+|----------|-----|-----|-----|------|-------|
+| short + fixed 32 | 0.93 | 1.01 | **1.47 W** | **1.09 W** | Best case — TTFT diluted, uniform batch |
+| short + fixed 128 | — | 1.02 | — | **1.43 W** | Short prompt + long output = win |
+| **short + hetero 16-256** | **0.95** | **0.70 L** | **0.95 L** | **0.78 L** | **No wins even with short prompt (PMAT-219)** |
+| medium + fixed 32 | — | 0.81 L | **1.08 W** | 0.72 L | Narrow c=8 win |
+| medium + fixed 128 | — | 0.85 L | **1.29 W** | 0.90 L | Narrow c=8 win |
+| **medium + hetero 16-256** | **0.93** | **0.61 L** | **0.85 L** | **0.65 L** | **No wins. Production-realistic.** |
 
-**Revised interpretation:** realizr's c=8 advantage was an artifact of two favorable benchmark conditions: (1) uniform output length creating ideal batching, and (2) short prompts minimizing TTFT penalty. Under production-realistic conditions (medium prompt + variable output), **realizr loses at ALL concurrency levels.** The competitive picture has three layers:
+**PMAT-219 key finding: short prompt helps +0.09 to +0.13 vs llama.cpp, but the c=8 win (1.47x) was ENTIRELY an artifact of uniform output.** With heterogeneous output (uniform:16,256), short prompt only recovers to 0.95x at c=8 — still a loss. Short vs medium realizr aggregate: +1.6% (c=1), +10.9% (c=4), +8.8% (c=8), +11.8% (c=16). The FP8 prefill sensitivity adds ~10% penalty at medium vs short. But output heterogeneity costs ~40%.
+
+**realizr/vLLM ratios (PMAT-219, short + uniform:16,256):** c=1: 0.97×, c=4: 0.41×, c=8: 0.34×, c=16: 0.32×. Barely changes from medium (0.96/0.37/0.32/0.30×). vLLM's advantage is scheduling architecture, not prompt-related.
+
+**Revised interpretation:** realizr's c=8 advantage was an artifact of two favorable benchmark conditions: (1) uniform output length creating ideal batching, and (2) short prompts minimizing TTFT penalty. Under ANY heterogeneous output condition, **realizr loses at ALL concurrency levels regardless of prompt length.** The competitive picture has three layers:
 1. **TTFT penalty** (FP8 2-step prefill): costs 10-40 scoring points vs llama.cpp → fused Q4K GEMM (PMAT-054) fixes this
 2. **Output heterogeneity penalty** (contiguous KV waste): costs 31-42% aggregate → paged KV (PMAT-052) fixes this
 3. **Architectural ceiling** (fixed-slot batch-and-step): vLLM 0.38-0.46× ahead under production conditions → full Dynamo replication (Phases 0-3) needed
@@ -3995,6 +4000,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.71.0 | 2026-03-17 | **PMAT-219: Short-prompt production methodology — c=8 win was ENTIRELY output-length artifact.** Ran 3-runtime production methodology (short prompt + uniform:16,256 output) at c=1/4/8/16. The c=8 win (1.47× from PMAT-113 with fixed 32-tok output) vanishes completely: now 0.95× LOSS. Short prompt helps realizr +9-13% vs llama.cpp and +10-12% vs medium prompt (FP8 prefill sensitivity), but output heterogeneity costs ~40%. realizr/vLLM ratios barely change from medium (0.97/0.41/0.34/0.32× vs 0.96/0.37/0.32/0.30×). Under ANY heterogeneous output, realizr loses at ALL concurrency regardless of prompt length. Updated competitive matrix with short+hetero row. |
 | 3.70.0 | 2026-03-17 | **PMAT-218: H4 vectorization falsification — CONFIRMED 3.2× gain potential.** ncu `--set full` on Q4K GEMV kernels reveals only 9.9/32 bytes (31%) per sector utilized, with 57% excessive (wasted) sectors. Both unfused and fused GEMV have identical ~31% utilization — the Q4K block layout (AoS with interleaved scales/mins/quants) inherently creates strided access. Fused kernel reaches 74% DRAM BW despite low utilization by amortizing pipeline latency (82µs vs 9.3µs). H4 CONFIRMED: vectorized/coalesced loads would provide 3.2× effective bandwidth (>2.0× threshold). Root cause is data layout, not instruction selection — float4 loads alone won't fix it, need SoA transpose. This directly informs PMAT-054: fused Q4K GEMM must pre-transpose weights into coalesced format. Convergence with PMAT-217: the two highest-value fixes target the same kernel path. All 5 original hypotheses (H1-H5) now resolved. |
 | 3.69.0 | 2026-03-17 | **PMAT-217: CUDA API scheduling analysis — the 82% CPU block.** Extracted CUDA API traces for all three runtimes at c=4 via nsys. Definitive root cause: realizr makes only 117 CUDA graph launches (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms). The M=1 graph can't be reused when batch size varies. llama.cpp dynamically re-captures graphs (103 captures) with non-blocking 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with event-based 18.9µs median sync. Per-step budget: 1.6ms launch overhead + 7ms GPU + 10.4ms blocking sync = 12.5ms/step × 2.7 tok/step = 216 tok/s. Fix: per-M graph + event sync → projected +85% to ~400 tok/s. |
 | 3.68.0 | 2026-03-16 | **PMAT-216: Fresh competitive benchmark verification.** Re-ran production methodology (medium prompt, uniform:16,256 output, 60s, streaming) for all three runtimes at c=1/4/8/16. Reproducibility confirmed: realizr PMAT-177 vs Mar 16b delta <1% at all c. Scores: realizr 94 A (c=1), 58 C (c=4), 65 C+ (c=8), 70 B (c=16). vLLM: 97-100 A+. llama.cpp: 94 A (c=1), 59-69 C/C+ (c=4-16). |
