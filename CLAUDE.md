@@ -31,11 +31,16 @@ Jetson Orin (secondary load testing)     CPU (intel, 192.168.50.100)
 
 ```bash
 # Yoga deployment (PRIMARY — serial isolated benchmarks)
-make bench-yoga-serial   # All 4 runtimes, c=1 and c=4 (isolated)
-make bench-yoga-realizr  # realizr only (isolated)
-make bench-yoga-llamacpp # llama.cpp only (isolated)
-make bench-yoga-ollama   # ollama only (isolated)
-make bench-yoga-vllm     # vLLM only (isolated)
+make bench-yoga-serial   # All 4 runtimes, c=1 and c=4 (short prompt, isolated)
+make bench-yoga-prod     # All 4 runtimes (production-realistic)
+make bench-yoga-prod-realizr   # realizr only (c=1-128, medium + hetero output)
+make bench-yoga-prod-llamacpp  # llama.cpp only (c=1-32)
+make bench-yoga-prod-ollama    # ollama only (c=1-32)
+make bench-yoga-prod-vllm     # vLLM only (c=1-128)
+make bench-yoga-realizr  # realizr only (short prompt, c=1,4)
+make bench-yoga-llamacpp # llama.cpp only (short prompt, c=1,4)
+make bench-yoga-ollama   # ollama only (short prompt, c=1,4)
+make bench-yoga-vllm     # vLLM only (short prompt, c=1,4)
 make teardown-yoga       # Stop all services
 
 # Jetson deployment (secondary load testing)
@@ -59,7 +64,8 @@ make teardown          # Stop services
 make report            # Generate performance.md + update README
 
 # Scoring (probador llm score)
-make score             # Yoga c=1 + c=4 scorecard (table)
+make score             # Yoga c=1,4,8,16,32,64,128 scorecard (table)
+make score-prod        # Production methodology results only (PMAT-177+)
 make score-jetson      # Jetson scorecards
 make score-json        # JSON scorecards to results/
 make score-all         # All platforms, all concurrency levels

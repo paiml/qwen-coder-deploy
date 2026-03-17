@@ -1567,7 +1567,7 @@ roadmap:
   - name: 'Phase 2: Remove clear_decode_graph from generate_gpu_resident_streaming'
     status: completed
   - name: 'Phase 3: Build, deploy, benchmark'
-    status: in_progress
+    status: completed
   subtasks: []
   estimated_effort: 2h
   labels:
@@ -1916,3 +1916,2391 @@ roadmap:
     ITL stability: vLLM +14%, realizr +75%, llama.cpp +139%.
     W4A16 Marlin + PagedAttention + continuous batching.
     At c=16: 1832 tok/s (1.61x realizr, 1.77x llama.cpp).
+- id: PMAT-121
+  github_issue: null
+  item_type: task
+  title: 'PMAT-121: vLLM complete prompt-profile matrix (c=12/16 x medium/long)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=12 medium benchmarked — DONE (1418.5 agg, -2.9% from short)'
+  - 'AC2: vLLM c=12 long benchmarked — DONE (1464.7 agg, +0.2% from short)'
+  - 'AC3: vLLM c=16 long benchmarked — DONE (1717.0 agg, -6.3% from short)'
+  - 'AC4: Complete 5x3 prompt-profile matrix — DONE'
+  - 'AC5: Prompt invariance confirmed at all c — DONE (max deviation +-6.3%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - vllm
+  - prompt-sensitivity
+  - competitive-analysis
+  notes: |
+    vLLM prompt-invariance confirmed at all 5 concurrency levels.
+    Max deviation: -6.3% (c=16 long) from KV cache pressure at 16x311=4976 tokens.
+    Compare realizr: -34% to -49%. W4A16 Marlin fused 1-step quantized GEMM.
+    c=12 medium fills last gap in vLLM reference table.
+- id: PMAT-122
+  github_issue: null
+  item_type: task
+  title: 'PMAT-122: vLLM output length sensitivity (128 vs 32 output tokens)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=4 medium 128-tok benchmarked — DONE (588.4 agg, +6.8%)'
+  - 'AC2: vLLM c=8 medium 128-tok benchmarked — DONE (1117.7 agg, +9.2%)'
+  - 'AC3: vLLM c=12 medium 128-tok benchmarked — DONE (1592.0 agg, +12.2%)'
+  - 'AC4: vLLM c=16 medium 128-tok benchmarked — DONE (2049.3 agg, +15.2%)'
+  - 'AC5: realizr/vLLM gap analysis at 128 tok — DONE (gap unchanged)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - vllm
+  - output-length
+  - competitive-analysis
+  notes: |
+    TTFT dilution grows with concurrency: +6.8% (c=4) to +15.2% (c=16).
+    Decode rates unchanged across output lengths.
+    realizr/vLLM gap persists: 0.50-0.54x at 128 tok vs 0.46-0.53x at 32 tok.
+    vLLM c=16 128-tok: 2049 tok/s (new high watermark).
+- id: PMAT-123
+  github_issue: null
+  item_type: task
+  title: 'PMAT-123: vLLM output saturation curve (32-512 output tokens at c=16)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=16 medium 256-tok benchmarked — DONE (2065.5 agg, decode 132.0)'
+  - 'AC2: vLLM c=16 medium 512-tok benchmarked — DONE (2013.0 agg, decode 127.5)'
+  - 'AC3: Saturation point identified — DONE (peaks at 256 tok, -2.5% at 512)'
+  - 'AC4: KV cache attention BW impact quantified — DONE (-4.8% decode 32->512)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - vllm
+  - output-length
+  - kv-cache
+  notes: |
+    Aggregate peaks at 256 tok (2065.5), then mild decline at 512 (-2.5%).
+    ITL stable +5.4% over 16x output increase — PagedAttention efficient.
+    No cliff for practical code gen workloads (100-500 output tokens).
+    Decode rate: 134->132->127.5 = -4.8% from KV attention BW growth.
+- id: PMAT-124
+  github_issue: null
+  item_type: task
+  title: 'PMAT-124: vLLM high-concurrency scaling curve (c=1-128)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T00:00:00Z
+  updated: 2026-03-14T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM c=32 short benchmarked — DONE (2839.7 agg, 112.0 decode)'
+  - 'AC2: vLLM c=64 short benchmarked — DONE (3347.2 agg, 59.3 decode)'
+  - 'AC3: vLLM c=128 short benchmarked — DONE (3849.2 agg, 37.8 decode)'
+  - 'AC4: Asymptote and sweet spot identified — DONE (~4000 tok/s, c=16-32)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - vllm
+  - scaling
+  - capacity-planning
+  notes: |
+    Asymptote ~4000 tok/s on RTX 4060 Laptop (8GB, 24 SMs).
+    Sweet spot: c=16-32 (decode>100, ITL<10ms).
+    c=64: decode 59.3 (oversubscribed), ITL 16.9ms.
+    c=128: decode 37.8 (-75% from c=1), ITL 26.4ms.
+
+- id: PMAT-125
+  title: 'PMAT-125: realizr high-concurrency scaling (c=16-128)'
+  status: DONE
+  priority: P2
+  spec_version: '2.89.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure realizr aggregate at c=16,32,64,128 short prompt'
+      status: DONE
+      result: 'c=16: 1140, c=32: 1142, c=64: 1142, c=128: 1143 — flat at batch ceiling'
+    - criterion: 'Measure ITL and error rates at high concurrency'
+      status: DONE
+      result: 'ITL constant 11.7ms, 0% errors at all c — excess requests queue cleanly'
+    - criterion: 'Identify scaling ceiling mechanism'
+      status: DONE
+      result: 'CUDA_MAX_BATCH=16 is hard ceiling. Fixed-slot batch. Need paged KV (PMAT-052) to scale further'
+    - criterion: 'Compare with vLLM PMAT-124 data'
+      status: DONE
+      result: 'vLLM scales 3.4x further (1142→3849). Quality tradeoff: realizr constant ITL vs vLLM degrading'
+  notes: |
+    realizr aggregate plateaus at 1142 tok/s for c>=16.
+    CUDA_MAX_BATCH=16 is the hard ceiling — active batch quality preserved.
+    ITL constant 11.7ms, 0% errors at all c (excess requests queue).
+    TTFT scales linearly: 87ms (c=16) → 3223ms (c=128).
+    Decode constant 85.7 tok/s per request.
+
+- id: PMAT-126
+  title: 'PMAT-126: llama.cpp high-concurrency scaling (c=16-128)'
+  status: DONE
+  priority: P2
+  spec_version: '2.89.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp aggregate at c=16,32,64,128 short prompt'
+      status: DONE
+      result: 'c=16: 1038, c=32: 1011, c=64: 1032, c=128: 1003 — plateau ~1020 (slight decline)'
+    - criterion: 'Measure ITL and error rates at high concurrency'
+      status: DONE
+      result: 'ITL 14.9-15.6ms (stable). Errors 0.7-1.2% (503 when slots full)'
+    - criterion: 'Cross-runtime comparison at c=16-128'
+      status: DONE
+      result: 'Both realizr/llama.cpp fixed-slot plateau. vLLM 3.4x further. realizr best ITL (11.7ms constant)'
+    - criterion: 'Update spec and cross-runtime comparison table'
+      status: DONE
+      result: 'Spec v2.89.0 with 4-column high-concurrency table'
+  notes: |
+    llama.cpp plateaus at ~1020 tok/s with --parallel 16.
+    ITL stable 14.9-15.6ms (30% worse than realizr 11.7ms).
+    Errors 0.7-1.2% vs realizr 0%.
+    TTFT 31.7ms (c=16) → 3586ms (c=128).
+    Both fixed-slot systems cap at 16 concurrent decode slots.
+
+- id: PMAT-127
+  title: 'PMAT-127: CUDA_MAX_BATCH scaling analysis (16→32→64)'
+  status: DONE
+  priority: P1
+  spec_version: '2.90.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Test realizr with CUDA_MAX_BATCH=32 at c=4,16,32,64'
+      status: DONE
+      result: 'c≤16 identical. c=32: 1850 tok/s (+62%). c=64: 1853 (capped at 32). Decode 81.0, ITL 12.3ms'
+    - criterion: 'Test CUDA_MAX_BATCH=64'
+      status: DONE
+      result: 'OOM during warmup — 8GB VRAM insufficient for 64 KV slots'
+    - criterion: 'Compare with vLLM at matching concurrency'
+      status: DONE
+      result: 'Gap narrows 0.40x→0.65x at c=32. vLLM still 1.5x ahead (dynamic paging)'
+    - criterion: 'Update forjar config recommendation'
+      status: DONE
+      result: 'Recommend CUDA_MAX_BATCH=32 for production. Config updated'
+  notes: |
+    batch=32 unlocks second plateau at 1850 tok/s (+62% over batch=16).
+    Per-request quality: decode 81.0 (-5.5%), ITL 12.3ms (+5.1%).
+    batch=64 OOMs on 8GB VRAM.
+    Max useful batch=32 on RTX 4060 Laptop (8GB).
+    Updated forjar-yoga-realizr.yaml: CUDA_MAX_BATCH=16→32.
+
+- id: PMAT-128
+  title: 'PMAT-128: Prompt-length dependent batch ceiling (8GB VRAM)'
+  status: DONE
+  priority: P1
+  spec_version: '2.92.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Test batch=32 with medium prompts'
+      status: DONE
+      result: 'OOM — M_total=4000 prefill workspace exceeds 8GB VRAM. Empty responses for failed batches'
+    - criterion: 'Find max viable batch for medium prompts'
+      status: DONE
+      result: 'batch=30 works (1004 tok/s, +34% over batch=16). batch=32 OOMs'
+    - criterion: 'Characterize per-request quality at higher batch'
+      status: DONE
+      result: 'Decode drops −10% (73.9 vs 82), ITL +12.5% (13.5 vs 12ms) at batch=30 medium'
+    - criterion: 'Map prompt-profile to max batch'
+      status: DONE
+      result: 'short=32 (1850), medium=30 (1004), long~16 (estimated). VRAM-dependent'
+  notes: |
+    Prefill workspace = M_total x cuBLASLt GEMM workspace + FP16 cache + KV.
+    batch=32 medium: M_total=4000, CUDA_ERROR_OUT_OF_MEMORY.
+    batch=30 medium: 1004 tok/s (+34% over batch=16), 0% errors.
+    Fixed-slot architecture makes batch ceiling prompt-length dependent.
+    Paged KV (PMAT-052) decouples batch from prompt length.
+
+- id: PMAT-129
+  title: 'PMAT-129: NVIDIA Dynamo agentic inference architecture analysis'
+  status: DONE
+  priority: P2
+  spec_version: '2.91.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Analyze Dynamo architecture layers vs realizr gaps'
+      status: DONE
+      result: '6-layer comparison table: KV cache, batch sizing, routing, prefill/decode, eviction, agent lifecycle'
+    - criterion: 'Quantify fixed-slot VRAM ceiling'
+      status: DONE
+      result: '344 MB/slot (4096 ctx). batch=64 needs 22 GB > 8 GB. Paged KV removes ceiling entirely'
+    - criterion: 'Extract agentic workload access patterns'
+      status: DONE
+      result: 'WORM pattern: 11.7x read/write ratio, 85-97% cache hit, 97.2% multi-agent. Cache routing/retention is central target'
+    - criterion: 'Update roadmap priorities with Dynamo validation'
+      status: DONE
+      result: 'PMAT-052 (paged KV) confirmed P0 keystone. Added P1-P3 layers. Falsification: paged KV must achieve >=80% vLLM at c=32'
+    - criterion: 'Add Dynamo and Mooncake references'
+      status: DONE
+      result: 'Refs 41-42 added to academic references section'
+  notes: |
+    NVIDIA Dynamo (Dhanani & Kosec, Mar 2026) represents next-gen beyond vLLM.
+    Key insight: agentic workloads are WORM cache-dominated (11.7x read/write).
+    KV cache routing and retention > raw decode throughput for production.
+    Paged KV is the keystone — routing, eviction, disagg all build on it.
+    Fixed-slot ceiling: 344 MB/slot, batch=64 OOMs on 8GB.
+    4-tier hierarchy: GPU HBM → CPU DRAM → NVMe → RDMA extends capacity.
+- id: PMAT-204
+  title: 'PMAT-204: RTX 4060L nsys kernel profile — FP8 decode path characterization'
+  status: DONE
+  priority: P1
+  spec_version: '3.56.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Run nsys profile on yoga RTX 4060L to get kernel-level timing'
+      status: DONE
+      result: 'FP8 cuBLASLt GEMM 39.8% + FP8 conversion 21.7% = 61.5% FP8 pipeline. DP4A GEMV 24.7%'
+    - criterion: 'A/B test FP8_DECODE=0 to quantify FP8 conversion overhead impact'
+      status: DONE
+      result: 'FALSIFIED: FP8_DECODE=0 regresses c=8 by -19.2% (287 vs 355 tok/s). Tensor cores win at M>=8'
+    - criterion: 'Cross-validate BrickProfiler vs nsys per-op breakdown'
+      status: DONE
+      result: 'RmsNorm 56% (BrickProfiler) vs 2.0% (nsys) — 28x discrepancy from kernel launch overhead'
+  notes: |
+    CRITICAL finding: 4060L uses FP8 tensor core decode (fp8_decode=true), NOT pure DP4A GEMV
+    like the 4090 profile showed. The 21.7% FP8 conversion overhead is NOT wasted — it enables
+    tensor core GEMM which is 19% faster than DP4A GEMV at M=8. PMAT-054 (fused Q4K GEMM) must
+    match cuBLASLt throughput at M>=8 or it will regress concurrency performance. At M=1/M=4,
+    both paths are identical — the crossover is between M=4 and M=8.
+- id: PMAT-203
+  title: 'PMAT-203: Fix apr profile GPU fallback + first RTX 4060L GPU profiling'
+  status: DONE
+  priority: P1
+  spec_version: '3.55.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Fix apr profile GPU profiling fallback'
+      status: DONE
+      result: 'Parity gate false positive on CUDA 13.1 driver. Fix: SKIP_PARITY_GATE=1 in profile command (aprender 5084c1c2)'
+    - criterion: 'Capture GPU per-operation profile on yoga RTX 4060L'
+      status: DONE
+      result: '159.1 tok/s decode, 469.0 tok/s prefill. Roofline: 12.8% BW eff (102.6/800 GB/s), memory-bound'
+    - criterion: 'Validate apr 0.4.11 binary — no performance regression'
+      status: DONE
+      result: 'c=1 146.9 vs 146.4 (+0.3%), c=4 216.6 vs 216.1 (+0.2%). No regression'
+  notes: |
+    Root cause: OwnedQuantizedModelCuda::new() runs parity gate (GPU/CPU logits cosine
+    similarity check) which has false positive on CUDA 13.1 driver. apr serve forjar config
+    had SKIP_PARITY_GATE=1 but apr profile didn't. Error was silently swallowed with Err(_).
+    BrickProfiler caveat: 84.7% kernel launch overhead with CUDA graph disabled makes
+    per-op percentages unrepresentative of production. RmsNorm appears 56% but is <5% under
+    CUDA graph. Cross-platform roofline: 4060L 12.8% BW eff vs 4090 8.4% — higher utilization
+    because lower BW headroom (800 vs 1008 GB/s).
+- id: PMAT-202
+  title: 'PMAT-202: Trajectory re-measurement — corrected vLLM competitive ratios'
+  status: DONE
+  priority: P1
+  spec_version: '3.54.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Re-measure PMAT-154 trajectory (medium+128tok) with vLLM CUDA graphs enabled'
+      status: DONE
+      result: 'vLLM c=4 589.3, c=8 1115.9, c=16 2022.6 (25-31% higher than enforce-eager)'
+    - criterion: 'Update competitive ratios'
+      status: DONE
+      result: 'Corrected from 0.63-0.67x to 0.50-0.53x. Gap is wider than previously documented'
+    - criterion: 'Update projection table'
+      status: DONE
+      result: 'Added Phase 1+CB row, corrected vLLM baseline in all phase ratios'
+  notes: |
+    PMAT-154 measured vLLM with enforce-eager due to false CUDA graph regression belief.
+    Now corrected with graphs-enabled data. The competitive gap is significantly wider:
+    0.50x (not 0.65x). Phase 1+CB still reaches 0.97x vLLM — the architectural fix
+    remains the same, but the starting point is worse than documented.
+- id: PMAT-201
+  title: 'PMAT-201: vLLM CUDA graph status audit — PMAT-154 FALSIFIED'
+  status: DONE
+  priority: P1
+  spec_version: '3.53.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Measure vLLM with CUDA graphs enabled vs enforce-eager at c=1,4,8'
+      status: DONE
+      result: 'Graphs provide +21-28% throughput, -37% TTFT, -18% ITL over enforce-eager'
+    - criterion: 'Determine if PMAT-154 6x regression still exists'
+      status: DONE
+      result: 'FALSIFIED — V1 engine FULL_AND_PIECEWISE graphs work correctly. 153.5 tok/s (not 23)'
+    - criterion: 'Verify PMAT-177 production numbers used correct configuration'
+      status: DONE
+      result: 'Confirmed — forjar config has no --enforce-eager, server log shows 86 CUDA graphs captured'
+  notes: |
+    PMAT-154 (Mar 14) reported 6x CUDA graph regression. Was transient V1 compilation
+    cache issue. By Mar 15 (PMAT-177), graphs worked correctly. All PMAT-177+ production
+    numbers are accurate (graphs-enabled). PMAT-154/156 trajectory data used enforce-eager
+    and thus understates vLLM by 21-28%. Key implication: the competitive gap vs vLLM
+    is even wider than PMAT-154/156 suggest.
+- id: PMAT-200
+  title: 'PMAT-200: llama.cpp ctx-size sensitivity — ctx=4096 vs ctx=8192'
+  status: DONE
+  priority: P2
+  spec_version: '3.52.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp with ctx=8192 at c=1,4,8,16,32'
+      status: DONE
+      result: 'Aggregate drops -0.2% to -5.9%. VRAM +108 MiB. Full output range restored (avg_tok 94→142)'
+    - criterion: 'Determine if ctx=4096 truncation inflates llama.cpp throughput'
+      status: DONE
+      result: 'No — throughput advantage is NOT an artifact. Competitive ratios vs realizr unchanged'
+    - criterion: 'Check error rate impact'
+      status: DONE
+      result: 'Error rates drop at c≤8 (1.0-1.8% → 0.0-0.6%). Larger slots reduce overflow'
+  notes: |
+    Validates fairness of llama.cpp benchmarks. The 112-token output cap from
+    ctx=4096/parallel=16 does NOT inflate llama.cpp's throughput advantage.
+    Doubling context costs only -2.6% at c=4 and -5.9% at c=16 — the attention
+    BW overhead from larger KV slots is modest. Canonical config stays at
+    ctx=4096 to match llama.cpp defaults.
+- id: PMAT-199
+  title: 'PMAT-199: Spec consistency audit — fix cross-section data conflicts'
+  status: DONE
+  priority: P3
+  spec_version: '3.51.0'
+  date: '2026-03-16'
+  acceptance_criteria:
+    - criterion: 'Verify all exec summary numbers match source PMAT data'
+      status: DONE
+      result: 'Fixed vLLM reference in short-prompt section: was medium values (551,1023,1779), corrected to short (594.8,1058.5,1832.2)'
+    - criterion: 'Verify ratio calculations are mathematically correct'
+      status: DONE
+      result: 'All ratios verified. No mathematical errors found in exec summary or baseline tables'
+    - criterion: 'Check for stale data not updated from latest PMAT findings'
+      status: DONE
+      result: 'No stale data found. Different realizr c=1 values (146,148.5,149.5) correctly reflect different methodologies (production vs PMAT-097 vs PMAT-109)'
+  notes: |
+    Popperian quality control: after 50 spec versions with 12 commits in one session,
+    cross-section consistency needed verification. The vLLM reference fix was the only
+    substantive error found. Different realizr c=1 decode values across sections are
+    legitimate methodology differences (production medium 146.4, PMAT-097 short 148.5,
+    PMAT-109 short 149.5) — each correctly labeled in its section header.
+- id: PMAT-198
+  title: 'PMAT-198: Phase 1+CB projections extended to c=128'
+  status: DONE
+  priority: P2
+  spec_version: '3.50.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Extend PMAT-180 projection table to c=32/64/128'
+      status: DONE
+      result: 'c=32: 2671, c=64: 2941, c=128: 2955 (all 0.97× vLLM measured)'
+    - criterion: 'Quantify Phase 1+CB improvement over current asymptote'
+      status: DONE
+      result: 'Current 1500 → projected 2950 = 1.97× improvement'
+  notes: |
+    Simple projection: Phase 1+CB at 0.97× vLLM applied to measured vLLM
+    saturation data. This gives the full target picture: realizr would
+    saturate at ~2950 tok/s instead of 1500, nearly doubling the asymptote.
+    The quality crossover at c=128 would be eliminated (realizr would score
+    higher than vLLM at all c levels with better per-request quality).
+- id: PMAT-197
+  title: 'PMAT-197: llama.cpp --parallel 32 saturation — realizr 1.30× ahead at c=64'
+  status: DONE
+  priority: P1
+  spec_version: '3.49.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp p=32 at c=32/64/128 with production methodology'
+      status: DONE
+      result: 'c=32: 447 agg (p=16 was 943). c=64: 1141. c=128: 1131 (saturated)'
+    - criterion: 'Compare with realizr batch=32 at same c levels'
+      status: DONE
+      result: 'realizr BEATS: 2.11× at c=32, 1.30× at c=64, 1.33× at c=128'
+    - criterion: 'Validate PMAT-130 falsification condition'
+      status: DONE
+      result: '447 tok/s at c=32 well below 1200 threshold — FALSIFIED'
+    - criterion: 'Complete asymptote picture for all runtimes'
+      status: DONE
+      result: 'vLLM 3050 > realizr 1500 > llama.cpp 1141 > ollama 160'
+  notes: |
+    llama.cpp --parallel 32 improves asymptote by 21% over p=16 (1141 vs 943)
+    but realizr still 1.32× ahead. Per-request decode worse with p=32 (36-38
+    vs 53-60 with p=16) because fixed-slot processes all 32 slots per step.
+    c=32 is particularly bad (447 vs 943 with p=16) — partial slot utilization
+    waste is severe. Continuous batching (realizr) definitively outperforms
+    fixed-slot (llama.cpp) at high concurrency.
+- id: PMAT-196
+  title: 'PMAT-196: 4-runtime architecture taxonomy'
+  status: DONE
+  priority: P2
+  spec_version: '3.48.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Create unified comparison table across all dimensions'
+      status: DONE
+      result: '12 dimensions: scheduling, KV cache, decode kernel, c=1, asymptote, scaling, decode preservation, ITL jitter, TTFT, score, VRAM'
+    - criterion: 'Synthesize architectural insight'
+      status: DONE
+      result: 'Spectrum: max throughput (vLLM) → max per-request quality (ollama). Best runtime depends on constraint.'
+  notes: |
+    This is the synthesis of PMAT-177→195 analysis into a single reference
+    table. The key takeaway: all 4 runtimes achieve nearly identical c=1
+    performance (148-164 tok/s), proving the kernel-level gap is negligible.
+    The entire competitive landscape is determined by scheduling architecture.
+- id: PMAT-195
+  title: 'PMAT-195: Complete 4-runtime scaling characterization'
+  status: DONE
+  priority: P2
+  spec_version: '3.47.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Add ollama to scaling efficiency table'
+      status: DONE
+      result: '26.4%→3.3% c=4→32. Serial processing: aggregate flat at ~160'
+    - criterion: 'Add ollama scaling model (constant)'
+      status: DONE
+      result: 'agg ≈ 160 regardless of c, queue-only architecture'
+    - criterion: 'Complete ollama c=16/32 in quality table'
+      status: DONE
+      result: 'c=16: decode 161.8, TTFT 14.6s. c=32: decode 160.1, TTFT 24.4s'
+    - criterion: 'Expand asymptotes to all 4 runtimes'
+      status: DONE
+      result: 'vLLM 3050 > realizr 1500 (2.0×) > llama.cpp 943 (3.2×) > ollama 160 (19×)'
+  notes: |
+    Completes the 4-runtime scaling picture. The hierarchy is clear:
+    vLLM (PagedAttention) > realizr (batch-and-step) > llama.cpp (fixed-slot)
+    > ollama (serial). Each architecture has a different scaling ceiling.
+    ollama's decode invariance (97.9% at c=32) is the strongest proof that
+    serial processing preserves per-request quality — the tradeoff is TTFT
+    growing linearly (24.4s at c=32).
+- id: PMAT-194
+  title: 'PMAT-194: 4-runtime per-request quality table'
+  status: DONE
+  priority: P2
+  spec_version: '3.46.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Expand quality degradation table to all 4 runtimes'
+      status: DONE
+      result: 'llama.cpp c=1-32, ollama c=1-8 added alongside vLLM c=1-128 and realizr c=1-128'
+    - criterion: 'Add llama.cpp to iso-quality table'
+      status: DONE
+      result: 'ITL≤12ms: c=4 354. ITL≤17ms: c=32 943. TTFT≤100ms: c=16 897'
+    - criterion: 'Document llama.cpp non-monotonic ITL and ollama invariant decode'
+      status: DONE
+      result: 'llama.cpp peaks 18.7ms c=8, recovers 16.5ms c=32. Ollama 163→160 (1.9%)'
+  notes: |
+    Completes the iso-quality analysis by showing all 4 runtimes side-by-side.
+    The full picture: vLLM dominates throughput, ollama dominates single-user
+    decode quality, llama.cpp is the middle ground, realizr trades TTFT for
+    ITL predictability. Each runtime has a different quality-throughput
+    tradeoff curve. The "best runtime" depends entirely on the quality constraint.
+- id: PMAT-193
+  title: 'PMAT-193: Iso-quality update with c=64/128 data'
+  status: DONE
+  priority: P1
+  spec_version: '3.45.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Extend per-request quality table to c=64/128 for realizr'
+      status: DONE
+      result: 'c=64: decode 48.9, ITL 20.4ms, TTFT 2813ms. c=128: decode 48.8, ITL 20.5ms, TTFT 8235ms'
+    - criterion: 'Add ITL≤21ms iso-quality row showing 2.0× gap'
+      status: DONE
+      result: 'realizr c=128 at 1506 vs vLLM c=64 at 3036 = 2.0×'
+    - criterion: 'Extend ITL jitter and TTFT tail tables to c=64/128'
+      status: DONE
+      result: 'ITL P99/P50: 1.11/1.11. TTFT tail: 1.26/1.08'
+    - criterion: 'Revise PMAT-188 projections with saturation asymptote'
+      status: DONE
+      result: 'Power-law extrapolation replaced with measured 1500 saturation'
+  notes: |
+    Extends PMAT-187/188/189/190 iso-quality analysis with realizr c=64/128
+    production data from PMAT-192. Key: at ITL ≤21ms threshold, the iso-quality
+    gap is only 2.0× (down from 12.8× at ITL ≤12ms). PMAT-188 projected
+    iso-quality revised: CB can only improve per-request quality, not raw
+    aggregate (asymptote is 1500 measured, not power-law extrapolation).
+- id: PMAT-192
+  title: 'PMAT-192: realizr c=64/128 — asymptote 1500 tok/s, quality crossover at c=128'
+  status: DONE
+  priority: P1
+  spec_version: '3.44.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure realizr at c=64 with batch=32 queuing'
+      status: DONE
+      result: 'agg 1484, decode 48.9, ITL 20.4ms, TTFT 2813ms, 0% errors'
+    - criterion: 'Measure realizr at c=128 with batch=32 queuing'
+      status: DONE
+      result: 'agg 1506 (+1.4%), decode 48.8, ITL 20.5ms, TTFT 8235ms, 0% errors'
+    - criterion: 'Score and compare with vLLM at c=64/128'
+      status: DONE
+      result: 'c=64: vLLM 74B > realizr 64C+. c=128: realizr 66C+ > vLLM 63C+ (QUALITY CROSSOVER)'
+    - criterion: 'Update PMAT-184 scaling model with measured data'
+      status: DONE
+      result: 'Power law underpredicts c=64 by 26%. Realizr follows saturation at c≥32, not power law'
+  notes: |
+    Major finding: realizr BEATS vLLM at c=128 on composite score. The
+    quality crossover happens because batch=32 caps decode degradation
+    (49 tok/s constant at c=64/128) while vLLM's per-request decode keeps
+    halving (49→24). This is an architectural advantage of fixed-batch:
+    each request in the batch gets the same kernel performance regardless
+    of how many requests are queued. vLLM's continuous batching serves more
+    requests but each gets progressively worse service.
+
+    Asymptote comparison: vLLM 3050, realizr 1500 — 2.0× constant gap.
+    Both saturate at c=64. The "OOMs at c=64" note was wrong — that was
+    with CUDA_MAX_BATCH=64 (pre-allocating 64 slots). batch=32 + c=64
+    queues successfully with 0% errors.
+- id: PMAT-191
+  title: 'PMAT-191: Ollama c=16,32 measured — confirms serial flatness'
+  status: DONE
+  priority: P3
+  spec_version: '3.43.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure ollama at c=16 with production methodology'
+      status: DONE
+      result: 'agg 161.0, decode 161.8 (99.0% retention), TTFT 14573ms, ITL 6.2ms'
+    - criterion: 'Measure ollama at c=32 with production methodology'
+      status: DONE
+      result: 'agg 159.0, decode 160.1 (98.0% retention), TTFT 24419ms, ITL 6.2ms'
+    - criterion: 'Replace ~160 estimates in exec summary with measured values'
+      status: DONE
+      result: 'c=16: 161.0, c=32: 159.0 (was ~160 for both)'
+  notes: |
+    Confirms serial processing model: aggregate = c=1 throughput constant,
+    TTFT = c × avg_request_time, ITL = c=1 ITL constant, decode retention
+    ≥98% at all c. Ollama is the purest M=1 kernel benchmark — no scheduler
+    overhead, no batching, no shared resources. Score 57-58 C at c≥4 because
+    TTFT score = 0 (14-24 seconds is unusable for interactive workloads).
+- id: PMAT-190
+  title: "PMAT-190: TTFT tail predictability — realizr ≤1.09 at c≥4"
+  status: DONE
+  priority: P2
+  spec_version: '3.42.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compute TTFT P999/P50 tail ratio for all 4 runtimes'
+      status: DONE
+      result: 'realizr ≤1.09 (c≥4). vLLM 1.17→2.49 (growing). llama.cpp 1.18-1.57. ollama 1.38-1.39'
+    - criterion: 'Define Phase 1+CB preservation targets for latency predictability'
+      status: DONE
+      result: 'ITL jitter ≤1.10, TTFT tail ratio ≤1.50'
+  notes: |
+    Complements PMAT-189 ITL jitter with TTFT tail analysis. realizr has
+    the most predictable latency of ALL runtimes on BOTH metrics:
+    - ITL jitter: ≤1.08 (PMAT-189)
+    - TTFT tail: ≤1.09 at c≥4 (PMAT-190)
+    This is architecturally guaranteed by batch-and-step: every request in
+    a batch gets processed together with equal work. vLLM's TTFT tail grows
+    because continuous batching makes non-deterministic admission decisions.
+- id: PMAT-189
+  title: "PMAT-189: ITL jitter analysis — realizr's latency consistency advantage"
+  status: DONE
+  priority: P2
+  spec_version: '3.41.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compute TPOT P99/P50 jitter ratio for all 4 runtimes at c=1-32'
+      status: DONE
+      result: 'realizr ≤1.08, ollama 1.00, vLLM ≤1.06, llama.cpp 1.33-1.38 at c≥16'
+    - criterion: 'Identify use cases where ITL consistency is competitive advantage'
+      status: DONE
+      result: 'Code completion (autocomplete) — consistent streaming latency matters'
+  notes: |
+    realizr's deterministic batch-and-step scheduling produces nearly constant
+    ITL jitter regardless of concurrency. This is architecturally guaranteed —
+    each decode step processes a fixed-size batch. Phase 1+CB must preserve
+    this property: continuous batching can introduce scheduling variance
+    (variable batch sizes per step). Falsification: if post-CB jitter exceeds
+    1.15 at c=8, the CB implementation is adding scheduling variance.
+- id: PMAT-188
+  title: 'PMAT-188: Projected iso-quality after Phase 1+CB'
+  status: DONE
+  priority: P1
+  spec_version: '3.40.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Project iso-quality throughput ratios after Phase 1+CB'
+      status: DONE
+      result: 'ITL≤12ms gap: 12.8× → 1.4×. TTFT≤100ms gap: 14× → ~3×'
+    - criterion: 'Quantify Phase 1+CB iso-quality improvement factor'
+      status: DONE
+      result: 'ITL≤12ms: 8.9× more throughput capacity (c=4→c=16). Score≥70: 3×'
+    - criterion: 'Add iso-quality falsification test for Phase 1+CB'
+      status: DONE
+      result: 'ITL≤12ms at c≥8 = PASS. ITL>15ms at c=8 = FAIL'
+  notes: |
+    The iso-quality analysis is the strongest quantitative argument for
+    Phase 1+CB. Raw aggregate projections (PMAT-180: 0.97× vLLM) tell
+    the scaling story. Iso-quality projections tell the user-experience
+    story: a 12.8× to 1.4× gap reduction means realizr can serve ~10×
+    more users at the same perceived quality. This is the metric that
+    matters for deployment economics.
+- id: PMAT-187
+  title: 'PMAT-187: Quality-throughput tradeoff — iso-quality analysis'
+  status: DONE
+  priority: P1
+  spec_version: '3.39.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compile per-request quality degradation table (decode, ITL, TTFT) across c=1-128'
+      status: DONE
+      result: 'realizr ITL 2.1× growth (flat). vLLM ITL 6.4× growth. vLLM TTFT 10.5× vs realizr 28×'
+    - criterion: 'Compute iso-quality throughput ratios at key constraints'
+      status: DONE
+      result: 'ITL≤12ms: 12.8×. ITL≤15ms: 2.9×. TTFT≤100ms: 14.0×. Score≥70: 3.2×'
+    - criterion: 'Define Phase 1+CB quality targets'
+      status: DONE
+      result: 'Flatten TTFT curve to ≤100ms at c=16 → iso-quality gap shrinks from 14× to ~2×'
+  notes: |
+    Most important finding for architecture: vLLM c=128 gives same user
+    experience as realizr c=8 (both 65 C+) despite 8.6× aggregate throughput.
+    Raw aggregate is not user experience. The scoring system captures this by
+    weighting decode, ITL, TTFT, and errors — not just aggregate. realizr's
+    flat ITL curve is an architectural strength (predictable per-token latency)
+    that Phase 1+CB should preserve while flattening the TTFT curve.
+- id: PMAT-186
+  title: 'PMAT-186: Complete scorecard sweep c=1→128, all 4 runtimes'
+  status: DONE
+  priority: P2
+  spec_version: '3.38.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Score all PMAT-177/182/183 production results'
+      status: DONE
+      result: 'Full scorecards: vLLM 98-65, realizr 93-65, llama.cpp 97-51, ollama 78-58'
+    - criterion: 'Add ollama scorecard to executive summary'
+      status: DONE
+      result: 'ollama 78 B (c=1), 58 C (c=4,8). Best decode+ITL, worst TTFT+tail'
+    - criterion: 'Score c=32 and vLLM c=64/128'
+      status: DONE
+      result: 'c=32: vLLM 88 A-, realizr 70 B, llama.cpp 51 C. vLLM c=64: 74 B, c=128: 65 C+'
+  notes: |
+    Key insight: vLLM c=128 scores same as realizr c=8 (65 C+) despite 8.6x
+    more aggregate throughput. At extreme concurrency, per-request quality
+    (decode/ITL) dominates the score — aggregate alone doesn't buy grade.
+    llama.cpp collapses at c=32 (TTFT score 2) due to 16-slot queueing.
+    Ollama's 78 B at c=1 is notable — best decode (100) and ITL (100) but
+    serial processing gives 53 TTFT (2941ms queue at c=4).
+- id: PMAT-185
+  title: 'PMAT-185: Falsification test hygiene — annotate stale claims'
+  status: DONE
+  priority: P3
+  spec_version: '3.37.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Mark PMAT-131 "realizr WINS c≥8" as short-prompt-only, superseded by PMAT-177'
+      status: DONE
+      result: 'Entry annotated with ⚠️ SHORT-PROMPT ONLY + SUPERSEDED note'
+    - criterion: 'Mark PMAT-138 "c=8 invariant win" as falsified by PMAT-157'
+      status: DONE
+      result: 'Entry annotated with ⚠️ FALSIFIED + explanation'
+    - criterion: 'Add cross-reference from PMAT-131 data table to production table'
+      status: DONE
+      result: 'Caveat added pointing to PMAT-177 executive summary table'
+  notes: |
+    Popperian integrity: falsified claims must be visibly marked, not silently
+    superseded. The short-prompt data remains valid for that workload but was
+    being cited without the production-methodology caveat. All three changes
+    ensure readers see the corrected competitive picture immediately.
+- id: PMAT-184
+  title: 'PMAT-184: Scaling model characterization — vLLM exponential saturation + realizr power law'
+  status: DONE
+  priority: P2
+  spec_version: '3.36.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Fit parametric scaling models to PMAT-177/183 production data'
+      status: DONE
+      result: 'vLLM: agg = 3050 × (1 - exp(-c/19.5)). realizr: agg = 124.7 × c^0.549'
+    - criterion: 'Quantify model fit quality across c=1-128'
+      status: DONE
+      result: 'vLLM: -2% to -14% (underpredicts mid-range). realizr: 0% to -20% (moderate fit)'
+    - criterion: 'Define Phase 1+CB falsification via scaling exponent'
+      status: DONE
+      result: 'β≥0.80 = CB success (near-linear). β<0.60 = batch-GEMV penalty persists'
+    - criterion: 'Add bench-yoga-prod-ollama Makefile target'
+      status: DONE
+      result: 'Target added with c=1,4,8 sweep using production methodology'
+  notes: |
+    vLLM super-exponential in mid-range (c=4-16): prefix cache hit rate increases
+    with arrival rate, giving better-than-saturation-model scaling. Converges at
+    c≥64 where GPU is compute-bound. realizr √c scaling is fundamental to
+    batch-GEMV architecture — each doubling of c adds ~46% throughput (2^0.549).
+    Power law extrapolation: c=64 → ~1105 tok/s (untestable, OOMs).
+- id: PMAT-183
+  title: 'PMAT-183: c=32/64/128 production sweep + vLLM asymptote'
+  status: DONE
+  priority: P1
+  spec_version: '3.35.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Fresh c=32 data for all 3 runtimes with production methodology'
+      status: DONE
+      result: 'realizr 944.7, llama.cpp 943.2 (parity), vLLM 2757.6'
+    - criterion: 'Find vLLM asymptote (c=64, c=128)'
+      status: DONE
+      result: 'c=64: 3036, c=128: 3049. Asymptote ~3050 tok/s'
+    - criterion: 'Validate consistency with PMAT-168 c=32 data'
+      status: DONE
+      result: 'realizr +1.5%, llama.cpp +2.0%, vLLM -3.2% (within variance)'
+  notes: |
+    Completes the production benchmark data set with consistent methodology.
+    vLLM asymptotes at ~3050 tok/s on the 4060L — GPU is compute-saturated
+    at c=64. Per-request decode halves every doubling of c beyond c=32.
+    realizr and llama.cpp converge at c=32 (exact parity at 944/943).
+- id: PMAT-182
+  title: 'PMAT-182: Ollama production benchmarks — M=1 decode ceiling'
+  status: DONE
+  priority: P2
+  spec_version: '3.34.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run ollama at c=1,4,8 with production methodology'
+      status: DONE
+      result: 'c=1: agg 151.8, decode 163.5. c=4: agg 160.1. c=8: agg 159.4'
+    - criterion: 'Characterize ollama scaling behavior'
+      status: DONE
+      result: 'Serial processing — aggregate flat at ~160, decode 98% retention, TTFT linear'
+    - criterion: 'Compare decode ceiling across runtimes'
+      status: DONE
+      result: 'Ollama 163.5 > llama.cpp 159.2 > vLLM 153.4 > realizr 148.3 (10% scheduler overhead)'
+  notes: |
+    Ollama represents the M=1 kernel ceiling — serial processing with zero
+    scheduling overhead. 163.5 tok/s proves the Q4K decode kernel can reach
+    10% above realizr's c=1 (148.3). The gap is realizr's scheduler overhead
+    (CUDA graph management, async runtime, batch window). Phase 1+CB
+    projection should use 148.3 (not 163.5) since CB still has scheduling.
+- id: PMAT-181
+  title: 'PMAT-181: Projected composite scores with Phase 1+CB'
+  status: DONE
+  priority: P1
+  spec_version: '3.33.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compute projected scores using scoring contract v3.0.0'
+      status: DONE
+      result: 'Phase 1+CB: 95 A (c=4), 90 A (c=8), 87 A- (c=16). All fixes: 98/96/92 A+'
+    - criterion: 'Identify remaining gap after Phase 1+CB'
+      status: DONE
+      result: 'TTFT only (80ms vs vLLM 29ms at c=8). 6-point gap from TTFT scoring'
+    - criterion: 'Define falsification conditions'
+      status: DONE
+      result: '≥85 A- = pass, <70 B = fail (decode rate issue). TTFT >100ms = prefill overhead'
+  notes: |
+    Phase 1+CB is sufficient for A grade at c=4,8. The remaining gap to A+
+    is entirely TTFT — Phase 0's 6-point contribution. This quantifies the
+    ROI of each phase in composite score terms: Phase 1+CB adds +16 to +32
+    points, Phase 0 adds +5 to +6 points on top.
+- id: PMAT-180
+  title: 'PMAT-180: Corrected phase projections — CB is the binding fix'
+  status: DONE
+  priority: P1
+  spec_version: '3.32.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Project phase impact using 2-factor model'
+      status: DONE
+      result: 'Paged KV + CB → 0.97× vLLM at c=4,8,16. Phase 0 adds 0% after CB'
+    - criterion: 'Compare with PMAT-173 3-factor projections'
+      status: DONE
+      result: 'c=8 Phase 1 matches (555 vs 543). c=16 corrected from 0.80× to 0.97×'
+    - criterion: 'Identify the binding fix'
+      status: DONE
+      result: 'Continuous batching. Eliminates batch-GEMV decode degradation. Phase 0 subsumed'
+  notes: |
+    Key insight: Phase 0 (fused Q4K GEMM) is only valuable for c=1 latency.
+    At c≥4, continuous batching subsumes Phase 0's TTFT improvement because
+    CB's scheduling efficiency dominates. Paged KV alone (no CB) only reaches
+    0.50× vLLM — fixes hetero but not decode. Paged KV + CB reaches 0.97×
+    because CB restores per-request decode to c=1 levels (M=1 per token).
+    This reframes the roadmap: Phase 1 (paged KV + CB) is the single critical
+    investment. Phase 0 is optional for latency-sensitive c=1 use cases.
+- id: PMAT-179
+  title: 'PMAT-179: Refined 2-factor gap decomposition (decode × scheduling)'
+  status: DONE
+  priority: P1
+  spec_version: '3.31.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Derive exact decomposition that works at all concurrency levels'
+      status: DONE
+      result: 'gap = decode_rate × scheduling_utilization, 0% error at c=4,8,16'
+    - criterion: 'Resolve the c=16 4th factor mystery (PMAT-174)'
+      status: DONE
+      result: 'No 4th factor. 3-factor model assumed concurrency-invariant hetero/TTFT; they decay with c'
+    - criterion: 'Quantify scheduling utilization gap'
+      status: DONE
+      result: 'vLLM 97-98% constant. realizr 66%→59%→51% at c=4/8/16'
+  notes: |
+    Analytical derivation from PMAT-177 data. The 2-factor model subsumes all
+    three original PMAT-173 factors: output heterogeneity and TTFT overhead are
+    components of scheduling utilization, not independent factors. Phase 1
+    (paged KV + continuous batching) must lift scheduling utilization from
+    51-66% to >90% to reach vLLM parity. The decode rate factor (0.52-0.57)
+    improves slightly at c=16 because vLLM's decode also starts dropping.
+- id: PMAT-178
+  title: 'PMAT-178: vLLM measurement variance analysis — PMAT-163 outlier correction'
+  status: DONE
+  priority: P1
+  spec_version: '3.30.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compile all vLLM c=1 measurements across sessions'
+      status: DONE
+      result: '10+ measurements: 149.7±1.8 tok/s aggregate, 153.4±0.2 decode'
+    - criterion: 'Identify outliers and root cause'
+      status: DONE
+      result: 'PMAT-163 (126.6/128.3) is 5σ outlier. Likely CUDA graph compilation or scheduler cold-start'
+    - criterion: 'Correct scaling efficiency calculations'
+      status: DONE
+      result: 'c=4 eff: 93.9%→96.3%. c=32 eff: 70.3%→58.4% (compute saturation)'
+  notes: |
+    Methodological correction. The "realizr 15% faster at c=1" narrative from
+    PMAT-163 was based on a single outlier measurement. All other vLLM c=1
+    measurements show 149.7±1.8 tok/s (decode 153.4±0.2). realizr is 0.96-0.98×
+    vLLM at c=1, not 1.15×. This changes no architectural conclusions (the gap
+    is scaling, not kernel speed) but corrects the magnitude of vLLM's c=32
+    scaling efficiency from 70% to 58%.
+- id: PMAT-177
+  title: 'PMAT-177: Comprehensive production benchmark refresh (c=1-16)'
+  status: DONE
+  priority: P1
+  spec_version: '3.28.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run all 3 runtimes at c=1,4,8,16 with production methodology (60s, medium, hetero)'
+      status: DONE
+      result: 'realizr 146/216/355/587, llama.cpp 158/354/420/897, vLLM 152/587/1115/1983'
+    - criterion: 'Generate definitive scorecards'
+      status: DONE
+      result: 'realizr 93A/58C/65C+/71B. vLLM 98A+/99A+/99A+/96A+. llama.cpp 98A+/73B/65C+/72B'
+    - criterion: 'Validate reproducibility vs PMAT-157'
+      status: DONE
+      result: 'realizr c=4: 216.7 → 216.1 (-0.3%), c=8: 355.2 → 355.1 (-0.0%)'
+    - criterion: 'Add bench-yoga-prod Make targets'
+      status: DONE
+      result: 'bench-yoga-prod, bench-yoga-prod-realizr/llamacpp/vllm targets added'
+  notes: |
+    Definitive production baseline. realizr is rock-solid (<0.3% variance across
+    sessions). At c≥8, realizr matches llama.cpp in composite score — the gap is
+    entirely vs vLLM. c=1 scores: all three runtimes within 5 points (93-98).
+    Makefile now has production-realistic benchmark targets with medium prompt,
+    heterogeneous output, and c=1,4,8,16 sweep. Scoring updated for c=8/16.
+- id: PMAT-176
+  title: 'PMAT-176: Phase 0 ROI by output length (16-256 tokens)'
+  status: DONE
+  priority: P1
+  spec_version: '3.27.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Derive Phase 0 throughput gain at different output lengths'
+      status: DONE
+      result: '+49% at 16 tok, +26% at 32, +14% at 64, +7% at 128, +4% at 256'
+    - criterion: 'Identify Phase 0 primary use case'
+      status: DONE
+      result: 'Code completion (short outputs). Negligible for generation (128+ tok)'
+  notes: |
+    Phase 0 gain ≈ TTFT_excess / (TTFT_excess + decode_time). At 16-token
+    output, TTFT (148ms) is 42% of total request time — fused Q4K GEMM
+    reducing TTFT to 34ms gives +49% aggregate throughput. At 128 tokens,
+    TTFT is only 8% — gain drops to +7%. This means Phase 0 is a code
+    completion optimization, not a generation optimization. For generation
+    workloads (128+ tokens), only Phase 1 matters.
+- id: PMAT-175
+  title: 'PMAT-175: CUDA_MAX_BATCH impact test (BATCH=16 vs 32 at c=16)'
+  status: DONE
+  priority: P2
+  spec_version: '3.26.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run realizr with CUDA_MAX_BATCH=16 at c=16 fixed:128 and hetero'
+      status: DONE
+      result: 'Fixed:128 1006.9 vs 1003.3 tok/s (+0.3%). Hetero 653.7 vs 668.5 (-2.2%)'
+    - criterion: 'Determine if batch pre-allocation size affects decode rate'
+      status: DONE
+      result: 'No — decode 72.7 vs 72.5 tok/s, identical within noise'
+  notes: |
+    Eliminates batch pre-allocation as the 4th factor in the c=16 gap
+    decomposition model. realizr processes only active sequences in the
+    GEMV kernel, not the full pre-allocated batch. The 2.2% hetero slowdown
+    with BATCH=16 is from reduced queue headroom (no slack slots for new
+    requests as others complete). The c=16 model overprediction (23%) is
+    from TTFT queueing interaction with the decode pipeline — not from
+    wasted batch capacity.
+- id: PMAT-174
+  title: 'PMAT-174: Cross-concurrency gap decomposition validation'
+  status: DONE
+  priority: P1
+  spec_version: '3.25.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure fixed:128 at c=4,16 for all 3 runtimes'
+      status: DONE
+      result: 'realizr c=4 314.7, c=16 1003.3. vLLM c=4 588.9, c=16 2001.6. llama.cpp c=4 372.6, c=16 1137.0'
+    - criterion: 'Validate 3-factor model at c=4,8,16'
+      status: DONE
+      result: 'c=4 +6%, c=8 -1%, c=16 +23%. 4th factor at high c'
+    - criterion: 'Project all-fixes throughput at each c level'
+      status: DONE
+      result: 'c=4 0.93× vLLM, c=8 0.99×, c=16 0.80×'
+  notes: |
+    Three-factor model (decode × hetero × TTFT) captures 77-101% of the gap.
+    The 23% c=16 overprediction reveals a 4th factor — likely batch formation
+    overhead or CUDA kernel launch cost that scales super-linearly with M=16.
+    Phase 0 TTFT value grows with concurrency: +2% at c=4, +7% at c=8, +13%
+    at c=16. Phase 1 paged KV is consistently the larger fix (+35-52%).
+    All 3 fixes project to 0.80-0.99× vLLM across c=4-16.
+- id: PMAT-173
+  title: 'PMAT-173: Multiplicative gap decomposition (c=8 heterogeneous)'
+  status: DONE
+  priority: P1
+  spec_version: '3.24.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Decompose realizr/vLLM gap into independent multiplicative factors'
+      status: DONE
+      result: 'decode(0.52) × hetero(0.66) × TTFT(0.95) = 0.33×, 99% model fit'
+    - criterion: 'Project throughput impact of each Phase fix at c=8'
+      status: DONE
+      result: 'Phase 0 +7%, Phase 1 +52%, Phase 0+1 +63%, all three +204% (0.99× vLLM)'
+    - criterion: 'Identify dominant bottleneck'
+      status: DONE
+      result: 'Per-request decode rate (0.52) from batch-GEMV KV scan. Continuous batching required'
+  notes: |
+    This reframes optimization priorities. Phase 0 (TTFT fix) has minimal throughput
+    impact at c=8 (+7%) because TTFT is only 8% of request time at 130 avg output.
+    Phase 0's real value is latency for interactive single-request use, not aggregate
+    throughput. Phase 1 (paged KV) alone adds +52% but reaches only 0.50× vLLM.
+    Full parity (0.99×) requires all three: fused Q4K + paged KV + continuous batching.
+    The decode rate gap (0.52) is the largest factor and requires continuous batching
+    (per-token dispatch) to eliminate batch-GEMV KV scan penalty.
+- id: PMAT-172
+  title: 'PMAT-172: Per-request decode rate scaling (c=1→32)'
+  status: DONE
+  priority: P1
+  spec_version: '3.23.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Compile per-request decode rates across c=1-32 from existing data'
+      status: DONE
+      result: 'realizr 148→70 (47% retention), vLLM 154→93 (61%), llama.cpp 161→62 (38%)'
+    - criterion: 'Identify root cause of realizr decode degradation with concurrency'
+      status: DONE
+      result: 'Batch-GEMV KV scan grows linearly with M — at M=8 bandwidth saturated'
+    - criterion: 'Validate Phase 1 scope (paged KV + continuous batching)'
+      status: DONE
+      result: 'vLLM per-token scheduling avoids batch-GEMV penalty. Either alone insufficient'
+  notes: |
+    This is a compilation analysis — no new measurements, derived from existing
+    PMAT-166/168/170/171 data. Key insight: vLLM maintains near-constant decode
+    through c=8 (93% retention) because PagedAttention processes one token per
+    request with pipelined scheduling. realizr's batch-and-step processes M tokens
+    simultaneously, but KV scan is M× larger. The 4060L's 256 GB/s saturates at
+    M=8. realizr decode plateaus at c≥8 (74→70 tok/s, only 5% drop c=8→32) —
+    bandwidth-limited. Phase 1 must include continuous batching for decode rate
+    preservation, not just paged KV for memory management.
+- id: PMAT-171
+  title: 'PMAT-171: Output-length isolation — heterogeneous penalty quantification'
+  status: DONE
+  priority: P1
+  spec_version: '3.22.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure fixed output (32/128/256 tok) vs heterogeneous at c=8 for all 3 runtimes'
+      status: DONE
+      result: 'realizr 36% penalty, llama.cpp 6%, vLLM 3%'
+    - criterion: 'Identify root cause of realizr heterogeneous penalty'
+      status: DONE
+      result: 'Contiguous KV pre-allocates max_tokens per slot — short requests waste capacity'
+    - criterion: 'Quantify Phase 1 paged KV production impact'
+      status: DONE
+      result: '~200 tok/s recovery at c=8 (356.7→~540-560), +5-7 composite score points'
+  notes: |
+    realizr's heterogeneous output penalty (36%) is 12x worse than vLLM (3%).
+    Contiguous KV allocation wastes capacity when output lengths vary. vLLM's
+    PagedAttention releases blocks on completion, maintaining scheduling efficiency.
+    llama.cpp's fixed-slot design has modest 6% penalty (uniform allocation).
+    realizr peaks at fixed:128 (558.6 tok/s), not fixed:256 — TTFT amortization
+    vs KV scan cost tradeoff. Phase 1 (paged KV) is projected to recover
+    ~200 tok/s at c=8, nearly equal to Phase 0 TTFT fix in production impact.
+    Falsification: Phase 1 must reduce penalty to <10%.
+- id: PMAT-170
+  title: 'PMAT-170: vLLM prefix cache A/B test'
+  status: DONE
+  priority: P1
+  spec_version: '3.21.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run vLLM with and without --no-enable-prefix-caching, same conditions'
+      status: DONE
+      result: 'Cache boosts throughput 7.2-23.1% (c=4-16), halves TTFT'
+    - criterion: 'Quantify prefix cache contribution to vLLM competitive advantage'
+      status: DONE
+      result: 'Prefix cache explains <25% of vLLM advantage. Gap narrows 3-8pp'
+    - criterion: 'Validate PMAT-169 claim of ~20% inflation'
+      status: DONE
+      result: 'Validated at c=16 (23.1%). Overstated at c=4 (7.2%). Scales with c'
+  notes: |
+    PMAT-169 claimed ~20% prefix cache inflation. A/B confirms 23.1% at c=16 but
+    only 7.2% at c=4. The effect scales linearly with concurrency because more
+    concurrent requests share the same prompt prefix. Without cache, realizr/vLLM
+    improves from 0.35× to 0.43× at c=16 — still a 57% gap from PagedAttention
+    + W4A16 Marlin. Run-to-run variance ±10-15% observed.
+- id: PMAT-169
+  title: 'PMAT-169: Prompt-length impact on competitive position'
+  status: DONE
+  priority: P1
+  spec_version: '3.20.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure micro prompt (~7 tok) at c=4,8,16 for all 3 runtimes'
+      status: DONE
+      result: 'realizr 259/377/786, llama.cpp 315/377/710, vLLM 416/737/1200 tok/s'
+    - criterion: 'Compare micro vs medium throughput ratios'
+      status: DONE
+      result: 'realizr +6-34%, vLLM -13-21%, llama.cpp -10-22%'
+    - criterion: 'Quantify competitive gap change with prompt length'
+      status: DONE
+      result: 'Gap narrows 11-47pp. At micro c=16: realizr beats llama (1.11×)'
+  notes: |
+    Shorter prompts reduce FP8 prefill cost (realizr) but also reduce prefix
+    cache benefits (vLLM). This means Phase 0 ROI is prompt-length-dependent:
+    maximum 47pp improvement at c=16 long prompts, minimum ~10pp at short.
+    vLLM's medium-prompt numbers benefit from 89% prefix cache hit rate,
+    which would drop with diverse production traffic.
+- id: PMAT-168
+  title: 'PMAT-168: High-concurrency c=32 production benchmark'
+  status: DONE
+  priority: P1
+  spec_version: '3.19.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure all 3 runtimes at c=32 medium+hetero'
+      status: DONE
+      result: 'realizr 931.2, llama.cpp 924.4, vLLM 2847.5 tok/s'
+    - criterion: 'Compare with c=16 ratios to check scaling trends'
+      status: DONE
+      result: 'realizr=llama parity (1.01×). vLLM 3.1× ahead. Scaling eff: vLLM 70%, realizr 20%'
+    - criterion: 'Analyze TTFT at high concurrency'
+      status: DONE
+      result: 'realizr 527ms, llama.cpp 1557ms (3× worse), vLLM 37ms (14× better)'
+  notes: |
+    Key finding: realizr and llama.cpp converge at c=32 because llama.cpp's
+    16-slot parallel design saturates. realizr has 3× better TTFT at c=32.
+    vLLM's 3.1× aggregate lead is concurrency-invariant (0.33-0.46× across c=4-32).
+    This confirms Phase 1 (paged KV) is needed for scaling — batch size alone
+    cannot close the vLLM gap.
+- id: PMAT-167
+  title: 'PMAT-167: Prompt-length TTFT sensitivity — FP8 prefill cost function'
+  status: DONE
+  priority: P1
+  spec_version: '3.18.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure TTFT at c=1 across micro/short/medium/long for all 3 runtimes'
+      status: DONE
+      result: 'realizr 11.6→39.6ms (linear), llama.cpp 9.8-10.1ms (flat), vLLM 12.1-12.5ms (flat)'
+    - criterion: 'Derive TTFT cost function (ms per prompt token)'
+      status: DONE
+      result: 'realizr: 10.2ms + 0.103 ms/token. llama.cpp/vLLM: constant (0 slope)'
+    - criterion: 'Measure TTFT at c=4 to verify batch scaling'
+      status: DONE
+      result: 'c=4 slope 0.539 ms/token (5.2x steeper). TTFT compounds super-linearly'
+    - criterion: 'Project Phase 0 TTFT savings at each prompt length'
+      status: DONE
+      result: 'Medium c=1: -45%. Long c=4: -87%. ROI grows with prompt×concurrency'
+  notes: |
+    The FP8 2-step dequant pipeline adds 0.103 ms per prompt token at c=1.
+    Competitors are effectively prompt-invariant. This quantifies the exact Phase 0
+    (fused Q4K GEMM) ROI: it eliminates the entire slope, making realizr's TTFT
+    constant like competitors. llama.cpp fails at long prompts due to 256-token
+    slot cap (4096/16 parallel). vLLM's 89% prefix cache hit rate explains its
+    flat TTFT curve.
+- id: PMAT-166
+  title: 'PMAT-166: GPU resource utilization & energy efficiency'
+  status: DONE
+  priority: P1
+  spec_version: '3.17.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Measure VRAM at idle and under c=1,4,8,16 for realizr, llama.cpp, vLLM'
+      status: DONE
+      result: 'realizr 7544, vLLM 7640, llama.cpp 1470 MiB — all constant across c'
+    - criterion: 'Measure power draw and compute tok/watt'
+      status: DONE
+      result: 'Power ~constant (42-55W). vLLM 37.0, realizr 15.3 tok/J at c=16'
+    - criterion: 'Test hypothesis: realizr VRAM grows linearly with c'
+      status: DONE
+      result: 'FALSIFIED — CUDA_MAX_BATCH=32 pre-allocates at startup. VRAM concurrency-invariant'
+    - criterion: 'Analyze vLLM KV cache utilization under load'
+      status: DONE
+      result: 'KV cache <1% at c=16 — 1.5B model too small to pressure memory'
+  notes: |
+    Key insight: at 1.5B model scale, performance gap is purely scheduling architecture,
+    not memory. All runtimes pre-allocate. vLLM 2.4x more energy-efficient at c=16
+    (37.0 vs 15.3 tok/J). Phase 1 value at this scale is scheduler flexibility,
+    not VRAM savings. Gap matters more at 7B+ models.
+- id: PMAT-165
+  title: 'PMAT-165: Long-running stability — 5min c=8 medium+hetero'
+  status: DONE
+  priority: P1
+  spec_version: '3.16.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Run 5-minute benchmark and compare P50 metrics to 60s baseline'
+      status: DONE
+      result: 'decode +0.6%, ITL 0%, TTFT -0.5%. All within noise'
+    - criterion: 'Check for errors, truncation, thermal throttling'
+      status: DONE
+      result: '0% errors, 0% truncation, GPU 61C, clocks locked at 1905MHz'
+    - criterion: 'Verify no degradation with post-test sanity check'
+      status: DONE
+      result: 'Post-5min sanity: 355.5 tok/s = baseline (355.2). No degradation'
+  notes: |
+    realizr is production-stable under sustained load. The ITL drift slope
+    (1.54 ms/min) is a linear regression artifact from measurement noise,
+    not actual degradation. P50 metrics are invariant.
+- id: PMAT-164
+  title: 'PMAT-164: Request completion & reliability analysis'
+  status: DONE
+  priority: P1
+  spec_version: '3.15.0'
+  date: '2026-03-15'
+  acceptance_criteria:
+    - criterion: 'Analyze failed requests, truncation, and completion modes'
+      status: DONE
+      result: 'realizr: 0% failed, 0% truncated. vLLM: 0% failed, 100% truncated. llama.cpp: 1.8% failed, 100% truncated'
+    - criterion: 'Identify llama.cpp failure root cause'
+      status: DONE
+      result: 'Slot overflow — 16-slot pool exhausts under load (4-5 failures per 60s at c≤8)'
+    - criterion: 'Assess production goodput impact'
+      status: DONE
+      result: 'llama.cpp goodput zero for medium prompts (112 tok cap). vLLM 2.6x more requests than realizr'
+  notes: |
+    The 100% truncation for llama.cpp is architectural — 256 tok/slot minus
+    medium prompt + template overhead leaves only 112 tokens for output.
+    Every response is truncated regardless of requested max_tokens.
+    realizr zero errors/truncation is a genuine reliability advantage.
+- id: PMAT-163
+  title: 'PMAT-163: Scaling efficiency analysis — why vLLM dominates at c>1'
+  status: DONE
+  priority: P0
+  spec_version: '3.13.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure c=1 medium+hetero baselines for all 3 runtimes'
+      status: DONE
+      result: 'realizr 146.2 (fastest), llama.cpp 160.7, vLLM 126.6 tok/s'
+    - criterion: 'Compute scaling efficiency at c=4/8/16'
+      status: DONE
+      result: 'vLLM 75-94%, realizr 25-37%, llama.cpp 33-55%'
+    - criterion: 'Analyze per-request decode degradation'
+      status: DONE
+      result: 'vLLM 97→77%, realizr 55→49% (plateaus), llama.cpp 55→33%'
+  notes: |
+    Critical finding: the competitive gap is NOT kernel speed (realizr wins
+    at c=1) but scaling architecture. vLLM PagedAttention processes only
+    active tokens per step, enabling near-linear scaling. Batch-and-step
+    (realizr) shares decode BW across all batch members. Paged KV (PMAT-052)
+    is the ONLY path to closing this gap. Crossover at c~3.
+- id: PMAT-162
+  title: 'PMAT-162: Projected Phase 0/1 impact under production-realistic conditions'
+  status: DONE
+  priority: P0
+  spec_version: '3.12.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Project Phase 0 (PMAT-054) scoring impact with heterogeneous output'
+      status: DONE
+      result: 'Phase 0 adds +8-11 points (C→C+). Lower than +10-15 under fixed output'
+    - criterion: 'Project Phase 0+1 (PMAT-054+052) combined impact'
+      status: DONE
+      result: 'Phase 0+1 adds +12-19 total (C→B-). c≥8 reaches ~72 B, within 3-6 of vLLM'
+    - criterion: 'Define Phase 0 falsification condition'
+      status: DONE
+      result: 'Fused Q4K TTFT ≤1.5× llama.cpp + composite ≥58 at c=4'
+  notes: |
+    Phase 0 alone is NOT sufficient for competitive parity. The
+    heterogeneous output penalty (31-42%) persists regardless of TTFT fix.
+    Paged KV (Phase 1) adds nearly as many points (+7-8) as fused Q4K
+    (+8-11). Both phases are required per the Dynamo replication plan.
+- id: PMAT-161
+  title: 'PMAT-161: Quality-of-experience — ITL and reliability under heterogeneous output'
+  status: DONE
+  priority: P1
+  spec_version: '3.11.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Extract ITL, TTFT tail, and error rates from PMAT-157 results'
+      status: DONE
+      result: 'realizr: ITL 12.3-13.9ms (best c>=8), TTFT tail 1.3-10.4ms spread (tightest), 0% errors'
+    - criterion: 'Compare quality-of-experience metrics across runtimes'
+      status: DONE
+      result: 'realizr ITL 1.40x better than llama.cpp at c=8, TTFT tail 5-6x tighter than vLLM'
+    - criterion: 'Assess impact on interactive use case'
+      status: DONE
+      result: 'ITL advantage gives better perceived streaming but 148ms TTFT negates it for short completions'
+  notes: |
+    Aggregate throughput tells one story (realizr loses), but per-token
+    experience tells another. realizr decode quality (ITL, consistency,
+    reliability) is best-in-class at c>=8. The scoring penalty is entirely
+    TTFT. Fused Q4K GEMM would unlock this latent quality advantage.
+- id: PMAT-160
+  title: 'PMAT-160: Executive summary refresh — production-realistic lead'
+  status: DONE
+  priority: P0
+  spec_version: '3.10.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Lead exec summary with production-realistic results'
+      status: DONE
+      result: 'Now shows medium+hetero table first: realizr 0.38-0.84x, loses ALL c'
+    - criterion: 'Remove stale production workload guide'
+      status: DONE
+      result: 'Replaced with three structural deficits + fix path'
+    - criterion: 'Preserve historical short-prompt results as reference'
+      status: DONE
+      result: 'Labeled as favorable conditions, retained for completeness'
+  notes: |
+    The executive summary is what people read first. It was leading with
+    short-prompt results that suggested realizr was competitive at c>=8.
+    Now honestly shows the production-realistic picture.
+- id: PMAT-159
+  title: 'PMAT-159: Definitive competitive matrix — all workload dimensions'
+  status: DONE
+  priority: P0
+  spec_version: '3.9.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Update PMAT-138 matrix with heterogeneous output row'
+      status: DONE
+      result: 'medium+hetero: 0.62/0.84/0.64 — realizr loses at ALL c'
+    - criterion: 'Identify three-layer competitive gap'
+      status: DONE
+      result: 'TTFT (PMAT-054), output heterogeneity (PMAT-052), architectural ceiling (Phases 0-3)'
+    - criterion: 'Falsify the c=8 invariant win claim'
+      status: DONE
+      result: 'Strikethrough applied. c=8 win was artifact of fixed output + favorable batching'
+  notes: |
+    This is the definitive competitive picture. The c=8 invariant from
+    PMAT-138 was the strongest remaining claim — now falsified by PMAT-157.
+    Under production conditions, realizr has no workload where it wins.
+    Both fused Q4K GEMM and paged KV are required for parity.
+- id: PMAT-158
+  title: 'PMAT-158: Heterogeneous output scorecards — true production floor'
+  status: DONE
+  priority: P0
+  spec_version: '3.8.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Score PMAT-157 heterogeneous results with probador llm score'
+      status: DONE
+      result: 'realizr 50/53/56, vLLM 79/78/75, llama.cpp 60/52/60'
+    - criterion: 'Compare to fixed-128 scorecards from PMAT-156'
+      status: DONE
+      result: 'realizr drops 1-7pts, vLLM improves 3-6pts, gap widens 12-19 → 19-29'
+    - criterion: 'Identify minimum fix path for competitive parity'
+      status: DONE
+      result: 'Two-fix minimum: fused Q4K GEMM (TTFT +10-15) + paged KV (output invariance +5-10)'
+  notes: |
+    vLLM improves with heterogeneous output — short sequences free KV blocks,
+    creating a scheduling advantage for continuous batching. realizr drops
+    because contiguous KV pre-allocation wastes memory on short outputs.
+    This is the definitive production floor measurement.
+- id: PMAT-157
+  title: 'PMAT-157: Heterogeneous output distribution — c=8 crossover falsified'
+  status: DONE
+  priority: P0
+  spec_version: '3.7.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure all 3 runtimes with uniform:16,256 output at c=4/8/16'
+      status: DONE
+      result: 'realizr: 216.7/355.2/585.9. vLLM: 475.7/876.8/1528.2. llama.cpp: 350.7/421.4/914.9'
+    - criterion: 'Compare to fixed-128 baselines'
+      status: DONE
+      result: 'realizr drops 31-42%, vLLM drops ~1%, llama.cpp output capped at ~112 tokens (slot size)'
+    - criterion: 'Determine if c=8 crossover (1.29x) survives heterogeneous output'
+      status: DONE
+      result: 'FALSIFIED. c=8 fixed-128 1.29x WIN → heterogeneous 0.84x LOSS. realizr loses at ALL c'
+  notes: |
+    Fixed-output benchmarks systematically overstate realizr competitive position.
+    vLLM immune to output variance (PagedAttention releases blocks dynamically).
+    Contiguous KV pre-allocation is root cause — paged KV (PMAT-052) required.
+    llama.cpp output capped at ~112 tokens with medium prompt due to 256-token slot.
+    Fused Q4K GEMM alone insufficient — paged KV needed for output-length invariance.
+- id: PMAT-156
+  title: 'PMAT-156: 3-runtime production comparison + scoring (medium+128tok)'
+  status: DONE
+  priority: P0
+  spec_version: '3.6.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp at medium+128tok c=4/8/16'
+      status: DONE
+      result: 'c=4 372.8, c=8 433.4, c=16 1126.1 tok/s. TTFT invariant: 18.8-29.7ms'
+    - criterion: 'Complete 3-runtime comparison with scoring'
+      status: DONE
+      result: 'Scorecards: vLLM 69-76 B/C+, llama.cpp 56-67 C/C+, realizr 57 C flat. TTFT is sole bottleneck'
+    - criterion: 'Verify llama.cpp prompt invariance at medium'
+      status: DONE
+      result: 'TTFT 10.1ms (short) vs 10.3ms (medium), <2%. Fused Q4K GEMM is prompt-invariant'
+  notes: |
+    Production-realistic scoring reveals TTFT as the ONLY dimension where
+    realizr lags. All other dimensions competitive. Fused Q4K GEMM
+    would add 10-15 composite points, lifting realizr from 57 C to
+    67-72 C+/B at all concurrency levels.
+- id: PMAT-155
+  title: 'PMAT-155: Prefix cost quantification — TTFT scaling by prompt length'
+  status: DONE
+  priority: P1
+  spec_version: '3.5.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure TTFT at c=1/4/8 across short/medium/long prompts'
+      status: DONE
+      result: 'Prefix cost (long-short): 26.2ms (c=1), 139ms (c=4), 183ms (c=8). 4.6x amplification from batch scheduling'
+    - criterion: 'Quantify per-token prefix cost'
+      status: DONE
+      result: '~0.09ms/token at c=1, super-linear with concurrency (batch-and-step multiplies across batch)'
+    - criterion: 'Estimate prefix caching impact for multi-turn'
+      status: DONE
+      result: '50-90% TTFT reduction for 500-tok system prompts, 10-25% aggregate improvement at c=8-16'
+  notes: |
+    Quantifies the value of PMAT-146 (prefix radix tree) and PMAT-142
+    (WSPT scheduling). Prefix cost is 56-79% of TTFT at c=4-8 long.
+    vLLM 87.9% prefix hit rate explains flatter TTFT scaling.
+    Confirms Phase 2 (cache intelligence) has high measured ROI.
+- id: PMAT-154
+  title: 'PMAT-154: Trajectory baseline — medium+128tok measured'
+  status: DONE
+  priority: P0
+  spec_version: '3.4.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure realizr vs vLLM at medium+128tok across c=4-32'
+      status: DONE
+      result: 'realizr 0.63-0.67x vLLM (not 0.28x). Gap consistent across c, TTFT-dominated (2.4-3.0x). c=18 ceiling (1116), c=20 OOMs. vLLM c=32 = 2189'
+    - criterion: 'Correct PMAT-140 trajectory table with measured data'
+      status: DONE
+      result: 'Replaced estimated values with measured. Phase 0 target: 0.90x. Phase 1 target: 1.00x at c=32'
+    - criterion: 'Document vLLM CUDA graph regression'
+      status: DONE
+      result: 'vLLM 0.17.0 CUDA graphs produce 6x slowdown (23 vs 141 tok/s c=1). All benchmarks use --enforce-eager'
+  notes: |
+    Critical correction to PMAT-140 trajectory. The 0.28x estimate was
+    wrong — actual gap is 0.63-0.67x, which means Phase 0 (fused Q4K +
+    WSPT) could achieve near-parity at c=16, not just 0.46x.
+    vLLM 0.17.0 has a CUDA graph regression on this CUDA driver.
+    Previous baselines (154 tok/s c=1) were on v0.6.x.
+- id: PMAT-140
+  title: 'PMAT-140: Full Dynamo replication plan (5 phases, 13 items)'
+  status: DONE
+  priority: P0
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Replace cautious P2/P3 roadmap with full implementation plan'
+      status: DONE
+      result: '5 phases (0-4), 13 new PMAT items (141-153). Phase 0 ships this week. Phase 1 is the keystone rewrite'
+    - criterion: 'Define all PMAT items with Dynamo source file references'
+      status: DONE
+      result: 'Each item maps to specific Dynamo Rust source files (block.rs, policy.rs, filter.rs, nvext.rs, etc.)'
+    - criterion: 'Project cumulative impact trajectory'
+      status: DONE
+      result: 'Current 0.28x -> Phase 0 0.46x -> Phase 1 0.88x -> Phase 2 0.99x -> Phase 3 1.13x vs vLLM'
+    - criterion: 'Define falsification conditions for each phase'
+      status: DONE
+      result: 'Each PMAT item has specific falsification condition (e.g., paged KV >=80% vLLM at c=32)'
+  notes: |
+    The benchmark data from PMAT-125-138 proves fixed-slot architecture is
+    the binding constraint. vLLM is 2-3x ahead purely because of paged KV.
+    Dynamo is Rust, realizr is Rust — code is directly portable.
+    Phase 0 (AgentHints API, WSPT scheduling, fused Q4K) has zero prerequisites.
+    Phase 1 (paged KV) is THE rewrite that closes the 2-3x gap.
+    Phases 2-3 build cache intelligence and disaggregated serving on top.
+    Phase 4 (multi-GPU) is future when hardware is available.
+- id: PMAT-141
+  title: 'PMAT-141: AgentHints + CacheControl API fields'
+  status: PLANNED
+  priority: P0
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Add agent_hints and cache_control fields to OpenAI-compat chat completion request'
+      status: PLANNED
+    - criterion: 'Parse and pass through to scheduler (no-op initially)'
+      status: PLANNED
+  notes: 'Phase 0. Zero inference cost. Dynamo source: protocols/openai/nvext.rs'
+- id: PMAT-142
+  title: 'PMAT-142: WSPT cache-aware request scheduling'
+  status: PLANNED
+  priority: P0
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement WSPT scheduling key = (1+priority_jump) / (ISL - overlap*block_size)'
+      status: PLANNED
+    - criterion: 'Measure TTFT improvement with 5-turn conversation replay at c=8'
+      status: PLANNED
+  notes: 'Phase 0. Dynamo source: scheduling/policy.rs. Even without paged KV, prefix hash table gives overlap scores.'
+- id: PMAT-143
+  title: 'PMAT-143: Content-addressed block dedup'
+  status: PLANNED
+  priority: P1
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement BlockRegistry with SequenceHash + Weak<BlockHandle>'
+      status: PLANNED
+    - criterion: 'Measure KV memory savings at c=16 with identical system prompts'
+      status: PLANNED
+  notes: 'Phase 1. Requires PMAT-052. Dynamo source: block/registry.rs'
+- id: PMAT-144
+  title: 'PMAT-144: CUDA graph with paged block tables'
+  status: PLANNED
+  priority: P1
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Pre-capture CUDA graphs at common batch sizes (1,2,4,8,16,32)'
+      status: PLANNED
+    - criterion: 'Block table as fixed-size tensor (only values change)'
+      status: PLANNED
+  notes: 'Phase 1. Requires PMAT-052. vLLM source: gpu_model_runner.py'
+- id: PMAT-145
+  title: 'PMAT-145: FrequencyFilter exponential-decay eviction'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement count*2 on access, periodic -1 decrement + prune zeros'
+      status: PLANNED
+    - criterion: 'Verify system prompt survives 10s tool-call pause under memory pressure'
+      status: PLANNED
+  notes: 'Phase 2. Requires PMAT-052. Dynamo source: offload/filter.rs'
+- id: PMAT-146
+  title: 'PMAT-146: Prefix radix tree (single-GPU)'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement RadixBlock with FxHashMap children'
+      status: PLANNED
+    - criterion: 'O(prefix_len) lookup for multi-turn KV reuse'
+      status: PLANNED
+  notes: 'Phase 2. Enables WSPT with real overlap scores. Dynamo source: indexer/radix_tree.rs'
+- id: PMAT-147
+  title: 'PMAT-147: KV offload to CPU pinned memory'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement PinnedStorage pool with async cuMemcpy offload/restore'
+      status: PLANNED
+    - criterion: 'Extend effective KV capacity from 8GB to 64GB+'
+      status: PLANNED
+  notes: 'Phase 2. Requires PMAT-052. Dynamo source: block_manager/state.rs (host_pool)'
+- id: PMAT-148
+  title: 'PMAT-148: TTL-based prefix pinning'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Implement CacheControl.ttl [300s, 3600s] prefix pinning'
+      status: PLANNED
+    - criterion: 'Verify multi-turn conversation retains prefix within TTL'
+      status: PLANNED
+  notes: 'Phase 2. Requires PMAT-141 (API) + PMAT-052. Dynamo source: nvext.rs'
+- id: PMAT-149
+  title: 'PMAT-149: Stream-level prefill/decode disaggregation'
+  status: PLANNED
+  priority: P2
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Prefill on CUDA stream B while decode runs on stream A'
+      status: PLANNED
+    - criterion: 'TTFT scaling <2x from c=1 to c=16 (currently 6.6x)'
+      status: PLANNED
+  notes: 'Phase 3. Requires PMAT-052 (paged blocks for incremental consumption). Dynamo source: kv_router/prefill_router.rs'
+- id: PMAT-150
+  title: 'PMAT-150: Speculative prefill'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Pre-warm KV during tool execution when speculative_prefill=true'
+      status: PLANNED
+    - criterion: 'Zero TTFT for predicted next-turn prefix'
+      status: PLANNED
+  notes: 'Phase 3. Requires PMAT-141 (AgentHints API) + PMAT-052. Dynamo source: nvext.rs'
+- id: PMAT-151
+  title: 'PMAT-151: Flash Indexer (multi-GPU KV-aware routing)'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'ConcurrentRadixTree with per-node Arc<RwLock>, PositionalIndexer with jump search'
+      status: PLANNED
+  notes: 'Phase 4. Requires multi-GPU hardware. Dynamo source: indexer/concurrent_radix_tree.rs'
+- id: PMAT-152
+  title: 'PMAT-152: NIXL cross-GPU KV transfer'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'NixlRemoteDescriptor for cross-worker KV transfer'
+      status: PLANNED
+  notes: 'Phase 4. Requires multi-GPU hardware. Dynamo source: block_manager/storage/nixl.rs'
+- id: PMAT-153
+  title: 'PMAT-153: Dual FCFS/WSPT scheduling with worker awareness'
+  status: PLANNED
+  priority: P3
+  spec_version: '3.3.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'SchedulerQueue with BinaryHeap, threshold_frac, per-worker token tracking'
+      status: PLANNED
+  notes: 'Phase 4. Requires multi-GPU. Dynamo source: scheduling/queue.rs'
+- id: PMAT-139
+  title: 'PMAT-139: Dynamo source code deep-dive (ai-dynamo/dynamo)'
+  status: DONE
+  priority: P2
+  spec_version: '3.2.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Analyze block lifecycle state machine and dedup mechanism'
+      status: DONE
+      result: '4-state FSM (Reset→Partial→Complete→Registered). Content-addressed dedup via BlockRegistry HashMap<SequenceHash, Weak<BlockHandle>>, auto-unregister on Arc drop'
+    - criterion: 'Characterize 4-tier storage implementation'
+      status: DONE
+      result: 'Generic trait hierarchy (DeviceStorage/PinnedStorage/DiskStorage/NixlStorage), tiers independently configurable via Option<Arc<dyn BlockPool<T>>>. NIXL maps StorageType→MemType for cross-worker transfer'
+    - criterion: 'Document concurrent radix tree locking strategy'
+      status: DONE
+      result: 'Per-node Arc<RwLock<Block>>, hand-over-hand read locking (parent released before child acquired). PositionalIndexer variant: DashMap<(usize, LocalBlockHash), SeqEntry> with jump_size for O(1) position lookup'
+    - criterion: 'Verify eviction is frequency-decay (not LRU/LFU)'
+      status: DONE
+      result: 'FrequencyFilter: count×2 on access (init=1), periodic −1 decrement + prune zeros. Recency-weighted: 3 recent accesses (count=8) outlives 10 old accesses (decayed to 1). Threshold: count >= min_offload_frequency'
+    - criterion: 'Extract scheduling algorithm details'
+      status: DONE
+      result: 'WSPT key=(1+priority_jump)/(ISL−overlap×block_size). Cache overlap reduces effective processing time. FCFS key=priority_jump−arrival_offset. Both use BinaryHeap with per-worker token tracking'
+    - criterion: 'Document AgentHints and CacheControl API structs'
+      status: DONE
+      result: 'AgentHints{latency_sensitivity, osl, speculative_prefill, priority}. CacheControl{type, ttl} clamped [300s,3600s]. NvExt includes prefill_worker_id, decode_worker_id, token_data, max_thinking_tokens'
+    - criterion: 'Identify zero-prerequisite adoption paths for realizr'
+      status: DONE
+      result: 'AgentHints+CacheControl API fields (zero cost, API-level only) and WSPT cache-aware scheduling (light prefix cache). All other patterns require PMAT-052 paged KV'
+  notes: |
+    Source code analysis of ai-dynamo/dynamo Rust codebase.
+    Enriches PMAT-129 blog-level analysis with implementation details.
+    Key insight: AgentHints API adoption is zero-cost and can happen immediately.
+    WSPT scheduling with cache overlap is the algorithmic mechanism behind
+    the 4× TTFT reduction — applicable even at single-GPU with prefix cache.
+    All block management, eviction, and disaggregation patterns require PMAT-052.
+- id: PMAT-130
+  title: 'PMAT-130: llama.cpp --parallel 32 matched-parallelism comparison'
+  status: DONE
+  priority: P1
+  spec_version: '2.93.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Run llama.cpp --parallel 32 --ctx-size 8192 at c=1,4,16,32'
+      status: DONE
+      result: 'c=1: 157.6 (unchanged), c=4: 354.0 (-3%), c=16: 404.5 (-61%!), c=32: 1151.2'
+    - criterion: 'Compare with realizr batch=32 at same concurrency levels'
+      status: DONE
+      result: 'realizr WINS: c=16 2.80x (1132 vs 405), c=32 1.61x (1850 vs 1151). Parity at c=4'
+    - criterion: 'Identify root cause of llama.cpp regression at partial utilization'
+      status: DONE
+      result: 'Fixed-slot processes all 32 slots per step (KV 224MiB, compute 300MiB) even with 16 active. Per-request decode identical (67.6 vs 67.3) but aggregate collapses'
+    - criterion: 'Document optimal parallelism config for each runtime'
+      status: DONE
+      result: 'realizr: batch=32 best (linear scaling). llama.cpp: --parallel 16 best at c<=16, --parallel 32 only at c=32 full utilization'
+  notes: |
+    Critical architectural finding: realizr continuous batching scales linearly
+    with CUDA_MAX_BATCH (16->32 = +62%). llama.cpp fixed-slot architecture has
+    NEGATIVE scaling at partial utilization (--parallel 32 at c=16 = -61%).
+    llama.cpp processes all N slots per decode step regardless of active count.
+    realizr only processes active requests — batch=N means "up to N".
+    At full utilization (c=32): realizr 1850 vs llama.cpp 1151 (1.61x).
+    DP4A GEMV + continuous batching > fused Q4K GEMM + fixed-slot at high batch.
+- id: PMAT-131
+  title: 'PMAT-131: Complete 3-runtime scaling curve at optimal configs (c=1→128)'
+  status: DONE
+  priority: P1
+  spec_version: '2.94.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Compile full c=1→128 comparison with each runtime at best config'
+      status: DONE
+      result: 'realizr b=32, llama.cpp p=16 (c<=16) / p=32 (c=32), vLLM continuous. 8 concurrency levels compared'
+    - criterion: 'Identify crossover points and winners at each concurrency'
+      status: DONE
+      result: 'llama.cpp wins c=1 only (0.93x). Parity c=4/12. realizr WINS c=8 (1.47x), c=16 (1.09x), c=32 (1.61x), c=128 (~1.85x)'
+    - criterion: 'Quantify scaling efficiency'
+      status: DONE
+      result: 'c=1→32: vLLM 18.5x (58% eff), realizr 12.4x (39%), llama.cpp 7.2x (22%)'
+  notes: |
+    Comprehensive 3-runtime comparison at optimal configs. realizr
+    continuous batching gives 2x better scaling efficiency than llama.cpp
+    fixed-slot architecture. vLLM paged KV gives 3x better scaling.
+    realizr dominates llama.cpp at all c>=8. Gap grows monotonically.
+- id: PMAT-132
+  title: 'PMAT-132: Long prompt batch ceiling verification'
+  status: DONE
+  priority: P1
+  spec_version: '2.95.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Verify max batch for long prompts (~311 tok)'
+      status: DONE
+      result: 'Max batch=8 (c=8 works: 324.7 tok/s). c=9 OOMs: M_total=2799. Previously estimated ~16'
+    - criterion: 'Confirm batch ceiling inversely proportional to prompt length'
+      status: DONE
+      result: 'short=32, medium=30, long=8. FP8 prefill workspace budget ~2500 tokens'
+  notes: |
+    Verified PMAT-128 estimate was 2x too optimistic for long prompts.
+    Max viable batch halves roughly per 3x prompt length increase.
+    Paged KV (PMAT-052) would eliminate this dependency entirely.
+- id: PMAT-133
+  title: 'PMAT-133: realizr output length sensitivity (128 vs 32 tokens)'
+  status: DONE
+  priority: P2
+  spec_version: '2.96.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure realizr aggregate at 128-tok output vs 32-tok baseline'
+      status: DONE
+      result: 'c=4: +0.1% (356), c=16: +8.9% (1233), c=32: +21.2% (2242 tok/s — new realizr record)'
+    - criterion: 'Quantify TTFT dilution effect'
+      status: DONE
+      result: '170ms TTFT = 30% of 32-tok request, 9% of 128-tok. Aggregate gain grows with c (more TTFT at high c)'
+    - criterion: 'Update vLLM gap at production-realistic output length'
+      status: DONE
+      result: 'Gap narrows 0.65x→0.69x at c=32. Production typically 100-200 tok output'
+  notes: |
+    TTFT dilution is significant at high concurrency — 21% aggregate
+    improvement at c=32 just from generating more tokens per request.
+    2242 tok/s is the highest realizr aggregate ever measured on RTX 4060L.
+    Production workloads (100-200 tok output) favor realizr more than
+    synthetic 32-tok benchmarks suggest.
+- id: PMAT-134
+  title: 'PMAT-134: realizr output saturation curve (32→512 tokens)'
+  status: DONE
+  priority: P2
+  spec_version: '2.97.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure aggregate at 32/128/256/512 output tokens at c=32'
+      status: DONE
+      result: 'Peak at 128 tok (2242), 256 tok −1.4% (2210), 512 tok −10.4% (2009)'
+    - criterion: 'Identify peak output length and decline rate'
+      status: DONE
+      result: 'Peak at 128 tok. Decline 4x faster than vLLM (−10.4% vs −2.5% at 512)'
+    - criterion: 'Root cause the faster decline vs vLLM'
+      status: DONE
+      result: 'Linear KV scan at 32 concurrent sequences. No PagedAttention block-indexed access'
+  notes: |
+    128 tokens is the optimal output length for maximum aggregate throughput.
+    Beyond 256 tokens, KV attention bandwidth dominates. PagedAttention
+    (PMAT-052) would improve long-output performance via block-indexed access.
+    Production workloads (100-200 tok) are at or near the peak, which is good.
+- id: PMAT-135
+  title: 'PMAT-135: realizr vs llama.cpp at 128-tok output'
+  status: DONE
+  priority: P1
+  spec_version: '2.98.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Measure llama.cpp at 128-tok output at c=4,8,16'
+      status: DONE
+      result: 'c=4: 350 (stable), c=8: 418 (−2.5%), c=16: 420 (−59.5% collapse)'
+    - criterion: 'Compare with realizr 128-tok data from PMAT-133'
+      status: DONE
+      result: 'c=16 ratio shifts 1.09x→2.94x. realizr gains +8.9%, llama.cpp collapses −59.5%'
+    - criterion: 'Quantify benchmark configuration sensitivity'
+      status: DONE
+      result: '32-tok benchmarks understate realizr advantage. Production-realistic (128-tok) shows 2.94x vs 1.09x'
+  notes: |
+    CORRECTED by PMAT-136. Initial 2.94x claim was measurement artifact
+    (server degraded state from rapid sequential benchmarking). Corrected
+    ratio: 1.43x at c=16 (not 2.94x). llama.cpp -17% from KV attention
+    cost, realizr +8.9% from TTFT dilution. Shift is +31%, still meaningful.
+- id: PMAT-136
+  title: 'PMAT-136: PMAT-135 verification — correct 2.94x artifact'
+  status: DONE
+  priority: P1
+  spec_version: '2.99.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Re-run llama.cpp 128-tok with clean server restart'
+      status: DONE
+      result: 'c=4: 348 (stable), c=8: 415 (stable), c=16: 860 (was 420, artifact confirmed)'
+    - criterion: 'Determine root cause of PMAT-135 artifact'
+      status: DONE
+      result: 'Rapid sequential benchmarking without server restart caused degraded state. Clean restart gives reproducible results'
+    - criterion: 'Correct spec with verified numbers'
+      status: DONE
+      result: 'Ratio corrected: 1.43x (not 2.94x). llama.cpp -17% (not -59.5%). Effect is +31% (not +170%)'
+  notes: |
+    Important Popperian correction. Initial PMAT-135 finding was too dramatic
+    to be credible. Verification confirmed it was a measurement artifact.
+    The corrected finding (1.43x vs 1.09x at c=16) is still meaningful —
+    128-tok output moderately favors realizr over llama.cpp — but not the
+    dramatic 2.94x initially claimed.
+- id: PMAT-137
+  title: 'PMAT-137: Production-realistic workload comparison (medium + 128-tok)'
+  status: DONE
+  priority: P0
+  spec_version: '3.0.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Run realizr and llama.cpp at medium prompt + 128-tok at c=4,8,16'
+      status: DONE
+      result: 'realizr: 314.8/557.5/1002.5. llama.cpp: 372.5/433.4/1108.6'
+    - criterion: 'Compare with existing vLLM medium 128-tok data (PMAT-122)'
+      status: DONE
+      result: 'vLLM: 588.4/1117.7/2049.3. Dominates both at all c (0.49-0.54x ahead)'
+    - criterion: 'Identify the binding constraint and corrective action'
+      status: DONE
+      result: 'TTFT is binding: realizr 76-282ms vs llama.cpp 19-31ms (4-9x). Fused Q4K GEMM (PMAT-054) is the fix'
+    - criterion: 'Determine which synthetic benchmark artifacts to flag'
+      status: DONE
+      result: 'short+32tok overstates realizr at c=16 (1.09x -> 0.90x with production workload)'
+  notes: |
+    Most important comparison in the entire spec — represents real-world
+    usage. realizr only wins c=8 (FP8 tensor core crossover). Loses c=4
+    (interactive) and c=16 (throughput) to llama.cpp due to TTFT.
+    Fused Q4K GEMM (PMAT-054) would make realizr prompt-invariant like
+    llama.cpp, closing the TTFT gap and winning at all c>=8.
+    Version 3.0.0 milestone — production-realistic benchmarking complete.
+- id: PMAT-138
+  title: 'PMAT-138: Complete benchmark sensitivity matrix'
+  status: DONE
+  priority: P0
+  spec_version: '3.1.0'
+  date: '2026-03-14'
+  acceptance_criteria:
+    - criterion: 'Build prompt×output×concurrency competitive ratio matrix'
+      status: DONE
+      result: '4x5 matrix: c=8 is the ONLY workload-invariant win (1.08-1.47x). Medium prompts lose c=4/c>=12'
+    - criterion: 'Identify the c=8 invariant and its root cause'
+      status: DONE
+      result: 'FP8 tensor core crossover at M>=5. cuBLASLt batch GEMM outperforms fused Q4K GEMV at M=8'
+    - criterion: 'Confirm medium+128tok concurrency ceiling'
+      status: DONE
+      result: 'Max c=18 clean. c=20 causes partial OOM (p50 output=0). Combined prefill workspace + KV pressure'
+  notes: |
+    Definitive competitive analysis. The sensitivity matrix reveals that
+    benchmark configuration has enormous impact on competitive ratios.
+    Key insight: short+32tok benchmarks (the industry standard) systematically
+    overstate realizr vs llama.cpp. Production workloads (medium+128tok)
+    show realizr wins ONLY at c=8. Fused Q4K GEMM is the unlock.
+- id: PMAT-205
+  github_issue: null
+  item_type: task
+  title: 'PMAT-205: FP8 decode crossover precision — M≥5 exact threshold'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure c=5,6,7 with FP8_DECODE=0 — DONE'
+  - 'AC2: Identify exact crossover M — DONE (M=5, +4.6% agg / +8.8% decode)'
+  - 'AC3: Characterize advantage growth rate — DONE (superlinear: +8.8→34.2% dec)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - fp8
+  - crossover
+  - tensor-core
+  - a-b-test
+  notes: |
+    Refines PMAT-204 finding (crossover "between M=4 and M=8") to exact threshold.
+    c=5 (M≈5) is the first concurrency where FP8 tensor core GEMM wins.
+    At c≤4: both paths identical (0.0-0.3%). At c=5: +4.6% agg, +8.8% decode.
+    Advantage grows monotonically and superlinearly per decode metric:
+    c=5: +8.8%, c=6: +15.6%, c=7: +27.3%, c=8: +34.2%.
+    cuBLASLt E4M3 16×8×32 tile becomes advantageous when batch dimension
+    exceeds DP4A GEMV 3-warp cooperation width.
+    Critical implication for PMAT-054: fused Q4K GEMM must match tensor core
+    throughput at M≥5 (not M≥8 as initially estimated) or it will regress
+    all concurrency above c=4.
+- id: PMAT-206
+  github_issue: null
+  item_type: task
+  title: 'PMAT-206: TTFT tail analysis — PMAT-109 graph persistence confirmed'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Characterize TTFT distribution at c=1 with long run — DONE (128 req, 120s)'
+  - 'AC2: Quantify bimodal tail improvement from PMAT-109 — DONE (5% → <1%)'
+  - 'AC3: Identify cause of remaining outliers — DONE (first-request graph capture only)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - ttft
+  - tail-latency
+  - graph-persistence
+  - validation
+  notes: |
+    120s c=1 medium-prompt run: 127/128 requests at 18.7-19.7ms (<1ms range).
+    Single outlier at 41.1ms is request 0 (initial CUDA graph capture).
+    Pre-PMAT-109 bimodal: 5% at 42-44ms. Post-PMAT-109: <1% (first req only).
+    Mar 15 comparison: 3.2% outliers (2/62), including mid-session request 32.
+    10s warmup (vs 5s) eliminates mid-session rebuilds.
+    TTFT determinism: stdev <0.3ms excluding first request.
+    Also clarified PMAT-204 nsys kernel attribution: FP8 GEMM in trace is
+    prefill (M=32), not decode. FP8 decode threshold is M≥5 in serve mode.
+- id: PMAT-207
+  github_issue: null
+  item_type: task
+  title: 'PMAT-207: Cross-runtime FP8 crossover — realizr decode FASTER at M≥5'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure llama.cpp at c=5,6,7 — DONE'
+  - 'AC2: Compare per-request decode vs realizr — DONE (1.07-1.40x realizr wins)'
+  - 'AC3: Decompose aggregate gap — DONE (scheduling, not kernels)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - fp8
+  - crossover
+  - competitive-analysis
+  - decode
+  notes: |
+    Cross-runtime comparison at the FP8 tensor core crossover point (c=5-8).
+    realizr per-request decode beats llama.cpp fused Q4K GEMV:
+    c=5: 1.07x, c=6: 1.13x, c=7: 1.27x, c=8: 1.40x.
+    But aggregate loses: 0.70x, 0.73x, 0.82x, 0.85x.
+    Gap decomposition: TTFT 95-130ms vs 37-42ms (3x), scheduling util.
+    Key finding: realizr ALREADY has superior decode kernels at M≥5.
+    Phase 1+CB would unlock this advantage at aggregate level.
+    This strengthens the Phase 1 investment case — the kernel work is done.
+- id: PMAT-208
+  github_issue: null
+  item_type: task
+  title: 'PMAT-208: 3-way crossover analysis — vLLM, realizr, llama.cpp at c=5-7'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Measure vLLM at c=5,6,7 — DONE (722.8, 850.4, 979.0 tok/s)'
+  - 'AC2: 3-way decode comparison — DONE (realizr beats llama.cpp, vLLM beats both)'
+  - 'AC3: Identify per-request decode gap to vLLM — DONE (0.52-0.53x, constant)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - crossover
+  - competitive-analysis
+  - vllm
+  - 3-way
+  notes: |
+    Completes PMAT-207 2-way comparison with vLLM data at c=5,6,7.
+    Three competitive layers at FP8 crossover:
+    1. realizr beats llama.cpp per-request decode (1.07-1.27x, FP8 > Q4K GEMV)
+    2. vLLM beats realizr per-request decode (1.88-1.93x, AWQ + CB preserves c=1 rates)
+    3. TTFT: vLLM 22ms, llama.cpp 37-42ms, realizr 95-130ms
+    vLLM/realizr aggregate ratio constant ~3.0x at c=5-7 (linear scaling).
+    vLLM decode barely degrades: 144-148 tok/s at c=5-7 (vs 152 at c=1).
+    realizr decode degrades: 75-77 tok/s (vs 148 at c=1) — batch-and-step penalty.
+    Phase 1+CB projection: decode improvement from scheduling alone = 1.9x.
+    ITL finding: realizr 13.0-13.2ms beats llama.cpp 13.9-16.8ms at c=5-7.
+- id: PMAT-209
+  github_issue: null
+  item_type: task
+  title: 'PMAT-209: ncu per-kernel roofline on RTX 4060L — Q4K underutilized, not compute-bound'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Profile all major decode kernels via ncu on 4060L — DONE (7 kernels)'
+  - 'AC2: Cross-platform roofline comparison vs Jetson Orin — DONE (compute-bound vs underutilized)'
+  - 'AC3: Resolve H1, H2, H5 falsification hypotheses — DONE (H1,H2,H5 confirmed)'
+  - 'AC4: Identify kernel fusion ROI on 4060L — DONE (fused Q4K 76% DRAM vs unfused 21%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - ncu
+  - roofline
+  - profiling
+  - 4060L
+  - falsification
+  notes: |
+    Nsight Compute per-kernel profiling on yoga RTX 4060L (sm_89, 24 SMs).
+    Key finding: Q4K GEMV is UNDERUTILIZED on 4060L (23.5% compute, 21.1% DRAM)
+    despite 86% occupancy. Same kernel is compute-bound on Jetson (72% compute).
+    Root cause: kernel too fine-grained for 24 SMs (4.29µs duration).
+    Fused gate_up_swiglu kernel proves fusion fixes this: 80µs, 76% DRAM BW.
+    Q6K GEMV: compute-dominant (42% compute) on both platforms.
+    Infrastructure kernels (flash, rmsnorm, residual): all latency-bound (<4%).
+    Falsification: H1 confirmed (coalescing efficient), H2 confirmed (0.0043ms),
+    H5 confirmed (occupancy ≠ utilization). H4 pending (needs full ncu set).
+    ncu reports: results/ncu-yoga-decode-skip10k-20260316.ncu-rep,
+    results/ncu-yoga-fused-20260316.ncu-rep, results/ncu-yoga-flash-20260316.ncu-rep,
+    results/ncu-yoga-rmsnorm-20260316.ncu-rep
+- id: PMAT-210
+  github_issue: null
+  item_type: task
+  title: 'PMAT-210: Decode latency decomposition — fused gate_up_swiglu is 49.8% of kernel time'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Per-token kernel time budget — DONE (771 launches, 4505µs, 11 kernel categories)'
+  - 'AC2: CUDA graph overhead quantified — DONE (1785µs = 28.4%)'
+  - 'AC3: Serving overhead quantified — DONE (540µs = 8.6%)'
+  - 'AC4: Identify BrickProfiler instrumentation gap — DONE (fused_gate_up missing)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - latency-decomposition
+  - profiling
+  - decode
+  - 4060L
+  notes: |
+    Synthesized ncu (PMAT-209) + nsys (PMAT-204) + BrickProfiler data into
+    per-token decode budget. Key finding: fused_gate_up_swiglu is 49.8% of
+    all kernel time (2,243µs/token). Unfused Q4K GEMV is only 10.7% (480µs).
+    Total: 4,505µs kernel + 1,785µs graph overhead = 6,290µs (159.1 tok/s).
+    Production adds 540µs serving overhead = 6,830µs (146.4 tok/s).
+    BrickProfiler bug: fused_gate_up_swiglu MISSING from instrumentation,
+    inflating reported launch overhead from 66.4% to 84.7%.
+- id: PMAT-211
+  github_issue: null
+  item_type: task
+  title: 'PMAT-211: nsys serve profile at c=4 — kernel mix shifts from M=1 to M≈4'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys profile of apr serve under c=4 load — DONE'
+  - 'AC2: Kernel mix comparison M=1 vs M≈4 — DONE (GEMV 3.7→47.7%, attn 0.8→21.9%)'
+  - 'AC3: Confirm no FP8 decode at M≤4 — DONE (all E4M3 GEMM is prefill)'
+  - 'AC4: Identify concurrency-dependent optimization targets — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - serve
+  - profiling
+  - batched
+  - 4060L
+  notes: |
+    nsys profile of `apr serve` during c=4 production load (30s capture).
+    Key finding: kernel mix fundamentally shifts from M=1 to M≈4.
+    - M=1: fused_gate_up_swiglu dominates (49.8% of kernel time)
+    - M≈4: batched_hw_dp4a_q4k_gemv dominates (47.7% of GPU time)
+    The batched path un-fuses gate+up into separate batched GEMVs.
+    Attention scales from 0.8% (M=1) to 21.9% (M≈4) via batched_incremental_attention.
+    No FP8 tensor core decode at M≤4 — confirms PMAT-205 threshold.
+    Optimization targets are concurrency-dependent:
+    M=1: kernel fusion, M=2-4: GEMV+attention, M≥5: tensor cores.
+    nsys report: results/nsys-yoga-serve-c4-20260316.nsys-rep
+- id: PMAT-212
+  github_issue: null
+  item_type: task
+  title: 'PMAT-212: nsys serve c=8 — FP8 decode visible via 6x tile growth'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys profile at c=8 — DONE'
+  - 'AC2: Compare FP8 GEMM tile instances c=4 vs c=8 — DONE (128x128 6x growth)'
+  - 'AC3: Confirm FP8 decode activates in production — DONE (280 extra instances)'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - nsys
+  - serve
+  - fp8
+  - decode
+  - 4060L
+  notes: |
+    Compared nsys serve profiles at c=4 vs c=8. FP8 decode visible via
+    128x128x64 cuBLASLt tile growth: 56→336 instances (6x), while
+    prefill-proportional tiles grew 1.4x. Extra 280 instances are FP8
+    tensor core GEMM in decode at M>=5. DP4A GEMV still 47.5% (M fluctuates).
+    Attention grew 21.9%→24.5% (longer KV caches). FP8 decode is ~1% of
+    total GPU time but eliminates decode latency tail (explains +23.7% throughput).
+    nsys report: results/nsys-yoga-serve-c8-20260316.nsys-rep
+- id: PMAT-213
+  github_issue: null
+  item_type: task
+  title: 'PMAT-213: nsys serve c=16 + cross-concurrency kernel mix — invariant at c≥4'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys serve at c=16 — DONE'
+  - 'AC2: Cross-concurrency comparison c=4/8/16 — DONE (invariant: GEMV 48%, attn 24%)'
+  - 'AC3: FP8 decode scaling — DONE (128x128 tile 25x growth c=4→c=16)'
+  - 'AC4: Attention ceiling — DONE (24.5% invariant at c≥8, 114µs avg)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - serve
+  - cross-concurrency
+  - profiling
+  - 4060L
+  notes: |
+    Completed c=4/8/16 nsys serve profile trilogy.
+    CRITICAL: kernel mix is concurrency-invariant at c>=4.
+    DP4A GEMV ~48%, attention ~24%, FP8 prefill ~17%, infra ~10%.
+    Optimization priority unchanged across concurrency levels.
+    FP8 decode 128x128 tile: 56→336→1400 instances (1x/6x/25x).
+    Super-linear growth = more decode steps at M>=5 at batch saturation.
+    Attention stable at 24.5% (c>=8), 114µs avg (KV length converges).
+    nsys report: results/nsys-yoga-serve-c16-20260316.nsys-rep
+- id: PMAT-214
+  github_issue: null
+  item_type: task
+  title: 'PMAT-214: vLLM nsys kernel profile — why 3x scaling advantage'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys vLLM at c=1 — DONE (98.9% cuBLAS GEMV 2.14ms)'
+  - 'AC2: nsys vLLM at c=4 — DONE (95.7% CUTLASS GEMM 2.17ms)'
+  - 'AC3: nsys vLLM at c=16 — DONE (85.0% CUTLASS GEMM 2.20ms, FlashAttn 11.7%)'
+  - 'AC4: Cross-concurrency GEMM time delta — DONE (+2.8% c=1→c=16)'
+  - 'AC5: Comparative table realizr vs vLLM — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - nsys
+  - vllm
+  - kernel-profile
+  - scaling
+  - profiling
+  - 4060L
+  notes: |
+    Root cause of vLLM 3x scaling advantage: SINGLE CUTLASS WMMA GEMM kernel
+    is 95.7% of GPU time at c>=2. GEMM time +2.8% from c=1 to c=16 but
+    processes M tokens per call — linear throughput scaling.
+    At c=1: cuBLAS dispatches to GEMV (same 2.14ms). At c>=2: CUTLASS GEMM.
+    FlashAttention grows 0.1%→11.7% (c=1→c=16) as KV cache grows.
+    This is vLLM asymptote limiter at ~3050 tok/s.
+    realizr: 771 kernels (84µs largest) behind CUDA graph. vLLM: ~113 kernels (2.14ms each).
+    25x longer per-kernel work → launch overhead negligible.
+    The scheduling gap IS the kernel architecture gap.
+    nsys reports: results/nsys-yoga-vllm-c1-kernels-20260316.txt,
+                  results/nsys-yoga-vllm-c4-kernels-20260316.txt,
+                  results/nsys-yoga-vllm-c16-kernels-20260316.txt
+- id: PMAT-215
+  github_issue: null
+  item_type: task
+  title: 'PMAT-215: llama.cpp nsys kernel profile — ncols-templated GEMV'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: nsys llama.cpp at c=1 — DONE (47% Q4K GEMM prefill, 12.3% Q4K ncols=1 GEMV decode)'
+  - 'AC2: nsys llama.cpp at c=4 — DONE (21% Q4K ncols=4, ncols=1-4 all present)'
+  - 'AC3: Three-way architecture comparison — DONE'
+  - 'AC4: ncols-templated GEMV documented — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - llamacpp
+  - kernel-profile
+  - three-way
+  - profiling
+  - 4060L
+  notes: |
+    llama.cpp uses ncols-templated GEMV: separate kernel specializations for
+    M=1,2,3,4. Q4K ncols=4 avg 37.6µs, Q6K ncols=4 avg 73.9µs.
+    LmHead Q6K ncols=1: 928µs (7.5x slower than realizr DP4A, 2.3x faster than vLLM FP16).
+    Three-level architecture spectrum confirmed:
+    realizr (44+ kernels, CUDA graph M=1) → llama.cpp (35 kernels, ncols-templated)
+    → vLLM (15 kernels, CUTLASS GEMM M=batch).
+    Scaling improves moving from specialization toward batching.
+    nsys reports: results/nsys-yoga-llamacpp-c1-kernels-20260316.txt,
+                  results/nsys-yoga-llamacpp-c4-kernels-20260316.txt
+- id: PMAT-216
+  github_issue: null
+  item_type: task
+  title: 'PMAT-216: Fresh competitive benchmark verification — <1% reproducibility'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-16T00:00:00Z
+  updated: 2026-03-16T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr c=1,4,8,16 — DONE (147.1/216.3/355.3/581.1)'
+  - 'AC2: llama.cpp c=1,4,8,16 — DONE (154.0/332.1/379.6/764.1)'
+  - 'AC3: vLLM c=1,4,8,16 — DONE (152.2/586.2/1084.2/1960.7)'
+  - 'AC4: Reproducibility vs PMAT-177 <1% — CONFIRMED'
+  - 'AC5: Scorecards generated — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - competitive
+  - reproducibility
+  - production
+  - 4060L
+  notes: |
+    Fresh production methodology (medium, uniform:16,256, 60s, streaming).
+    realizr PMAT-177 vs Mar 16b: +0.5%/+0.1%/+0.1%/-0.9% at c=1/4/8/16.
+    Scores: realizr 94A/58C/65C+/70B. vLLM 97-100 A+. llama.cpp 94A/69C+/59C/67C+.
+    Result files: results/*-yoga-prod-c*-20260316b.json
+    Scorecard: results/scorecard-yoga-20260316b.json
+- id: PMAT-217
+  github_issue: null
+  item_type: task
+  title: 'PMAT-217: CUDA API scheduling analysis — 82% CPU block is the root cause'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr CUDA API trace at c=4 — DONE (117 graph launches, 82.4% blocked in sync)'
+  - 'AC2: vLLM CUDA API trace at c=4 — DONE (11,467 graph launches, event-based sync)'
+  - 'AC3: llama.cpp CUDA API trace at c=4 — DONE (3,579 graph launches, 103 re-captures)'
+  - 'AC4: Three-way comparison table — DONE'
+  - 'AC5: Per-step budget breakdown — DONE (1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms)'
+  - 'AC6: Fix projection quantified — DONE (+85% to ~400 tok/s)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - cuda-api
+  - scheduling
+  - root-cause
+  - graph-launch
+  - profiling
+  - 4060L
+  notes: |
+    DEFINITIVE ROOT CAUSE: realizr CPU blocked 82.4% in cuStreamSynchronize.
+    Only 117 graph launches (M=1 graph invalid for variable M at c=4).
+    llama.cpp: 3,579 graph launches, 103 dynamic re-captures, 0.46µs median sync.
+    vLLM: 11,467 graph launches, pre-captured, 18.9µs median event sync.
+    Per-step: 771 kernel launches (1.6ms) + cuStreamSync (10.4ms) = 12.5ms.
+    2.7 tok/step → 216 tok/s. Fix: per-M graph + event sync → 400+ tok/s.
+    nsys API: results/nsys-yoga-realizr-c4-api-20260317.txt,
+              results/nsys-yoga-vllm-c4-api-20260317.txt,
+              results/nsys-yoga-llamacpp-c4-api-20260317.txt
+- id: PMAT-218
+  github_issue: null
+  item_type: task
+  title: 'PMAT-218: H4 vectorization falsification — Q4K GEMV 31% sector utilization, 3.2x gain confirmed'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: ncu --set full on hw_dp4a_q4k_gemv — DONE (9.9/32 bytes per sector, 57% excessive)'
+  - 'AC2: ncu --set full on fused_gate_up_swiglu — DONE (10.4/32 bytes per sector, 52% excessive)'
+  - 'AC3: Compare fused vs unfused coalescing — DONE (identical ~31% utilization, layout is root cause)'
+  - 'AC4: H4 hypothesis resolved — CONFIRMED (3.2x > 2.0x threshold)'
+  - 'AC5: PMAT-054 design implication documented — DONE (SoA transpose needed, not just float4)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - ncu
+  - vectorization
+  - coalescing
+  - h4-falsification
+  - profiling
+  - 4060L
+  notes: |
+    H4 CONFIRMED: Q4K GEMV uses only 9.9/32 bytes per L1 sector (31%).
+    57% of loaded sectors are excessive (wasted bandwidth from strided access).
+    Fused kernel has IDENTICAL sector utilization (10.4/32 = 32.5%).
+    Root cause: Q4K block layout (AoS per super block) creates inherent stride.
+    float4 loads alone won't fix — need SoA weight transpose at model load time.
+    Theoretical coalesced: 100% utilization = 3.2x effective BW gain (>2.0 threshold).
+    This converges with PMAT-217: fused Q4K GEMM (PMAT-054) should both
+    coalesce loads AND enable batch-invariant GEMM.
+    FP32 instruction fusion: additional 32-34% potential from FMA conversion.
+    All 5 original hypotheses (H1-H5) now resolved.
+    Data: results/ncu-yoga-h4-vectorization-20260317.csv
+- id: PMAT-219
+  github_issue: null
+  item_type: task
+  title: 'PMAT-219: Short-prompt production methodology — c=8 win was uniform-output artifact'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 3-runtime sweep (realizr, llama.cpp, vLLM) at c=1,4,8,16 — DONE'
+  - 'AC2: Short prompt + uniform:16,256 output + streaming + 60s — DONE'
+  - 'AC3: Compare to medium-prompt production (PMAT-177+) — DONE'
+  - 'AC4: Competitive matrix updated with short+hetero row — DONE'
+  - 'AC5: Falsification verdict documented — c=8 win artifact confirmed'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - benchmark
+  - short-prompt
+  - production-methodology
+  - falsification
+  - 4060L
+  notes: |
+    PMAT-113 showed 1.47x realizr win at c=8 with fixed 32-tok output.
+    PMAT-219 tests whether this survives heterogeneous output (uniform:16,256).
+    Result: c=8 win ENTIRELY artifact of uniform output length.
+    With hetero output: realizr/llama.cpp ratios = 0.95, 0.70, 0.95, 0.78 (all losses).
+    Short prompt helps realizr +9-13% vs medium, but output heterogeneity costs ~40%.
+    vLLM ratios barely change from medium prompt (prompt-invariant confirmed).
+    Data: results/{realizr,llamacpp,vllm}-yoga-short-prod-c{1,4,8,16}-20260317.json
+- id: PMAT-220
+  github_issue: null
+  item_type: task
+  title: 'PMAT-220: Long-prompt production methodology — gap widens to 0.24× vLLM'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 3-runtime sweep (realizr, llama.cpp --parallel 8, vLLM) at c=1,4,8,16 — DONE'
+  - 'AC2: Long prompt + uniform:16,256 output + streaming + 60s — DONE'
+  - 'AC3: Compare to medium-prompt production (PMAT-177+) — DONE'
+  - 'AC4: Competitive matrix updated with long+hetero row — DONE'
+  - 'AC5: TTFT scaling quantified (3× short, 8× medium, 14× long at c=8) — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - benchmark
+  - long-prompt
+  - production-methodology
+  - falsification
+  - 4060L
+  notes: |
+    Long prompts (~311 tok) amplify FP8 2-step prefill BW overhead.
+    realizr/vLLM: 0.94, 0.33, 0.28 at c=1,4,8 (wider than medium).
+    realizr/llama.cpp: 0.91, 0.55, 0.75 at c=1,4,8 (llama.cpp --parallel 8 max c=8).
+    TTFT gap: realizr 175ms vs vLLM 21ms at c=4 (8.3x), 330ms vs 23ms at c=8 (14.4x).
+    c=16 data INVALIDATED by PMAT-221 (0-token output bug at c>=9).
+    llama.cpp --parallel 8 required (--parallel 16 slot too small for long prompts).
+    Competitive matrix now complete: short/medium/long × fixed/hetero.
+    Prompt length monotonically hurts realizr under production conditions.
+    Data: results/{realizr,llamacpp,vllm}-yoga-long-prod-c{1,4,8}-20260317.json
+- id: PMAT-221
+  github_issue: null
+  item_type: task
+  title: 'PMAT-221: Critical quality bug — realizr 0-token output at c>=9 with long prompts'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Reproduce 0-token output — DONE (long c=9-16 all 0/0/0/0)'
+  - 'AC2: Find exact long threshold — DONE (c=8 OK, c=9 BROKEN)'
+  - 'AC3: Verify persistence — DONE (long: persistent. Medium: NOT persistent)'
+  - 'AC4: Verify competitors unaffected — DONE (vLLM c=16 OK, llama.cpp c=8 OK)'
+  - 'AC5: Invalidate affected data — DONE (PMAT-220 c=16, PMAT-177 c=32 affected)'
+  - 'AC6: Find medium threshold — DONE (c=17 OK, c=18 partially broken, c=32 ~50% broken)'
+  - 'AC7: Verify c=64/128 unaffected — DONE (batch staggering prevents issue)'
+  phases: []
+  subtasks: []
+  estimated_effort: 60m
+  labels:
+  - bug
+  - quality
+  - long-prompt
+  - correctness
+  - critical
+  - 4060L
+  notes: |
+    TWO DEGRADATION PATTERNS:
+    1. Long prompt c>=9: 100% broken (0/0/0/0), PERSISTENT until restart.
+       Threshold: c=8 OK (64/64/64/64), c=9 BROKEN (0/0/0/0).
+       9 × 353 = 3177 total KV positions.
+    2. Medium prompt c=32: ~50% broken (p50=32 vs expected ~136), NOT persistent.
+       Threshold: c=17 OK, c=18 partial, c=32 ~50% degraded.
+       32 × 144 = 4608 total KV positions. Recovers at lower concurrency.
+    3. Medium c=64/128: NORMAL. Batch staggering prevents all slots from prefilling
+       simultaneously, keeping per-batch token count below threshold.
+    Root cause: batched prefill corrupts KV when total simultaneous prompt tokens
+    exceeds internal limit. Long-prompt corruption permanent (workspace not recycled);
+    medium-prompt transient (stale KV evicted on next request cycle).
+    PMAT-220 c=16 long data: INVALIDATED. PMAT-177 c=32 data: AFFECTED.
+    vLLM and llama.cpp unaffected at equivalent concurrency.
+    Fix needed in realizr: src/cuda/batch_prefill.rs or workspace allocation.

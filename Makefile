@@ -6,7 +6,7 @@
 #   Jetson (parallel):   make deploy-jetson / make load-jetson (smoke tests only)
 #   GPU (4090, profiling only): make deploy-gpu / make nsys-gpu / make profile-gpu
 #   CPU (intel host):    make deploy / make test / make load
-#   Scoring:             make score / make score-jetson / make score-gate
+#   Scoring:             make score / make score-prod / make score-jetson / make score-gate
 #
 # Load testing runs on Jetson Orin (dedicated). 4090 freed for QLoRA training.
 # Deep profiling (nsys/ncu/apr profile) remains 4090-only (occasional).
@@ -78,10 +78,12 @@ QWEN_LAYERS := 28
         bench-gpu-serial bench-gpu-realizr bench-gpu-llamacpp \
         deploy-yoga-realizr deploy-yoga-llamacpp deploy-yoga-ollama deploy-yoga-vllm teardown-yoga health-yoga \
         bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama bench-yoga-vllm bench-yoga-serial \
+        bench-yoga-prod bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-ollama bench-yoga-prod-vllm \
         profile-gpu bench-gpu cbtop-gpu qa-gpu trace-gpu realize-bench \
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
         profile-yoga profile-yoga-ci profile-yoga-trace profile-yoga-compare profile-yoga-full \
+        score score-prod score-all score-json score-jetson score-gate \
         contract-lint contract-validate contract-score contract-falsify
 
 # ============================================================================
@@ -643,6 +645,93 @@ bench-yoga-serial: bench-yoga-realizr bench-yoga-llamacpp bench-yoga-ollama benc
 	@jq '{runtime: .runtime_name, decode_tok_s: .decode_tok_per_sec, ttft_p50_ms: .ttft_p50_ms, itl_p50_ms: .itl_p50_ms}' results/yoga-serial-*-c1-$(DATE).json 2>/dev/null || true
 
 # ============================================================================
+# Yoga production-realistic benchmarks (PMAT-157+ methodology)
+# ============================================================================
+# Medium prompt (~102 tok) + heterogeneous output (uniform:16,256) + streaming
+# realizr/vLLM: c=1,4,8,16,32,64,128. llama.cpp: c=1,4,8,16,32. ollama: c=1,4,8,16,32.
+# Results feed directly into probador llm score and gap decomposition model
+#
+# Usage:
+#   make bench-yoga-prod                  # All 4 runtimes (realizr, llama.cpp, ollama, vLLM)
+#   make bench-yoga-prod-realizr          # realizr only (isolated)
+#   make bench-yoga-prod-llamacpp         # llama.cpp only (isolated)
+#   make bench-yoga-prod-ollama           # ollama only (isolated)
+#   make bench-yoga-prod-vllm             # vLLM only (isolated)
+
+PROD_DURATION := 60s
+PROD_WARMUP   := 5s
+PROD_PROFILE  := medium
+PROD_OUTPUT   := --max-tokens-distribution uniform:16,256
+
+define run-prod-bench
+	@echo "--- $(1) c=$(2) ---"
+	probador llm load --url $(3) $(4) --concurrency $(2) \
+		--duration $(PROD_DURATION) --warmup $(PROD_WARMUP) --prompt-profile $(PROD_PROFILE) \
+		$(PROD_OUTPUT) --stream true \
+		--runtime-name $(1) \
+		--output results/$(1)-yoga-prod-c$(2)-$(DATE).json
+endef
+
+bench-yoga-prod-realizr:
+	@echo "=== teardown before realizr prod bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== realizr production benchmark (yoga) ==="
+	forjar apply -f forjar-yoga-realizr.yaml --yes --force
+	$(call run-prod-bench,realizr,1,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,4,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,8,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,16,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,32,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,64,$(YOGA_REALIZAR),)
+	$(call run-prod-bench,realizr,128,$(YOGA_REALIZAR),)
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-prod-llamacpp:
+	@echo "=== teardown before llama.cpp prod bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== llama.cpp production benchmark (yoga) ==="
+	forjar apply -f forjar-yoga-llamacpp.yaml --yes --force
+	$(call run-prod-bench,llamacpp,1,$(YOGA_LLAMACPP),)
+	$(call run-prod-bench,llamacpp,4,$(YOGA_LLAMACPP),)
+	$(call run-prod-bench,llamacpp,8,$(YOGA_LLAMACPP),)
+	$(call run-prod-bench,llamacpp,16,$(YOGA_LLAMACPP),)
+	$(call run-prod-bench,llamacpp,32,$(YOGA_LLAMACPP),)
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-prod-vllm:
+	@echo "=== teardown before vLLM prod bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== vLLM production benchmark (yoga) ==="
+	forjar apply -f forjar-yoga-vllm.yaml --yes --force
+	$(call run-prod-bench,vllm,1,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,4,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,8,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,16,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,32,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,64,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	$(call run-prod-bench,vllm,128,$(YOGA_VLLM),--model $(VLLM_MODEL))
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-prod-ollama:
+	@echo "=== teardown before ollama prod bench ==="
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+	@echo "=== ollama production benchmark (yoga) ==="
+	forjar apply -f forjar-yoga-ollama.yaml --yes --force
+	$(call run-prod-bench,ollama,1,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,4,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,8,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,16,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	$(call run-prod-bench,ollama,32,$(YOGA_OLLAMA),--model $(OLLAMA_MODEL))
+	-forjar apply -f forjar-yoga-teardown.yaml --yes
+
+bench-yoga-prod: bench-yoga-prod-realizr bench-yoga-prod-llamacpp bench-yoga-prod-ollama bench-yoga-prod-vllm
+	@echo ""
+	@echo "=== Yoga Production Benchmark Complete ==="
+	@echo "Results in results/*-yoga-prod-*-$(DATE).json"
+	@echo ""
+	@echo "Score with: probador llm score --results results/ --platform yoga"
+
+# ============================================================================
 # Yoga profiling (apr profile — internal roofline + hotspot analysis)
 # ============================================================================
 # Run ON yoga via SSH (apr profile needs direct GPU access, not HTTP)
@@ -828,21 +917,37 @@ report:
 
 score:
 	@echo "=== Yoga RTX 4060L Scorecard ==="
-	probador llm score --results results/ --platform yoga --concurrency 1 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
-	@echo ""
-	probador llm score --results results/ --platform yoga --concurrency 4 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
+	@for c in 1 4 8 16 32 64 128; do \
+		echo ""; \
+		echo "--- c=$$c ---"; \
+		probador llm score --results results/ --platform yoga --concurrency $$c --format table; \
+	done
+
+score-prod:
+	@echo "=== Yoga Production Scorecard (PMAT-177+ methodology) ==="
+	@mkdir -p /tmp/yoga-prod-scoring
+	@cp results/*yoga-prod*.json /tmp/yoga-prod-scoring/ 2>/dev/null || true
+	@for c in 1 4 8 16 32 64 128; do \
+		echo ""; \
+		echo "--- c=$$c ---"; \
+		probador llm score --results /tmp/yoga-prod-scoring/ --concurrency $$c --format table; \
+	done
+	@rm -rf /tmp/yoga-prod-scoring
 
 score-all:
 	probador llm score --results results/
 
 score-json:
-	probador llm score --results results/ --platform yoga --concurrency 1 --format json --output results/scorecard-yoga-c1-$(DATE).json
-	probador llm score --results results/ --platform yoga --concurrency 4 --format json --output results/scorecard-yoga-c4-$(DATE).json
+	@for c in 1 4 8 16 32 64 128; do \
+		probador llm score --results results/ --platform yoga --concurrency $$c --format json --output results/scorecard-yoga-c$$c-$(DATE).json; \
+	done
 
 score-jetson:
-	probador llm score --results results/ --platform jetson --concurrency 1 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
-	@echo ""
-	probador llm score --results results/ --platform jetson --concurrency 4 --by-layer --by-profile --by-correctness --by-output-length --by-memory --by-cold-start --by-power --by-scaling
+	@for c in 1 4; do \
+		echo ""; \
+		echo "--- Jetson c=$$c ---"; \
+		probador llm score --results results/ --platform jetson --concurrency $$c --format table; \
+	done
 
 score-gate:
 	probador llm score --results results/ --platform yoga --concurrency 1 --fail-on-grade C

@@ -1,0 +1,116 @@
+
+[1;36m=== apr profile (Real Per-Operation Telemetry) ===[0m
+
+  [1;37mModel[0m: /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+  [1;37mFormat[0m: gguf
+
+[2mLoading gguf model for GPU generation profiling...[0m
+[GpuProfile] sm_89: q4k=HwDp4a, q6k=HwDp4a, warps=3, batched_prefill=true, hgemm_decode=false, fused_gate_up=true, fp8_prefill=true, fp8_decode=true, w4a16_il=false, sms=24
+[GH-129] Early kernel preload: 49 modules compiled
+[PMAT-082] cuBLASLt FP8 JIT warmed (1536×16×1536)
+[PMAT-053] FP8 weight cache: 197 matrices cached (1472.1 MB) in 162.5ms
+[2mGPU warmup: 3 passes x 32 tokens...[0m
+[2mGPU measurement: 10 passes x 32 tokens...[0m
+[2m  Pass 0: 32 tokens in 211.8ms (prefill: 10.6ms, decode: 201.2ms = 159.1 tok/s)[0m
+[2mPer-operation profiling pass (no CUDA graph)...[0m
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path
+╭──────────────┬────────────────────────────────────────────────╮
+│ Architecture │ qwen2 (28 layers, hidden=1,536, vocab=151,936) │
+├──────────────┼────────────────────────────────────────────────┤
+│      Backend │ CUDA                                           │
+│       Warmup │ 3 passes                                       │
+│      Measure │ 10 passes                                      │
+╰──────────────┴────────────────────────────────────────────────╯
+
+  [1;32m✓[0m [1;32mREAL PER-OPERATION TELEMETRY[0m
+
+
+  [2m───[0m [36mPer-Operation Hotspots[0m
+
+╭────┬──────────────────┬─────────┬───────┬───────┬────────────┬────────────────────────╮
+│ #  │ Operation        │ Time    │ %     │ Calls │ Bottleneck │ Bar                    │
+├────┼──────────────────┼─────────┼───────┼───────┼────────────┼────────────────────────┤
+│ #1 │ RmsNorm          │ 17224µs │ 56.0% │ 855   │ MEMORY     │ [███████████░░░░░░░░░] │
+│ #2 │ AttentionScore   │ 6235µs  │ 20.3% │ 420   │ MEMORY     │ [████░░░░░░░░░░░░░░░░] │
+│ #3 │ QkvProjection    │ 2413µs  │ 7.8%  │ 420   │ MEMORY     │ [█░░░░░░░░░░░░░░░░░░░] │
+│ #4 │ OutputProjection │ 1228µs  │ 4.0%  │ 420   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │
+│ #5 │ DownProjection   │ 1205µs  │ 3.9%  │ 420   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │
+│ #6 │ RopeEmbedding    │ 1192µs  │ 3.9%  │ 420   │ COMPUTE    │ [░░░░░░░░░░░░░░░░░░░░] │
+│ #7 │ Residual1        │ 588µs   │ 1.9%  │ 420   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │
+│ #8 │ Residual2        │ 570µs   │ 1.9%  │ 420   │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │
+│ #9 │ LmHead           │ 87µs    │ 0.3%  │ 15    │ MEMORY     │ [░░░░░░░░░░░░░░░░░░░░] │
+╰────┴──────────────────┴─────────┴───────┴───────┴────────────┴────────────────────────╯
+
+
+  [2m───[0m [36mCategory Summary[0m
+
+  Attention:  36.0%  [36m██████████████[0m
+  FFN:         4.2%  [32m█[0m
+  Norm:       56.0%  [33m██████████████████████[0m
+  Other:       3.8%  [2m█[0m
+
+
+  [2m───[0m [36mKernel Launch Overhead (F-PROFILE-009)[0m
+
+  Overhead: 170394µs (84.7% of decode time)
+  [31mWARNING: >20% overhead — consider kernel fusion[0m
+
+
+  [2m───[0m [36mRoofline Analysis[0m
+
+  Hardware:       NVIDIA GeForce RTX 4060 Laptop GPU (peak 30000.0 GFLOPS, 800.0 GB/s)
+  Achieved:       410.6 GFLOPS, 102.6 GB/s
+  Compute eff:    1.4%
+  Memory eff:     12.8%
+  Arithmetic int: 4.00 (threshold=37.5)
+  [34mℹ[0m [34mMEMORY BOUND[0m
+
+[34m[INFO][0m Decode is memory-bandwidth limited. Matmul operations transfer
+[34m[INFO][0m more bytes than FLOPs computed. Focus on memory access patterns.
+
+
+  [2m───[0m [36mGeneration Performance[0m
+
+╭────────────────────┬─────────────╮
+│  Decode throughput │ 159.1 tok/s │
+├────────────────────┼─────────────┤
+│ Prefill throughput │ 469.0 tok/s │
+│   Tokens generated │ 320         │
+╰────────────────────┴─────────────╯
+
+
+  [2m───[0m [36mLatency Distribution (decode pass)[0m
+
+╭──────────────┬──────────╮
+│ p50 (median) │ 201.1 ms │
+├──────────────┼──────────┤
+│          p95 │ 201.2 ms │
+│          p99 │ 201.2 ms │
+│          min │ 201.1 ms │
+│          max │ 201.3 ms │
+╰──────────────┴──────────╯
+
+
+  [2m───[0m [36mSummary[0m
+
+  [2mAvg forward pass[0m: [1;37m222456.5µs (222.46ms)[0m
+  [2mThroughput[0m: [1;37m159.10[0m [2mtok/s[0m
+  [2mTokens per pass[0m: [1;37m32[0m
+  [2mOperations profiled[0m: [1;37m9[0m
+
+
+[2mProfile completed in 4.78s[0m

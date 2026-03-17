@@ -1,0 +1,9 @@
+tests:
+  - name: medium_system_prompt
+    messages:
+      - role: system
+        content: "You are an expert Python developer and code reviewer. You specialize in writing clean, efficient, well-documented Python code following PEP 8 conventions. When writing functions, always include type hints, docstrings with examples, and handle edge cases. Prefer list comprehensions over loops where appropriate. Use descriptive variable names and follow the principle of least surprise. Your code should be production-ready with proper error handling."
+      - role: user
+        content: "Write a Python function to check if a number is prime. Just the function."
+    max_tokens: 128
+    temperature: 0.0

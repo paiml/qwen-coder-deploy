@@ -1,0 +1,35 @@
+Generating SQLite file /tmp/nsys-yoga-realizr-c4-20260317.sqlite from /tmp/nsys-yoga-realizr-c4-20260317.nsys-rep
+Processing [/tmp/nsys-yoga-realizr-c4-20260317.sqlite] with [/opt/nvidia/nsight-systems/2024.5.1/host-linux-x64/reports/cuda_gpu_kern_sum.py]... 
+
+ ** CUDA GPU Kernel Summary (cuda_gpu_kern_sum):
+
+ Time (%)  Total Time (ns)  Instances   Avg (ns)     Med (ns)    Min (ns)   Max (ns)   StdDev (ns)                                                  Name                                                
+ --------  ---------------  ---------  -----------  -----------  ---------  ---------  -----------  ----------------------------------------------------------------------------------------------------
+     49.6   14,219,269,442    383,939     37,035.2     15,264.0      4,000     88,160     32,624.5  batched_hw_dp4a_q4k_gemv                                                                            
+     23.0    6,600,940,560     63,991    103,154.2    100,704.0     39,136    176,064     31,326.8  batched_incremental_attention                                                                       
+      9.6    2,764,028,292      2,901    952,784.7  1,121,343.0    324,479  1,125,279    325,335.7  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize64x128x64_stage4_warpsize2x2x1_tensor16x8x32_bias_f…
+      8.4    2,410,637,608     64,107     37,603.3      9,280.0      6,175     92,992     31,217.3  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize32x64x64_stage5_warpsize2x2x1_tensor16x8x32_bias_f1…
+      1.7      487,231,607    255,964      1,903.5      1,696.0      1,472      5,472        560.6  q8_quantize                                                                                         
+      1.7      478,447,971    130,938      3,654.0      3,584.0      3,424     19,424        584.2  batched_rmsnorm_vectorized                                                                          
+      0.6      185,749,083     64,326      2,887.6      1,760.0      1,503    239,136     15,703.1  batched_swiglu                                                                                      
+      0.6      172,409,861    128,654      1,340.1      1,312.0      1,215      3,872        195.4  batched_bias_broadcast_add_256                                                                      
+      0.6      170,580,546    128,653      1,325.9      1,216.0      1,151     31,936      1,505.9  batched_residual_add                                                                                
+      0.5      157,619,681     67,624      2,330.8      2,336.0      1,599     52,448      2,914.6  absmax_reduce                                                                                       
+      0.5      154,501,380     68,632      2,251.2      1,184.0      1,119     67,360      6,180.4  f16_to_f32_act_scaled                                                                               
+      0.5      149,770,920     67,624      2,214.8      1,568.0      1,407     85,503      5,801.7  f32_to_e4m3_device_scaled                                                                           
+      0.5      146,492,488    127,982      1,144.6      1,121.0      1,087      3,072         97.8  batched_kv_cache_scatter                                                                            
+      0.3       98,875,457        336    294,272.2    313,503.5     81,696    314,144     63,981.3  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize64x64x64_stage6_warpsize2x2x1_tensor16x8x32_bias_f1…
+      0.3       93,424,993     64,327      1,452.3      1,376.0      1,311     11,200        662.4  batched_bias_broadcast_add_1536                                                                     
+      0.3       84,394,445     64,327      1,312.0      1,217.0      1,183      9,984        586.9  batched_rope_neox_12_128                                                                            
+      0.3       75,013,998     64,327      1,166.1      1,152.0      1,119      3,232        155.4  batched_rope_neox_2_128                                                                             
+      0.2       49,473,945      9,257      5,344.5      5,248.0      5,151      7,808        279.6  argmax_block_reduce                                                                                 
+      0.2       46,400,913      2,520     18,413.1     18,368.0     18,239     19,616        109.1  ampere_sgemm_128x128_tn                                                                             
+      0.2       46,072,725      2,520     18,282.8     18,272.0     18,144     18,560         68.2  ampere_sgemm_128x128_nn                                                                             
+      0.2       45,474,661      1,232     36,911.3     36,944.0     16,448     57,760     20,202.2  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize64x64x64_stage4_warpsize2x2x1_tensor16x8x32_bias_f1…
+      0.1       16,877,309      9,257      1,823.2      1,792.0      1,728      2,401         80.6  argmax_final_reduce                                                                                 
+      0.0        8,498,729      1,260      6,745.0      6,496.0      6,272      8,128        529.4  causal_mask_softmax                                                                                 
+      0.0        5,708,350         56    101,934.8    102,144.0     94,656    105,056      1,787.3  sm89_xmma_gemm_e4m3f16_e4m3f32_f32_tn_n_tilesize128x128x64_stage3_warpsize4x2x1_tensor16x8x32_bias_…
+      0.0        2,135,814      1,260      1,695.1      1,664.0      1,631      2,623        109.9  scatter_packed_kv                                                                                   
+      0.0        1,127,871          1  1,127,871.0  1,127,871.0  1,127,871  1,127,871          0.0  hw_dp4a_q6k_gemv                                                                                    
+      0.0            3,808          1      3,808.0      3,808.0      3,808      3,808          0.0  rmsnorm_vectorized                                                                                  
+

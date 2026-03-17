@@ -1,0 +1,31 @@
+
+NOTICE: Existing SQLite export found: /tmp/nsys-yoga-realizr-c4-20260317.sqlite
+        It is assumed file was previously exported from: /tmp/nsys-yoga-realizr-c4-20260317.nsys-rep
+        Consider using --force-export=true if needed.
+
+Processing [/tmp/nsys-yoga-realizr-c4-20260317.sqlite] with [/opt/nvidia/nsight-systems/2024.5.1/host-linux-x64/reports/cuda_api_sum.py]... 
+
+ ** CUDA API Summary (cuda_api_sum):
+
+ Time (%)  Total Time (ns)  Num Calls    Avg (ns)      Med (ns)    Min (ns)   Max (ns)   StdDev (ns)             Name            
+ --------  ---------------  ---------  ------------  ------------  --------  ----------  -----------  ---------------------------
+     82.4   25,084,201,808      2,416  10,382,533.9  10,437,666.5     7,126  37,192,579  2,149,585.9  cuStreamSynchronize        
+     11.5    3,511,783,180  1,703,444       2,061.6       1,796.0       204   1,629,797      5,154.2  cuLaunchKernel             
+      4.1    1,236,602,958    322,721       3,831.8       2,795.0     1,690     511,885      4,928.1  cuMemcpyHtoD_v2            
+      0.7      215,389,056     68,646       3,137.7       2,329.0     1,939     896,231     12,842.9  cudaLaunchKernelExC_v11060 
+      0.6      174,416,620     67,998       2,565.0       1,982.0     1,672  10,477,288     40,448.4  cuMemcpyHtoDAsync_v2       
+      0.4      123,692,391         20   6,184,619.5   2,053,266.5   122,866  16,658,492  6,900,217.9  cuModuleLoadDataEx         
+      0.1       29,458,689      2,403      12,259.1      10,839.0     8,522     150,484      4,345.2  cuMemcpyDtoH_v2            
+      0.1       23,046,368      5,040       4,572.7       1,952.0     1,674     134,693      5,714.6  cudaLaunchKernel           
+      0.0       11,788,218          4   2,947,054.5   3,296,404.0   815,462   4,379,948  1,510,261.9  cuLibraryLoadData          
+      0.0        9,763,529         47     207,734.7       8,430.0     1,283   6,476,278    948,372.8  cuMemFree_v2               
+      0.0        5,988,864        173      34,617.7      29,739.0     1,332     227,816     50,133.6  cuMemAlloc_v2              
+      0.0        3,635,669        117      31,074.1      29,432.0    23,601     133,896     10,362.8  cuGraphLaunch              
+      0.0          722,286          1     722,286.0     722,286.0   722,286     722,286          0.0  cuGraphInstantiateWithFlags
+      0.0          339,879         32      10,621.2         240.5       106     318,453     56,176.7  cuCtxSetCurrent            
+      0.0          312,409          1     312,409.0     312,409.0   312,409     312,409          0.0  cuGraphExecDestroy         
+      0.0           70,751          1      70,751.0      70,751.0    70,751      70,751          0.0  cuGraphDestroy             
+      0.0           18,530          1      18,530.0      18,530.0    18,530      18,530          0.0  cuStreamBeginCapture       
+      0.0            5,870          1       5,870.0       5,870.0     5,870       5,870          0.0  cuStreamEndCapture         
+      0.0            2,087          4         521.8         456.5       409         765        167.5  cuLibraryGetKernel         
+

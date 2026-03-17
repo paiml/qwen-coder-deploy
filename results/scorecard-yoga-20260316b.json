@@ -1,0 +1,484 @@
+{
+  "contract_version": "2.0.0",
+  "timestamp": "2026-03-16T21:36:02.233800291+00:00",
+  "concurrency": 1,
+  "runtimes": [
+    {
+      "name": "vllm",
+      "source_file": "vllm-yoga-prod-c1-20260316b.json",
+      "metrics": {
+        "decode_tok_s": {
+          "value": 153.6434607412739,
+          "score": 96,
+          "best": false
+        },
+        "itl_p50_ms": {
+          "value": 6.508575081395349,
+          "score": 97,
+          "best": false,
+          "jitter_penalty": 0
+        },
+        "ttft_p50_ms": {
+          "value": 15.083511,
+          "score": 98,
+          "best": false
+        },
+        "ttft_p99_ms": {
+          "value": 18.696059839999997,
+          "score": 97,
+          "best": false
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": false
+        }
+      },
+      "composite": 97.0,
+      "grade": "A+"
+    },
+    {
+      "name": "realizr",
+      "source_file": "realizr-yoga-prod-c1-20260316b.json",
+      "metrics": {
+        "ttft_p50_ms": {
+          "value": 19.2370115,
+          "score": 95,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 149.26174745938394,
+          "score": 93,
+          "best": false
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": true
+        },
+        "itl_p50_ms": {
+          "value": 6.6996401758736805,
+          "score": 96,
+          "best": false,
+          "jitter_penalty": 0
+        },
+        "ttft_p99_ms": {
+          "value": 28.48182382000001,
+          "score": 90,
+          "best": false
+        }
+      },
+      "composite": 94.0,
+      "grade": "A"
+    },
+    {
+      "name": "llamacpp",
+      "source_file": "llamacpp-yoga-prod-c1-20260316b.json",
+      "metrics": {
+        "ttft_p50_ms": {
+          "value": 12.60754,
+          "score": 100,
+          "best": true
+        },
+        "ttft_p99_ms": {
+          "value": 16.963257979999998,
+          "score": 100,
+          "best": true
+        },
+        "decode_tok_s": {
+          "value": 156.24337285288456,
+          "score": 100,
+          "best": true
+        },
+        "itl_p50_ms": {
+          "value": 6.40027145945946,
+          "score": 100,
+          "best": true,
+          "jitter_penalty": 1
+        },
+        "error_rate": {
+          "value": 0.0198019801980198,
+          "score": 38,
+          "best": false
+        }
+      },
+      "composite": 94.0,
+      "grade": "A"
+    }
+  ]
+}
+
+{
+  "contract_version": "2.0.0",
+  "timestamp": "2026-03-16T21:36:02.233849376+00:00",
+  "concurrency": 4,
+  "runtimes": [
+    {
+      "name": "vllm",
+      "source_file": "vllm-yoga-prod-c4-20260316b.json",
+      "metrics": {
+        "ttft_p50_ms": {
+          "value": 21.9130835,
+          "score": 98,
+          "best": true
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 149.708448085022,
+          "score": 99,
+          "best": true
+        },
+        "aggregate_tok_s": {
+          "value": 586.1598306402925,
+          "score": 100,
+          "best": true
+        },
+        "throughput_scaling": {
+          "value": 3.815065267420326,
+          "score": 100,
+          "best": true
+        },
+        "itl_p50_ms": {
+          "value": 6.679649764534883,
+          "score": 100,
+          "best": true,
+          "jitter_penalty": 0
+        }
+      },
+      "composite": 100.0,
+      "grade": "A+"
+    },
+    {
+      "name": "llamacpp",
+      "source_file": "llamacpp-yoga-prod-c4-20260316b.json",
+      "metrics": {
+        "itl_p50_ms": {
+          "value": 11.866523999999998,
+          "score": 60,
+          "best": false,
+          "jitter_penalty": 3
+        },
+        "error_rate": {
+          "value": 0.0182648401826484,
+          "score": 41,
+          "best": false
+        },
+        "throughput_scaling": {
+          "value": 2.1257760840248463,
+          "score": 77,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 84.27067606318414,
+          "score": 53,
+          "best": false
+        },
+        "aggregate_tok_s": {
+          "value": 332.1384252980389,
+          "score": 78,
+          "best": false
+        },
+        "ttft_p50_ms": {
+          "value": 28.030619,
+          "score": 89,
+          "best": false
+        }
+      },
+      "composite": 69.0,
+      "grade": "C+"
+    },
+    {
+      "name": "realizr",
+      "source_file": "realizr-yoga-prod-c4-20260316b.json",
+      "metrics": {
+        "throughput_scaling": {
+          "value": 1.4488796246335003,
+          "score": 54,
+          "best": false
+        },
+        "itl_p50_ms": {
+          "value": 12.21066481139325,
+          "score": 58,
+          "best": false,
+          "jitter_penalty": 3
+        },
+        "aggregate_tok_s": {
+          "value": 216.26230463109252,
+          "score": 54,
+          "best": false
+        },
+        "ttft_p50_ms": {
+          "value": 76.35482300000001,
+          "score": 49,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 81.89562283840128,
+          "score": 51,
+          "best": false
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": true
+        }
+      },
+      "composite": 58.0,
+      "grade": "C"
+    }
+  ]
+}
+
+{
+  "contract_version": "2.0.0",
+  "timestamp": "2026-03-16T21:36:02.233858960+00:00",
+  "concurrency": 8,
+  "runtimes": [
+    {
+      "name": "vllm",
+      "source_file": "vllm-yoga-prod-c8-20260316b.json",
+      "metrics": {
+        "aggregate_tok_s": {
+          "value": 1084.1869498870983,
+          "score": 100,
+          "best": true
+        },
+        "throughput_scaling": {
+          "value": 7.056512165609196,
+          "score": 100,
+          "best": true
+        },
+        "itl_p50_ms": {
+          "value": 7.027684537064767,
+          "score": 97,
+          "best": true,
+          "jitter_penalty": 2
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 142.2943780025828,
+          "score": 94,
+          "best": true
+        },
+        "ttft_p50_ms": {
+          "value": 32.323724,
+          "score": 92,
+          "best": true
+        }
+      },
+      "composite": 97.0,
+      "grade": "A+"
+    },
+    {
+      "name": "realizr",
+      "source_file": "realizr-yoga-prod-c8-20260316b.json",
+      "metrics": {
+        "throughput_scaling": {
+          "value": 2.3803184762617895,
+          "score": 80,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 75.000113926661,
+          "score": 47,
+          "best": false
+        },
+        "ttft_p50_ms": {
+          "value": 148.4921005,
+          "score": 25,
+          "best": false
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": true
+        },
+        "itl_p50_ms": {
+          "value": 13.333313079735476,
+          "score": 53,
+          "best": false,
+          "jitter_penalty": 3
+        },
+        "aggregate_tok_s": {
+          "value": 355.2904952766928,
+          "score": 80,
+          "best": false
+        }
+      },
+      "composite": 65.0,
+      "grade": "C+"
+    },
+    {
+      "name": "llamacpp",
+      "source_file": "llamacpp-yoga-prod-c8-20260316b.json",
+      "metrics": {
+        "aggregate_tok_s": {
+          "value": 379.59225064446787,
+          "score": 82,
+          "best": false
+        },
+        "ttft_p50_ms": {
+          "value": 46.659881,
+          "score": 77,
+          "best": false
+        },
+        "itl_p50_ms": {
+          "value": 19.7579438018018,
+          "score": 30,
+          "best": false,
+          "jitter_penalty": 8
+        },
+        "throughput_scaling": {
+          "value": 2.4294934480317694,
+          "score": 81,
+          "best": false
+        },
+        "error_rate": {
+          "value": 0.05514705882352941,
+          "score": 14,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 50.612554121588616,
+          "score": 32,
+          "best": false
+        }
+      },
+      "composite": 59.0,
+      "grade": "C"
+    }
+  ]
+}
+
+{
+  "contract_version": "2.0.0",
+  "timestamp": "2026-03-16T21:36:02.233868755+00:00",
+  "concurrency": 16,
+  "runtimes": [
+    {
+      "name": "vllm",
+      "source_file": "vllm-yoga-prod-c16-20260316b.json",
+      "metrics": {
+        "throughput_scaling": {
+          "value": 12.761053738821408,
+          "score": 100,
+          "best": true
+        },
+        "ttft_p50_ms": {
+          "value": 33.651256999999994,
+          "score": 91,
+          "best": true
+        },
+        "aggregate_tok_s": {
+          "value": 1960.6524591378936,
+          "score": 100,
+          "best": true
+        },
+        "itl_p50_ms": {
+          "value": 7.89139152892562,
+          "score": 92,
+          "best": true,
+          "jitter_penalty": 1
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 126.72036311144048,
+          "score": 84,
+          "best": true
+        }
+      },
+      "composite": 95.0,
+      "grade": "A+"
+    },
+    {
+      "name": "realizr",
+      "source_file": "realizr-yoga-prod-c16-20260316b.json",
+      "metrics": {
+        "ttft_p50_ms": {
+          "value": 281.591053,
+          "score": 13,
+          "best": false
+        },
+        "aggregate_tok_s": {
+          "value": 581.0697192330923,
+          "score": 98,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 72.21065324258721,
+          "score": 45,
+          "best": false
+        },
+        "throughput_scaling": {
+          "value": 3.892958035957665,
+          "score": 100,
+          "best": false
+        },
+        "itl_p50_ms": {
+          "value": 13.848372159722222,
+          "score": 49,
+          "best": false,
+          "jitter_penalty": 5
+        },
+        "error_rate": {
+          "value": 0.0,
+          "score": 100,
+          "best": true
+        }
+      },
+      "composite": 70.0,
+      "grade": "B"
+    },
+    {
+      "name": "llamacpp",
+      "source_file": "llamacpp-yoga-prod-c16-20260316b.json",
+      "metrics": {
+        "error_rate": {
+          "value": 0.018726591760299623,
+          "score": 40,
+          "best": false
+        },
+        "decode_tok_s": {
+          "value": 50.78097870419964,
+          "score": 32,
+          "best": false
+        },
+        "throughput_scaling": {
+          "value": 4.890633682262998,
+          "score": 100,
+          "best": false
+        },
+        "aggregate_tok_s": {
+          "value": 764.1291019046934,
+          "score": 100,
+          "best": false
+        },
+        "ttft_p50_ms": {
+          "value": 62.138899,
+          "score": 60,
+          "best": false
+        },
+        "itl_p50_ms": {
+          "value": 19.692412897849465,
+          "score": 29,
+          "best": false,
+          "jitter_penalty": 9
+        }
+      },
+      "composite": 67.0,
+      "grade": "C+"
+    }
+  ]
+}
