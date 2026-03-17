@@ -50,7 +50,7 @@ make load                    # Load tests
 | 8 | **559.6** | 429.4 | 1,119.8 | **1.30×** | 0.50× |
 | 16 | 1,008.1 | 1,120.1 | 2,043.8 | 0.90× | 0.49× |
 
-All runtimes re-measured PMAT-224 (realizr Mar 16 binary +46-72%, llama.cpp rebuilt latest HEAD +25% at c=16). **realizr beats llama.cpp at c=8** (1.30×).
+All runtimes re-measured PMAT-224 (realizr Mar 16 binary +46-72%, llama.cpp rebuilt latest HEAD +25% at c=16). **realizr beats llama.cpp at c=8** (1.30×). At c=32: realizr(BATCH=16) 1,010 ≈ llama.cpp 1,017 (parity).
 
 ### CUDA_MAX_BATCH=16 Workaround (PMAT-223, correct at all c)
 
