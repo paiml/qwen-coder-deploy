@@ -3426,7 +3426,7 @@ ncu profiling (basic set, 8 replay passes/kernel, CUDA_GRAPH=0, sudo, --launch-s
 |----|-------|------------------------|--------|
 | H1 | Coalesced access → >90% BW | DRAM BW 21% (Q4K), 76% (fused). Low BW is from underutilization, not poor coalescing — fused kernel with same access pattern achieves 76%. | ✅ **CONFIRMED** (coalescing efficient; BW limited by kernel granularity) |
 | H2 | Coalesced GEMV → <0.05ms | Q4K: 4.29µs = 0.0043ms (12× below). Q6K: 5.79µs = 0.0058ms (9× below). | ✅ **CONFIRMED** |
-| H4 | float4 loads → 2x bandwidth | Not measurable from basic set (needs memory workload analysis). L1 33.6% for Q4K suggests vectorized loads active. | **Pending** (requires full set) |
+| H4 | float4 loads → 2x bandwidth | ncu `--set full` (PMAT-218): Q4K GEMV 9.9/32 bytes per sector (31%), 57% excessive sectors. Fused identical at 10.4/32. Root cause: Q4K AoS layout. Coalesced = 3.2× gain. | ✅ **CONFIRMED** (3.2× > 2.0× threshold, needs SoA transpose) |
 | H5 | Occupancy >50% → diminishing returns | Q4K 86% occ + 23% compute vs fused 62% occ + 76% DRAM. Higher occupancy ≠ higher utilization. | ✅ **CONFIRMED** (occupancy is not the bottleneck on 4060L) |
 
 ### Decode Latency Decomposition (2026-03-16, RTX 4060L — PMAT-210)
