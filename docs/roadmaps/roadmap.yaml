@@ -4615,3 +4615,31 @@ roadmap:
     Crossover at c=64: B16 38.5% vs B32 33.0% (+5.5pp).
     c=32: B16 worse (37.9% vs 47.0%, -9.1pp) — 32 requests compete for 16 slots.
     This decode floor enables quality crossover at c=128 (PMAT-229: 67 vs 63).
+- id: PMAT-232
+  github_issue: null
+  item_type: task
+  title: 'PMAT-232: Same-session BATCH=16 vs BATCH=32 decode comparison'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Same-session c=64 comparison — DONE (B16 57.5 vs B32 48.9, +17.6%)'
+  - 'AC2: Same-session c=32 comparison — DONE (confounded by quality bug)'
+  - 'AC3: PMAT-177 c=32 bug contamination verified — DONE (avg_tok=67.2)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - decode-preservation
+  - 4060L
+  notes: |
+    Same-session on yoga RTX 4060L, locked 1900MHz.
+    c=64 (clean): B16 57.5 dec/17.4ms ITL vs B32 48.9 dec/20.5ms ITL.
+    Both avg ~135 tokens — apples-to-apples comparison.
+    c=32 (confounded): B32 avg_tok=67 (min=0, p50=20 — PMAT-221 bug).
+    B16 avg_tok=126 (healthy). B32 decode inflated by shorter sequences.
+    PMAT-177 c=32 data (69.7 tok/s, avg_tok=67.2) confirmed bug-affected.
