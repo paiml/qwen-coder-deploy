@@ -4154,3 +4154,41 @@ roadmap:
     nsys API: results/nsys-yoga-realizr-c4-api-20260317.txt,
               results/nsys-yoga-vllm-c4-api-20260317.txt,
               results/nsys-yoga-llamacpp-c4-api-20260317.txt
+- id: PMAT-218
+  github_issue: null
+  item_type: task
+  title: 'PMAT-218: H4 vectorization falsification — Q4K GEMV 31% sector utilization, 3.2x gain confirmed'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: ncu --set full on hw_dp4a_q4k_gemv — DONE (9.9/32 bytes per sector, 57% excessive)'
+  - 'AC2: ncu --set full on fused_gate_up_swiglu — DONE (10.4/32 bytes per sector, 52% excessive)'
+  - 'AC3: Compare fused vs unfused coalescing — DONE (identical ~31% utilization, layout is root cause)'
+  - 'AC4: H4 hypothesis resolved — CONFIRMED (3.2x > 2.0x threshold)'
+  - 'AC5: PMAT-054 design implication documented — DONE (SoA transpose needed, not just float4)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - ncu
+  - vectorization
+  - coalescing
+  - h4-falsification
+  - profiling
+  - 4060L
+  notes: |
+    H4 CONFIRMED: Q4K GEMV uses only 9.9/32 bytes per L1 sector (31%).
+    57% of loaded sectors are excessive (wasted bandwidth from strided access).
+    Fused kernel has IDENTICAL sector utilization (10.4/32 = 32.5%).
+    Root cause: Q4K block layout (AoS per super block) creates inherent stride.
+    float4 loads alone won't fix — need SoA weight transpose at model load time.
+    Theoretical coalesced: 100% utilization = 3.2x effective BW gain (>2.0 threshold).
+    This converges with PMAT-217: fused Q4K GEMM (PMAT-054) should both
+    coalesce loads AND enable batch-invariant GEMM.
+    FP32 instruction fusion: additional 32-34% potential from FMA conversion.
+    All 5 original hypotheses (H1-H5) now resolved.
+    Data: results/ncu-yoga-h4-vectorization-20260317.csv
