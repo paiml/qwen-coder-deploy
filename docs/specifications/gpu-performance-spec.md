@@ -3689,9 +3689,23 @@ The scheduling gap is not abstract architecture — it's measurable in the CUDA 
 | **Tokens per step (avg M≈2.7)** | ~2.7 | 6,489 tok / 2,416 syncs |
 | **Per-token cost** | **4.63ms** | = 216 tok/s |
 
-**Why realizr barely uses CUDA graph at c=4:**
+**Why realizr barely uses CUDA graph at c=4 (confirmed by c=1 control):**
 
 The decode CUDA graph is captured for M=1 (fixed batch size). At c=4, the batch size varies per step (M=1,2,3,4 as requests arrive and complete). CUDA graphs are NOT re-parameterizable for different grid sizes — a different M requires different kernel configurations. So realizr falls back to 771 individual `cuLaunchKernel` calls per decode step. Only 117 graph launches = only 117 steps had M=1.
+
+**c=1 vs c=4 CUDA API comparison (realizr only):**
+
+| Metric | c=1 (M=1 fixed) | c=4 (M=1-4 variable) | Delta |
+|--------|-----------------|---------------------|-------|
+| Graph launches | **4,611** | **117** | **39.4× fewer** |
+| Non-graph launches | 36,502 (prefill only) | 1,703,444 (decode+prefill) | 46.7× more |
+| Graph captures | 1 | 1 | Same (never re-captured) |
+| Sync median | **6.68ms** | **10.4ms** | +3.72ms from non-graph overhead |
+| Graph % of decode | **~100%** | **4.8%** | Graph invalidated by variable M |
+| Per-step overhead | ~0.37ms (graph) | ~3.6ms (launch + sync) | 9.7× more overhead |
+| Decode tok/s per stream | 148.5 | 79.1 | 0.53× = PMAT-179 decode_rate factor |
+
+At c=1: 4,611 graph launches in ~30s = one per decode step. Graph launch (30.6µs) + GPU kernel (6.29ms) + sync overhead (0.37ms) = 6.68ms/tok = 148.5 tok/s. At c=4: 1,703,444 non-graph launches ÷ 771/step = 2,209 non-graphed steps. Only 117/2,416 (4.8%) used the graph. The 0.53× per-stream decode ratio exactly matches PMAT-179's measured decode_rate factor of 0.52-0.57×.
 
 **How competitors solve this:**
 
