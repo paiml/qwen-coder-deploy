@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.76.0
+**Version:** 3.77.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -990,11 +990,11 @@ Each runtime at its best parallelism setting for each concurrency level:
 | medium + fixed 32 | — | 0.81 L | **1.08 W** | 0.72 L | Narrow c=8 win |
 | medium + fixed 128 | — | 0.85 L | **1.29 W** | 0.90 L | Narrow c=8 win |
 | **medium + hetero 16-256** | **0.93** | **0.61 L** | **0.85 L** | **0.65 L** | **No wins. Production-realistic.** |
-| **long + hetero 16-256** | **0.91 L** | **0.55 L** | **0.75 L** | **BUG ‡** | **Worst case — FP8 prefill BW dominates (PMAT-220)** |
+| **long + hetero 16-256** | **0.91 L** | **0.73 L** | **1.04 L** | **BUG ‡** | **PMAT-225: realizr wins at c=8 even with long prompts** |
 
-‡ realizr generates 0 tokens at c≥9 with long prompts (PMAT-221 quality bug). c=16 data INVALID. llama.cpp --parallel 8 maxes out at c=8.
+‡ realizr generates 0 tokens at c≥9 with long prompts at BATCH=32 (PMAT-221). BATCH=16 workaround safe. llama.cpp --parallel 8 maxes out at c=8.
 
-**PMAT-220 key finding: long prompts WIDEN the gap.** realizr/vLLM: 0.94×, 0.33×, 0.28× (c=1,4,8). TTFT gap explodes: realizr 175ms vs vLLM 21ms at c=4 (8.3×), 330ms vs 23ms at c=8 (14.4×). FP8 2-step prefill BW overhead scales with prompt length as predicted.
+**PMAT-225 update (Mar 16 binary): long-prompt ratios improved.** realizr/llama.cpp: 0.73× (c=4), **1.04×** (c=8) — realizr now wins at c=8 even with long prompts (was 0.55×/0.75× in PMAT-220). Scheduling improvement (+27% from old binary) overcomes FP8 prefill penalty at c=8 but not at c=4. TTFT gap: 177ms vs 18ms at c=4 (9.8×), 331ms vs 32ms at c=8 (10.3×).
 
 **⚠️ PMAT-221: Critical realizr quality bug — two degradation patterns:**
 
@@ -3061,6 +3061,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-225** | **Long-prompt competitive refresh (Mar 16 binary)** | **realizr wins at c=8 even with long prompts (1.04×)** | ✅ MEASURED. realizr/llama.cpp long: c=4 0.55→0.73× (+33%), c=8 0.75→1.04× (+39%). realizr 448.9 vs llama.cpp 431.0 at c=8 long. Scheduling improvement (+27%) overcomes FP8 prefill penalty at c=8 but not c=4 (252.5 vs 344.2 = 0.73×). TTFT gap: 177ms vs 18ms (c=4), 331ms vs 32ms (c=8). BATCH=16 workaround used, all output correct. |
 | **PMAT-224** | **Full production refresh — all runtimes re-measured** | **realizr +46-72%, beats llama.cpp at c=8 (1.30×)** | ✅ MEASURED. Mar 16 realizr binary: c=4 216→316(+46%), c=8 355→560(+58%), c=16 587→1008(+72%). llama.cpp rebuilt latest HEAD: c=16 897→1120(+25%). vLLM stable (±0.5%). realizr/llama.cpp crossover at c=8 (1.30×). realizr/vLLM narrowed: 0.37→0.54(c=4), 0.32→0.50(c=8), 0.30→0.49(c=16). PMAT-177 data SUPERSEDED. BATCH=32 c≤19 correct, BATCH=16 correct at all c. |
 | **PMAT-223** | **CUDA_MAX_BATCH=16 workaround for batched prefill bug** | **BATCH=16 eliminates bug, −33% asymptote (1500→1010 tok/s)** | ✅ VERIFIED. CUDA_MAX_BATCH=16 produces correct output at ALL concurrency levels and prompt lengths. Production sweep (medium, c=1-128): c=1 147.2, c=4 316.1, c=8 560.2, c=16 1008.1, c=32 1009.9, c=64 1010.0, c=128 1010.3 tok/s. Asymptote 1010 vs 1500 at BATCH=32 (−33%). Long c=32 at BATCH=16: correct (avg_tok=255.8). Also corrected medium threshold from c=18→c=20 (earlier c=18 result was from contaminated server; fresh-start c=19 OK, c=20 broken). BATCH=18 with c=18 medium: OK. Bug is specifically about workspace allocation at the configured BATCH size, not just active slot count. |
 | **PMAT-222** | **Falsify total-token hypothesis from PMAT-221** | **FALSIFIED: bug is prompt-length×slots×BATCH_SIZE, not total tokens** | ✅ FALSIFIED. Short c=128 works (32×23=736 per-batch) — higher total tokens than medium threshold. Corrected thresholds (BATCH=32): medium c=19 OK / c=20 BROKEN (earlier c=18 was contaminated server), long c=8 OK / c=9 BROKEN. BATCH=16 eliminates bug entirely (PMAT-223). Bug is in workspace allocation at CUDA_MAX_BATCH size × prompt length interaction, not in active slot count or total tokens. |
@@ -4023,6 +4024,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.77.0 | 2026-03-17 | **PMAT-225: Long-prompt competitive ratios improved.** realizr/llama.cpp long: c=4 0.55→0.73× (+33%), c=8 0.75→1.04× (+39%). realizr now wins at c=8 even with long prompts. Scheduling improvement (+27% from old binary) overcomes FP8 prefill penalty at c=8. PMAT-220 competitive matrix row updated. |
 | 3.76.0 | 2026-03-17 | **PMAT-224: Full production refresh — realizr +46-72%, beats llama.cpp at c=8.** Mar 16 binary update gives massive scheduling improvement. All runtimes re-measured: realizr c=4 216→316(+46%), c=8 355→560(+58%), c=16 587→1008(+72%). llama.cpp rebuilt latest HEAD: c=16 897→1120(+25%). vLLM stable (±0.5%). realizr/llama.cpp crossover at c=8 (1.30×). realizr/vLLM narrowed: 0.37→0.54 at c=4, 0.32→0.50 at c=8, 0.30→0.49 at c=16. PMAT-177 data SUPERSEDED. |
 | 3.75.0 | 2026-03-17 | **PMAT-223: CUDA_MAX_BATCH=16 workaround eliminates prefill bug.** All concurrency levels and prompt lengths correct at BATCH=16. Throughput: c=1 147.2, c=16 1008.1, c=128 1010.3 tok/s. Asymptote 1010 vs 1500 at BATCH=32 (−33% tradeoff for correctness). Medium threshold corrected to c=19 OK / c=20 broken (c=18 was contaminated server). BATCH=18 with c=18 medium: works. Bug is workspace-allocation-dependent, not active-slot-count. Production recommendation: use BATCH=16 until batch_prefill.rs fixed. |
 | 3.74.0 | 2026-03-17 | **PMAT-222: Total-token hypothesis FALSIFIED.** Short c=128 works (32×23=736 per-batch) despite higher total tokens than medium c=18 (1836). Precise thresholds: short ≤32 slots (never breaks), medium c=17 OK / c=18 broken, long c=8 OK / c=9 broken. Per-batch products: long 2488 (OK) > medium 1836 (BROKEN) — total tokens cannot be discriminator. Bug is prompt-length-dependent: per-slot limit in batched prefill decreases non-linearly with seq_len. PMAT-221 medium thresholds refined (c=17/18 boundary, c=32 fully 0/0/0/0). |

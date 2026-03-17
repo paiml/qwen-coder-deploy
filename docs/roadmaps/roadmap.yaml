@@ -4408,3 +4408,33 @@ roadmap:
     5. realizr/llama.cpp crossover at c=8: 1.30x (realizr wins).
     6. realizr/vLLM narrowed but still ~2x gap: 0.54x at c=4, 0.50x at c=8, 0.49x at c=16.
     PMAT-177 data is now SUPERSEDED by this refresh.
+- id: PMAT-225
+  github_issue: null
+  item_type: task
+  title: 'PMAT-225: Long-prompt competitive refresh — realizr wins at c=8 (1.04×)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr long c=4 BATCH=16 — DONE (252.5 tok/s, correct)'
+  - 'AC2: realizr long c=8 BATCH=16 — DONE (448.9 tok/s, correct)'
+  - 'AC3: llama.cpp long c=4 --parallel 8 — DONE (344.2 tok/s)'
+  - 'AC4: llama.cpp long c=8 --parallel 8 — DONE (431.0 tok/s)'
+  - 'AC5: Compare with PMAT-220 — DONE (c=4: 0.55→0.73, c=8: 0.75→1.04)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - long-prompt
+  - 4060L
+  notes: |
+    Long-prompt competitive ratios improved with Mar 16 binary:
+    realizr/llama.cpp: c=4 0.55->0.73 (+33%), c=8 0.75->1.04 (+39%).
+    realizr now wins at c=8 even with long prompts (448.9 vs 431.0).
+    Scheduling improvement overcomes FP8 prefill penalty at c=8 but not c=4.
+    TTFT gap remains: 177ms vs 18ms (c=4), 331ms vs 32ms (c=8).
+    BATCH=16 workaround used, all output correct.
