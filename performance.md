@@ -336,6 +336,17 @@ realizr produces 0 tokens when too many slots prefill simultaneously with non-sh
 
 **realizr has the largest long-prompt penalty** (FP8 2-step prefill). TTFT gap grows: 8.7× (c=4), 14.4× (c=8), **24× (c=16)**. vLLM shows unexpected −10% at c=16 (prefill pressure at high batch). Supersedes PMAT-220/225 data.
 
+**Long-prompt scorecards:**
+
+| c | realizr | llama.cpp | vLLM |
+|---|---------|-----------|------|
+| 1 | 88 A- | 95 A+ | 98 A+ |
+| 4 | 47 D | 75 B | 99 A+ |
+| 8 | 59 C | 61 C+ | 98 A+ |
+| 16 | 64 C+ | 71 B | 94 A |
+
+realizr drops 5-11 scoring points vs medium (worst: c=4 −11, grade C→D). TTFT penalty dominates at c=4 (score=20 vs 99 vLLM).
+
 ### Jetson Orin Nano Super (8 SMs, sm_87, MAXN_SUPER 1020MHz)
 
 **c=4 provides zero batching benefit on 8 SMs:**

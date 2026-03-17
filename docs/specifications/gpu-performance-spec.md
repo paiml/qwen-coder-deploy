@@ -1007,6 +1007,17 @@ realizr/vLLM (long + hetero): 0.94× (c=1), 0.32× (c=4), 0.28× (c=8), 0.27× (
 
 realizr: −13-16% long penalty at c≥4 (FP8 2-step prefill). llama.cpp: −2-9% (flash attention). vLLM: −0-10% (CUTLASS GEMM, pressure at c=16). **realizr is the most prompt-sensitive runtime** — the 2-step FP8 convert+GEMM pipeline is the sole cause. Fused Q4K→GEMM (PMAT-054) would eliminate this.
 
+**Long-prompt scorecards (PMAT-227, probador llm score):**
+
+| c | realizr | llama.cpp | vLLM | realizr Δ from medium |
+|---|---------|-----------|------|-----------------------|
+| 1 | 88 A- | 95 A+ | 98 A+ | −5 |
+| 4 | 47 D | 75 B | 99 A+ | −11 |
+| 8 | 59 C | 61 C+ | 98 A+ | −6 |
+| 16 | 64 C+ | 71 B | 94 A | −7 |
+
+realizr drops 5-11 scoring points from medium→long. Worst hit at c=4 (−11 points, C→D) due to TTFT subscore collapse (20 vs 99 vLLM). vLLM maintains A/A+ at all concurrency levels.
+
 **⚠️ PMAT-221: Critical realizr quality bug — two degradation patterns:**
 
 1. **Long prompt c≥9**: ALL responses produce 0 tokens. Threshold exactly c=8→c=9. PERSISTENT — server stays broken until restart. PMAT-220 c=16 data INVALID.
