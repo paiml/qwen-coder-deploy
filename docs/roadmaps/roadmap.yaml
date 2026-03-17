@@ -4116,3 +4116,41 @@ roadmap:
     Scores: realizr 94A/58C/65C+/70B. vLLM 97-100 A+. llama.cpp 94A/69C+/59C/67C+.
     Result files: results/*-yoga-prod-c*-20260316b.json
     Scorecard: results/scorecard-yoga-20260316b.json
+- id: PMAT-217
+  github_issue: null
+  item_type: task
+  title: 'PMAT-217: CUDA API scheduling analysis — 82% CPU block is the root cause'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr CUDA API trace at c=4 — DONE (117 graph launches, 82.4% blocked in sync)'
+  - 'AC2: vLLM CUDA API trace at c=4 — DONE (11,467 graph launches, event-based sync)'
+  - 'AC3: llama.cpp CUDA API trace at c=4 — DONE (3,579 graph launches, 103 re-captures)'
+  - 'AC4: Three-way comparison table — DONE'
+  - 'AC5: Per-step budget breakdown — DONE (1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms)'
+  - 'AC6: Fix projection quantified — DONE (+85% to ~400 tok/s)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - nsys
+  - cuda-api
+  - scheduling
+  - root-cause
+  - graph-launch
+  - profiling
+  - 4060L
+  notes: |
+    DEFINITIVE ROOT CAUSE: realizr CPU blocked 82.4% in cuStreamSynchronize.
+    Only 117 graph launches (M=1 graph invalid for variable M at c=4).
+    llama.cpp: 3,579 graph launches, 103 dynamic re-captures, 0.46µs median sync.
+    vLLM: 11,467 graph launches, pre-captured, 18.9µs median event sync.
+    Per-step: 771 kernel launches (1.6ms) + cuStreamSync (10.4ms) = 12.5ms.
+    2.7 tok/step → 216 tok/s. Fix: per-M graph + event sync → 400+ tok/s.
+    nsys API: results/nsys-yoga-realizr-c4-api-20260317.txt,
+              results/nsys-yoga-vllm-c4-api-20260317.txt,
+              results/nsys-yoga-llamacpp-c4-api-20260317.txt

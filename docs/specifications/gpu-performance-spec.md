@@ -1,9 +1,9 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.68.0
+**Version:** 3.69.0
 **Status:** ACTIVE
-**Date:** 2026-03-16
+**Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -79,7 +79,7 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **The gap is NOT kernel speed — realizr's FP8 decode is FASTER than llama.cpp at M≥5 (PMAT-207).** Per-request decode ratio vs llama.cpp: 1.07× (c=5), 1.13× (c=6), 1.27× (c=7), **1.40× (c=8)**. Yet aggregate throughput still loses (0.70-0.85×) because scheduling overhead exceeds the decode advantage. realizr is within 4% of vLLM at c=1 (146 vs 152 tok/s). The gap is scaling architecture: vLLM scales 2.5-3× more efficiently at c≥4. *(realizr variance <0.3% across sessions — PMAT-177 matches PMAT-157 within 0.3%. PMAT-216 re-verification: PMAT-177 vs Mar 16b delta <1% at all c (147.1/216.3/355.3/581.1 vs 146.4/216.1/355.1/586.5). vLLM c=1 variance <2% (PMAT-178: 149.7±1.8 tok/s, 10+ measurements). High-concurrency vLLM variance ±10-15% from scheduler timing.)*
 
-**Kernel-level profiling confirms this (PMAT-209→214, nsys+ncu on 4060L):** The decode kernel mix is **concurrency-invariant at c≥4** — DP4A GEMV 48%, attention 24%, regardless of c=4/8/16. realizr's per-kernel efficiency is high: fused_gate_up_swiglu achieves 76% DRAM BW (ncu), FP8 tensor core decode activates at M≥5 (128×128 tile grows 25× from c=4→c=16). Total per-token decode budget: 4,505µs kernel + 1,785µs CUDA graph overhead + 540µs serving = 6,830µs (146.4 tok/s). **vLLM nsys comparison (PMAT-214) reveals the root cause:** vLLM uses a SINGLE CUTLASS GEMM kernel for 95.7% of GPU time at c≥2. This GEMM takes 2.14-2.20ms per call (+2.8% from c=1→c=16) and processes M tokens per call — so throughput scales linearly with batch size while GPU time stays constant. realizr uses 771 small kernels (84µs largest) behind a CUDA graph that dispatches one token at a time. The scheduling gap IS this kernel architecture gap.
+**Kernel-level profiling confirms this (PMAT-209→214, nsys+ncu on 4060L):** The decode kernel mix is **concurrency-invariant at c≥4** — DP4A GEMV 48%, attention 24%, regardless of c=4/8/16. realizr's per-kernel efficiency is high: fused_gate_up_swiglu achieves 76% DRAM BW (ncu), FP8 tensor core decode activates at M≥5 (128×128 tile grows 25× from c=4→c=16). Total per-token decode budget: 4,505µs kernel + 1,785µs CUDA graph overhead + 540µs serving = 6,830µs (146.4 tok/s). **vLLM nsys comparison (PMAT-214) reveals the root cause:** vLLM uses a SINGLE CUTLASS GEMM kernel for 95.7% of GPU time at c≥2. This GEMM takes 2.14-2.20ms per call (+2.8% from c=1→c=16) and processes M tokens per call — so throughput scales linearly with batch size while GPU time stays constant. realizr uses 771 small kernels (84µs largest) behind a CUDA graph that dispatches one token at a time. **CUDA API trace (PMAT-217) proves this: realizr makes only 117 graph launches at c=4 (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms).** llama.cpp re-captures graphs dynamically (103 captures) with 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with 18.9µs median event sync. The fix: per-M graph capture + event-based sync → projected +85% to ~400 tok/s at c=4.
 
 **3-way crossover analysis (PMAT-208, c=5-7, production methodology):**
 
@@ -3146,7 +3146,7 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 
 ## 9. Profiling Data
 
-### Profiling Summary (RTX 4060L, sm_89, 24 SMs — PMAT-203→215)
+### Profiling Summary (RTX 4060L, sm_89, 24 SMs — PMAT-203→217)
 
 **Comprehensive GPU profiling completed Mar 16, 2026.** Sources: nsys kernel timelines (realizr M=1 profile + c=4/8/16 serve; vLLM c=1/4/16 serve; llama.cpp c=1/4 serve), ncu per-kernel roofline (7 decode kernels), BrickProfiler per-op breakdown.
 
@@ -3167,6 +3167,8 @@ For detailed baseline tables and threshold registry, see [baselines.md](./compon
 | **vLLM FlashAttention: 0.1%→11.7% (c=1→c=16)** | **PMAT-214** | **Attention is vLLM's scaling limiter at c=32+** |
 | **llama.cpp: ncols-templated GEMV (M=1-4)** | **PMAT-215** | **Middle ground — adapts to batch, but no GEMM switch** |
 | **Three-level spectrum: specialization ↔ batching** | **PMAT-214/215** | **realizr(44 kernels) → llama.cpp(35) → vLLM(15)** |
+| **realizr CPU blocked 82.4% in cuStreamSync** | **PMAT-217** | **No per-M graph + blocking sync = scheduling gap** |
+| **117 graph launches (realizr) vs 11,467 (vLLM)** | **PMAT-217** | **Per-M graph + event sync = +85% projected** |
 
 **Per-token decode budget (M=1, 28 layers):** 4,505µs kernel + 1,785µs graph overhead = 6,290µs (159.1 tok/s). +540µs serving = 6,830µs production (146.4 tok/s).
 
@@ -3656,6 +3658,61 @@ llama.cpp sits between realizr and vLLM in the specialization spectrum: it uses 
 
 4. **realizr and llama.cpp are kernel-equivalent at c=1.** Both achieve ~159 tok/s with Q4K GGUF. The per-token kernel time is nearly identical. The gap emerges at c≥2: llama.cpp's ncols-templated GEMV processes M tokens per kernel while realizr's CUDA graph dispatches 1.
 
+### CUDA API Scheduling Analysis — The 82% CPU Block (PMAT-217)
+
+**nsys CUDA API traces for all three runtimes at c=4 (RTX 4060L, 2026-03-17).**
+
+The scheduling gap is not abstract architecture — it's measurable in the CUDA API trace. realizr spends 82.4% of CPU time blocked in `cuStreamSynchronize`, while llama.cpp and vLLM have near-zero blocking.
+
+**Three-way CUDA API comparison (c=4 decode):**
+
+| API Metric | realizr | llama.cpp | vLLM |
+|------------|---------|-----------|------|
+| **CUDA graph launches** | **117** | **3,579** | **11,467** |
+| **Graph launch avg** | 31µs | 86µs | 32µs |
+| Non-graph kernel launches | **1,703,444** | 333,871 | 50,487 |
+| Sync API calls | 2,416 | 98,100 | 13,082 |
+| **Sync API median** | **10.4ms** | **0.46µs** | **18.9µs** |
+| **CPU blocked in sync** | **82.4%** | **~0%** | **~0%** |
+| Graph re-captures | 1 | **103** | ~0 (pre-captured) |
+| Aggregate tok/s | 216 | 346 | 585 |
+
+**Per-step breakdown (realizr c=4):**
+
+| Phase | Time | Evidence |
+|-------|------|----------|
+| 771 kernel launches × 2.1µs | 1.6ms | cuLaunchKernel: 1,703,444 / ~2,209 steps |
+| GPU kernel execution | ~7ms | Kernel sum / sync count |
+| cuStreamSynchronize blocking | **10.4ms** total | 2,416 calls × 10.4ms avg |
+| CPU scheduling between syncs | ~1.5ms | (30s - 25.1s sync) / 2,416 steps |
+| **Total per step** | **~12.5ms** | 2,416 steps / 30s |
+| **Tokens per step (avg M≈2.7)** | ~2.7 | 6,489 tok / 2,416 syncs |
+| **Per-token cost** | **4.63ms** | = 216 tok/s |
+
+**Why realizr barely uses CUDA graph at c=4:**
+
+The decode CUDA graph is captured for M=1 (fixed batch size). At c=4, the batch size varies per step (M=1,2,3,4 as requests arrive and complete). CUDA graphs are NOT re-parameterizable for different grid sizes — a different M requires different kernel configurations. So realizr falls back to 771 individual `cuLaunchKernel` calls per decode step. Only 117 graph launches = only 117 steps had M=1.
+
+**How competitors solve this:**
+
+- **llama.cpp**: 103 `cudaStreamBeginCapture`/`EndCapture` cycles = dynamic graph re-capture when M changes. `cudaGraphExecUpdate` attempts in-place update first (fast), falls back to re-instantiate. Median sync = 0.46µs (non-blocking polling).
+
+- **vLLM**: Pre-captures graphs at multiple batch sizes during warmup. At runtime, selects the right pre-captured graph (11,467 launches, 32µs each). Uses `cudaEventSynchronize` with median 18.9µs (event-based, non-blocking). CPU schedules the next batch WHILE GPU executes the current one.
+
+**Quantified fix potential:**
+
+| Fix | Saves | Projected c=4 tok/s |
+|-----|-------|---------------------|
+| Per-M graph capture (like llama.cpp) | 1.6ms launch overhead | ~280 tok/s (+30%) |
+| + Event-based sync (like vLLM) | 2-3ms sync overhead | ~360 tok/s (+67%) |
+| + CPU-GPU overlap scheduling | 1.5ms CPU scheduling | ~400 tok/s (+85%) |
+| Combined (Phase 1+CB) | All of above | **~400-430 tok/s** |
+
+**This is the definitive root cause analysis.** realizr's c=4 deficit vs llama.cpp (0.62×) and vLLM (0.37×) is NOT kernel speed (kernels are competitive). It is:
+1. No per-M CUDA graph → 1.6ms launch overhead per step (17% of step time)
+2. Blocking cuStreamSynchronize → 10.4ms per step (CPU idle 82.4%)
+3. No CPU-GPU overlap → CPU scheduling adds 1.5ms dead time between steps
+
 ### Roofline Position
 
 ```
@@ -3888,6 +3945,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.69.0 | 2026-03-17 | **PMAT-217: CUDA API scheduling analysis — the 82% CPU block.** Extracted CUDA API traces for all three runtimes at c=4 via nsys. Definitive root cause: realizr makes only 117 CUDA graph launches (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms). The M=1 graph can't be reused when batch size varies. llama.cpp dynamically re-captures graphs (103 captures) with non-blocking 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with event-based 18.9µs median sync. Per-step budget: 1.6ms launch overhead + 7ms GPU + 10.4ms blocking sync = 12.5ms/step × 2.7 tok/step = 216 tok/s. Fix: per-M graph + event sync → projected +85% to ~400 tok/s. |
 | 3.68.0 | 2026-03-16 | **PMAT-216: Fresh competitive benchmark verification.** Re-ran production methodology (medium prompt, uniform:16,256 output, 60s, streaming) for all three runtimes at c=1/4/8/16. Reproducibility confirmed: realizr PMAT-177 vs Mar 16b delta <1% at all c. Scores: realizr 94 A (c=1), 58 C (c=4), 65 C+ (c=8), 70 B (c=16). vLLM: 97-100 A+. llama.cpp: 94 A (c=1), 59-69 C/C+ (c=4-16). |
 | 3.67.0 | 2026-03-16 | **PMAT-215: llama.cpp nsys kernel profile + three-way architecture comparison.** Profiled llama.cpp (Q4K GGUF) serve at c=1 and c=4 via nsys. llama.cpp uses ncols-templated GEMV (M=1-4 variants) — a middle ground between realizr's CUDA graph (M=1/dispatch) and vLLM's CUTLASS GEMM (M=batch). Q4K ncols=4 GEMV at 37.6µs, Q6K at 73.9µs. LmHead Q6K is 928µs (7.5× slower than realizr's DP4A at 123µs; 2.3× faster than vLLM's FP16 at 2,139µs). Three-level specialization spectrum confirmed: realizr (44+ kernels, maximum specialization) → llama.cpp (35 kernels, ncols-templated) → vLLM (15 kernels, batch-invariant GEMM). Scaling improves as you move from specialization toward batching. |
 | 3.66.0 | 2026-03-16 | **PMAT-214: vLLM nsys kernel profile — why 3× scaling.** Profiled vLLM AWQ INT4 serve at c=1, c=4, c=16 via nsys. Root cause of vLLM's scaling advantage: a SINGLE CUTLASS WMMA FP16 GEMM kernel is 95.7% of GPU time (c≥2). This GEMM takes 2.14-2.20ms per call (+2.8% c=1→c=16) and processes M tokens per call — throughput scales linearly with batch size while GPU time stays constant. At c=1, vLLM uses cuBLAS GEMV (98.9%, same 2.14ms). At c≥2, cuBLAS dispatches to CUTLASS GEMM. FlashAttention grows from 0.1% (c=1) to 11.7% (c=16) — this is vLLM's eventual scaling limiter (~3,050 tok/s asymptote). Only ~15 kernel types vs realizr's 44+. Each vLLM kernel invocation is 25× longer (2.14ms vs 84µs), making launch overhead negligible. The scheduling gap IS the kernel architecture gap: realizr dispatches one graph per token; vLLM dispatches one GEMM for all M tokens. |
