@@ -4587,3 +4587,31 @@ roadmap:
     Iso-quality: ITL≤15ms drops c=32(945)→c=16(571), Score≥70 drops c=32(945)→c=16(571).
     Improvement ratios increase from 3.0× to 4.9×.
     BATCH=16 ITL data: c=1 6.7ms, c=4 12.1ms, c=8 13.5ms, c=16 14.0ms, c=32 17.7ms.
+- id: PMAT-231
+  github_issue: null
+  item_type: task
+  title: 'PMAT-231: BATCH=16 vs BATCH=32 decode preservation tradeoff'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Decode preservation table at BATCH=16 vs BATCH=32 — DONE'
+  - 'AC2: Crossover point identified — DONE (c=64, B16 38.5% vs B32 33.0%)'
+  - 'AC3: Tradeoff characterized — DONE (−40% agg for +17% decode at c≥64)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - decode-preservation
+  - 4060L
+  notes: |
+    Analytical — derived from PMAT-177 (BATCH=32) and PMAT-228 (BATCH=16).
+    BATCH=16 creates decode floor at ~57 tok/s (capped KV scan growth).
+    BATCH=32 degrades to 49 tok/s at c=64+ (uncapped KV scan).
+    Crossover at c=64: B16 38.5% vs B32 33.0% (+5.5pp).
+    c=32: B16 worse (37.9% vs 47.0%, -9.1pp) — 32 requests compete for 16 slots.
+    This decode floor enables quality crossover at c=128 (PMAT-229: 67 vs 63).

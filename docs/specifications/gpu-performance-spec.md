@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.83.0
+**Version:** 3.84.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1768,9 +1768,23 @@ vLLM scheduling utilization is **~98% constant** across concurrency — continuo
 
 **Falsification:** If Phase 1 (paged KV + continuous batching) achieves <0.80× vLLM at c=8, the remaining gap is in the decode kernel itself (not scheduling). If it achieves >0.95×, the decode kernel is competitive and the gap was purely architectural.
 
+**BATCH=16 vs BATCH=32 Decode Preservation Tradeoff (PMAT-231):**
+
+| c | BATCH=32 dec | BATCH=16 dec | B32 pres | B16 pres | Δ (pp) | BATCH=16 agg/B32 agg |
+|---|-------------|-------------|----------|----------|--------|---------------------|
+| 1 | 148.3 | 149.2 | 100% | 100% | 0 | 1.01× |
+| 4 | 81.7 | 82.4 | 55.1% | 55.2% | +0.1 | 1.01× |
+| 8 | 74.9 | 74.3 | 50.5% | 49.8% | −0.7 | 0.99× |
+| 16 | 72.2 | 71.3 | 48.7% | 47.8% | −0.9 | 0.97× |
+| 32 | 69.7 | 56.5 | 47.0% | 37.9% | **−9.1** | 0.92× |
+| 64 | 48.9 | 57.5 | 33.0% | 38.5% | **+5.6** | 0.60× |
+| 128 | 48.8 | 57.1 | 32.9% | 38.3% | **+5.4** | 0.57× |
+
+**Decode crossover at c=64:** BATCH=16 has WORSE decode at c=32 (−9pp, 56.5 vs 69.7 tok/s) but BETTER decode at c≥64 (+5.5pp, 57.5 vs 48.9 tok/s). BATCH=16 creates a **decode floor at ~57 tok/s** — the 16-slot cap prevents the KV scan growth that degrades BATCH=32 to 49 tok/s at c=64+. The tradeoff: BATCH=16 loses 40-43% aggregate throughput (887 vs 1484) but preserves 17% more per-request quality at c≥64. This decode floor is what enables the quality crossover at c=128 (PMAT-229: 67 vs 63 C+) — realizr's stable 57 tok/s decode scores higher than vLLM's degraded 15 tok/s decode despite vLLM's 3.5× aggregate advantage.
+
 **Per-Request Decode Rate Scaling (PMAT-172, Mar 15):**
 
-Per-request decode rates across c=1→32 (heterogeneous output, medium prompt). c=1-16 from PMAT-177; c=32 from PMAT-168:
+Per-request decode rates across c=1→32 (heterogeneous output, medium prompt). c=1-16 from PMAT-177 (BATCH=32 ≈ BATCH=16 within 1%); c=32 from PMAT-168:
 
 | c | realizr decode | vLLM decode | llama.cpp decode | ollama decode | realizr/vLLM | realizr retention |
 |---|---------------|------------|-----------------|--------------|-------------|-------------------|
@@ -3099,6 +3113,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-231** | **BATCH=16 vs BATCH=32 decode preservation tradeoff** | **Decode crossover at c=64: BATCH=16 preserves 38% vs BATCH=32 33%** | ✅ ANALYTICAL. BATCH=16 creates decode floor at ~57 tok/s (capped KV scan growth). BATCH=32 degrades to 49 tok/s at c=64+ (uncapped KV scan). Crossover at c=64: B16 38.5% vs B32 33.0% preservation (+5.5pp). c=32: B16 worse (37.9% vs 47.0%, −9.1pp) because 32 requests compete for 16 slots. Tradeoff: −40% aggregate for +17% per-request decode at c≥64. This decode floor enables the quality crossover at c=128 (PMAT-229). |
 | **PMAT-230** | **Phase 1+CB projections rebased to BATCH=16 production** | **CB lift increases from 2.0-2.8× (BATCH=32) to 2.6-3.4× (BATCH=16)** | ✅ ANALYTICAL. Updated projection table "Current" column to BATCH=16 production numbers (PMAT-228). Phase 0/Phase 1 intermediate projections recalculated. "Paged KV + CB" unchanged (0.97× vLLM). CB lift ratio added: 2.6× (c=4) to 3.4× (c=16/128). Iso-quality: ITL≤15ms drops c=32→c=16 (BATCH=16 c=32 ITL=17.7ms), Score≥70 drops c=32→c=16 (66 C+). Improvement ratios increase from 3.0× to **4.9×**, strengthening the CB investment case. CB would also eliminate PMAT-221 bug, restoring full ~1500 tok/s asymptote. |
 | **PMAT-229** | **Definitive combined scoring (4-runtime, best-in-class)** | **Quality crossover PRESERVED at c=128 (67 vs 63 C+)** | ✅ SCORED. Fixed runtime_name in corrected results, ran 4-runtime combined scoring at all c. Best-in-class bonuses change isolated scores significantly. realizr 94A/58C/64C+/70B/66C+/68C+/**67C+**. vLLM 97A+/97A+/96A+/94A/86A-/73B/63C+. Quality crossover at c=128 persists (67 vs 63) because realizr decode caps at 41 tok/s while vLLM degrades to 15 tok/s. Earlier isolated scoring (53 C) was missing best-in-class bonuses. |
 | **PMAT-228** | **Production medium sweep at BATCH=16 (c=32-128)** | **realizr asymptote 880 tok/s (−41% from BATCH=32)** | ✅ MEASURED. realizr c=32/64/128 medium + uniform:16,256 at BATCH=16: 867.3/887.4/857.1 tok/s. Asymptote ~880 (hetero) vs 1010 (fixed:128) vs 1500 (BATCH=32). TTFT linear with queue: 2273ms (c=32), 7178ms (c=64), 16588ms (c=128). Decode constant 56-58 tok/s (16 slots saturated). Heterogeneity penalty at saturation: −13% (880/1010), less severe than −37-43% at c=8-16 because batch always full. |
@@ -4067,6 +4082,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.84.0 | 2026-03-17 | **PMAT-231: BATCH=16 vs BATCH=32 decode preservation tradeoff.** Decode crossover at c=64: BATCH=16 preserves 38.5% (57 tok/s floor) vs BATCH=32 33.0% (49 tok/s, uncapped KV scan). c=32: BATCH=16 worse (−9.1pp, 56.5 vs 69.7). Tradeoff: −40% aggregate for +17% per-request decode at c≥64. This decode floor enables the c=128 quality crossover (PMAT-229). Added to per-request decode analysis section. |
 | 3.83.0 | 2026-03-17 | **PMAT-230: Phase 1+CB projections rebased to BATCH=16 production.** Updated projection table "Current" to BATCH=16 (PMAT-228). Added "CB lift" column showing 2.6-3.4× improvement ratio (was 2.0-2.8× at BATCH=32). Iso-quality table: ITL≤15ms now c=16 (571 tok/s), Score≥70 now c=16 (571 tok/s) — both dropped from c=32 due to BATCH=16. Improvement ratios increase to 4.9× (from 3.0×), strengthening CB investment case. Projected composite scores updated to reference PMAT-229 combined scoring. |
 | 3.82.0 | 2026-03-17 | **PMAT-229: Definitive combined scoring.** Fixed runtime_name in corrected results. 4-runtime combined scoring with best-in-class bonuses. Quality crossover at c=128 PRESERVED (67 vs 63 C+) — earlier isolated scoring (53 C) was missing bonuses. realizr decode caps at 41 tok/s while vLLM degrades to 15 tok/s. Exec summary scorecards corrected. |
 | 3.81.0 | 2026-03-17 | **PMAT-228: Production medium sweep at BATCH=16 (c=32-128).** realizr 867/887/857 tok/s. Asymptote ~880 tok/s (hetero) — −41% from BATCH=32 (1500). TTFT: 2273/7178/16588ms. Decode constant 56-58 tok/s. README and performance.md updated with definitive BATCH=16 production numbers. |
