@@ -1041,7 +1041,7 @@ Realizr is Rust. Dynamo is Rust. The code is directly portable — not "inspired
 |------|------|--------------|--------|---------------|
 | PMAT-141 | `AgentHints` + `CacheControl` on OpenAI-compat endpoint | `nvext.rs`: `AgentHints { latency_sensitivity, osl, speculative_prefill, priority }`, `CacheControl { type, ttl }` | API-level only. Zero inference cost. Enables Phase 2 scheduling without API break | If no downstream consumer uses hints within 30 days, remove |
 | PMAT-142 | WSPT cache-aware request scheduling | `scheduling/policy.rs`: key = `(1+priority_jump) / (ISL - overlap×block_size)` | 4× TTFT reduction on prefix-sharing workloads (Dynamo blog claim). Even without paged KV, a simple prefix hash table gives overlap scores for multi-turn | Measure TTFT at c=8 with 5-turn conversation replay. If TTFT P50 doesn't improve ≥20%, scheduling overhead exceeds benefit |
-| PMAT-054 | Fused Q4K→GEMM (1-step dequant) | N/A (Dynamo uses Marlin; this is realizr-specific) | Makes realizr prompt-invariant like llama.cpp. +15-58% aggregate at medium prompts (PMAT-115). Closes Gaps 4/5/6 | If medium-prompt TTFT doesn't reach ≤1.5× llama.cpp, the FP8 pipeline has other overhead |
+| PMAT-054 | Fused Q4K→GEMM (1-step dequant + SoA layout) | N/A (Dynamo uses Marlin; this is realizr-specific) | Makes realizr prompt-invariant like llama.cpp. +15-58% aggregate at medium prompts (PMAT-115). Closes Gaps 4/5/6. **PMAT-218: SoA weight transpose → 3.2× bandwidth from coalesced loads (9.9/32 → 32/32 bytes/sector).** Combined with per-M graph (PMAT-217), converges both highest-value fixes into one kernel | If medium-prompt TTFT doesn't reach ≤1.5× llama.cpp, the FP8 pipeline has other overhead |
 
 **Phase 1 — Paged KV keystone (the big rewrite):**
 
