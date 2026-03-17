@@ -4374,3 +4374,37 @@ roadmap:
     c=64: 1010.0, c=128: 1010.3 tok/s. All output correct.
     Also corrected medium threshold: c=19 OK / c=20 broken (not c=18 — contaminated).
     BATCH=18 with c=18 medium: works. Confirms bug is workspace-allocation-dependent.
+- id: PMAT-224
+  github_issue: null
+  item_type: task
+  title: 'PMAT-224: Full production refresh — realizr +46-72%, beats llama.cpp at c=8'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Isolated realizr c=1-16 BATCH=32 — DONE (147, 316, 560, 1008 tok/s)'
+  - 'AC2: Isolated realizr c=1-16 BATCH=16 — DONE (147, 318, 559, 1010 tok/s, identical)'
+  - 'AC3: Isolated llama.cpp c=1-16 — DONE (159, 368, 429, 1120 tok/s)'
+  - 'AC4: Isolated vLLM c=1-16 — DONE (152, 584, 1120, 2044 tok/s, stable)'
+  - 'AC5: PMAT-177 data superseded — DONE (realizr binary updated Mar 16)'
+  phases: []
+  subtasks: []
+  estimated_effort: 60m
+  labels:
+  - benchmark
+  - production
+  - 4060L
+  notes: |
+    Major findings:
+    1. realizr Mar 16 binary: +46-72% scheduling improvement at c>=4.
+       c=1: 147 (unchanged), c=4: 216->316 (+46%), c=8: 355->560 (+58%), c=16: 587->1008 (+72%).
+    2. BATCH=16 and BATCH=32 are IDENTICAL at c<=16 — batch size doesn't affect throughput
+       when active slots < batch limit.
+    3. llama.cpp rebuilt latest HEAD: c=16 897->1120 (+25%), others minor.
+    4. vLLM stable: all values within 0.5% of PMAT-177.
+    5. realizr/llama.cpp crossover at c=8: 1.30x (realizr wins).
+    6. realizr/vLLM narrowed but still ~2x gap: 0.54x at c=4, 0.50x at c=8, 0.49x at c=16.
+    PMAT-177 data is now SUPERSEDED by this refresh.

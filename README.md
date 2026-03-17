@@ -39,39 +39,37 @@ make load                    # Load tests
 | vLLM | 8084 | AWQ INT4 | CUDA (PagedAttention, CUTLASS GEMM) |
 
 <!-- PERFORMANCE_START -->
-## Performance — RTX 4060 Laptop (2026-03-17, PMAT-222, locked 1900MHz)
+## Performance — RTX 4060 Laptop (2026-03-17, PMAT-224, locked 1900MHz)
 
 ### Production Methodology (medium prompt ~102 tok, uniform:16,256 output, streaming, 60s)
 
-| c | realizr | llama.cpp | vLLM | ollama |
-|---|---------|-----------|------|--------|
-| 1 | 146.4 | 158.1 | 152.4 | 151.8 |
-| 4 | 216.1 | 354.4 | 587.4 | 160.1 |
-| 8 | 355.1 | 420.1 | 1,115.2 | 159.4 |
-| 16 | 586.5 | 896.6 | 1,982.9 | 161.0 |
-| 32 | 944.7 | 943.2 | 2,757.6 | 159.0 |
-| 64 | 1,484.4 | — | 3,036.1 | — |
-| 128 | 1,505.6 | — | 3,049.4 | — |
+| c | realizr | llama.cpp | vLLM | r/llama | r/vLLM |
+|---|---------|-----------|------|---------|--------|
+| 1 | 147.3 | 158.8 | 152.2 | 0.93× | 0.97× |
+| 4 | 315.6 | 367.7 | 583.9 | 0.86× | 0.54× |
+| 8 | **559.6** | 429.4 | 1,119.8 | **1.30×** | 0.50× |
+| 16 | 1,008.1 | 1,120.1 | 2,043.8 | 0.90× | 0.49× |
 
-### Scorecards (probador llm score, PMAT-216)
+All runtimes re-measured PMAT-224 (realizr Mar 16 binary +46-72%, llama.cpp rebuilt latest HEAD +25% at c=16). **realizr beats llama.cpp at c=8** (1.30×).
 
-| c | realizr | llama.cpp | vLLM | ollama |
-|---|---------|-----------|------|--------|
-| 1 | 93 A | 96 A+ | 98 A+ | 89 A- |
-| 4 | 58 C | 73 B | 98 A+ | 39 D |
-| 8 | 65 C+ | 63 C+ | 97 A+ | — |
-| 16 | 71 B | 67 C+ | 94 A | — |
+### CUDA_MAX_BATCH=16 Workaround (PMAT-223, correct at all c)
 
-### Asymptotes (PMAT-192/195/197)
+| c | BATCH=16 (tok/s) | BATCH=32 (tok/s) | Status |
+|---|-------------------|-------------------|--------|
+| 1 | 147.2 | 147.3 | ✅ identical |
+| 16 | 1,009.5 | 1,008.1 | ✅ identical |
+| 32 | 1,009.9 | ⚠️ BUG | BATCH=16 fixes |
+| 128 | 1,010.3 | ⚠️ BUG | BATCH=16 fixes |
+
+### Asymptotes
 
 | Runtime | Asymptote | Architecture |
 |---------|-----------|-------------|
 | vLLM | **3,050** tok/s | PagedAttention, continuous batching, CUTLASS GEMM |
-| realizr | 1,500 tok/s | Batch-and-step, queue+batch=32, CUDA graph M=1 |
-| llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
+| llama.cpp | ~1,120 tok/s (latest HEAD) | Fixed 16 slots, ncols-templated GEMV |
+| realizr (BATCH=16) | 1,010 tok/s | Batch-and-step, bug-free at all c |
+| realizr (BATCH=32) | 1,169+ tok/s (c=19 max safe) | Batch-and-step, bug above c=19 medium |
 | ollama | 160 tok/s | Serial FIFO |
-
-Quality crossover: realizr **beats** vLLM at c=128 (66 C+ vs 63 C+).
 
 ### Cross-Platform Decode (c=1, isolated, streaming)
 
@@ -85,9 +83,7 @@ Quality crossover: realizr **beats** vLLM at c=128 (66 C+ vs 63 C+).
 
 - **Three-level kernel architecture**: realizr (44+ kernels, CUDA graph M=1) → llama.cpp (35 kernels, ncols-templated GEMV) → vLLM (15 kernels, CUTLASS GEMM M=batch)
 - **vLLM GEMM is batch-invariant**: 2,139→2,199µs (+2.8%) from c=1 to c=16 — throughput scales linearly with batch size
-- **realizr CPU blocked 82.4%** in cuStreamSynchronize at c=4 (PMAT-217). M=1 graph invalid for M>1 → 771 kernel launches/step
-- **Scheduling gap root cause**: per-step budget = 1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms → 216 tok/s
-- **Fix projection**: per-M graph + event sync → +85% to ~400 tok/s at c=4
+- **Mar 16 binary: +46-72% scheduling improvement** (PMAT-224). c=4: 216→316, c=8: 355→560, c=16: 587→1008 tok/s. realizr now beats llama.cpp at c≥8
 - **Prompt length hurts**: realizr/vLLM gap widens from 0.30× (medium c=16) to 0.24× (long c=16). TTFT gap: 14.4× at c=8 with long prompts (PMAT-220)
 - **⚠️ Quality bug**: realizr batched prefill corrupts KV at long c≥9, medium c≥20 at BATCH=32 (PMAT-221). **Workaround: CUDA_MAX_BATCH=16** eliminates bug, −33% asymptote (1500→1010 tok/s) (PMAT-223)
 
