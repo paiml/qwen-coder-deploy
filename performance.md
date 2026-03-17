@@ -22,15 +22,17 @@ c=1-16: PMAT-177 (BATCH=32, confirmed ±2.6% by PMAT-224). c=32-128 realizr: PMA
 
 ### Scorecards (probador llm score)
 
-| c | realizr | llama.cpp | vLLM | ollama |
-|---|---------|-----------|------|--------|
+| c | realizr (BATCH=16) | llama.cpp | vLLM | ollama |
+|---|-------------------|-----------|------|--------|
 | 1 | 93 A | 96 A+ | 98 A+ | 89 A- |
 | 4 | 58 C | 73 B | 98 A+ | 39 D |
 | 8 | 65 C+ | 63 C+ | 97 A+ | — |
 | 16 | 71 B | 67 C+ | 94 A | — |
-| 32 | 70 B | 62 C | 86 A- | — |
-| 64 | 64 C+ | — | 74 B | — |
-| 128 | 66 C+ | — | 63 C+ | — |
+| 32 | 53 C | 62 C | 86 A- | — |
+| 64 | 54 C | — | 74 B | — |
+| 128 | 53 C | — | 63 C+ | — |
+
+c=1-16 realizr scores from PMAT-216 (BATCH=32, same throughput). c=32-128 from PMAT-228 (BATCH=16). Quality crossover with vLLM at c=128 no longer occurs at BATCH=16 (53 C vs 63 C+).
 
 ### Asymptotes (PMAT-192/195/197)
 

@@ -55,7 +55,7 @@ make load                    # Load tests
 
 realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hetero) / 1,010 (fixed:128). BATCH=32 bug at c≥20 medium (PMAT-221).
 
-### Scorecards (probador llm score, PMAT-216)
+### Scorecards (probador llm score, PMAT-216/228)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
@@ -63,6 +63,9 @@ realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hete
 | 4 | 58 C | 73 B | 98 A+ | 39 D |
 | 8 | 65 C+ | 63 C+ | 97 A+ | — |
 | 16 | 71 B | 67 C+ | 94 A | — |
+| 32 | 53 C | 62 C | 86 A- | — |
+| 64 | 54 C | — | 74 B | — |
+| 128 | 53 C | — | 63 C+ | — |
 
 ### Asymptotes (PMAT-192/195/197)
 
@@ -73,7 +76,7 @@ realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hete
 | llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | Serial FIFO |
 
-realizr at BATCH=32: 1,500 tok/s but has quality bug at c≥20 (PMAT-221). BATCH=16 asymptote: 880 (hetero) / 1,010 (fixed:128).
+realizr at BATCH=32: 1,500 tok/s but has quality bug at c≥20 (PMAT-221). BATCH=16 asymptote: 880 (hetero) / 1,010 (fixed:128). Quality crossover with vLLM at c=128 no longer occurs at BATCH=16 (53 C vs 63 C+).
 
 ### Cross-Platform Decode (c=1, isolated, streaming)
 
