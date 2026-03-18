@@ -280,6 +280,17 @@ Prefill gap: 1.4x (HGEMM FP16 on-demand vs fused Q4K GEMM). TTFT narrowed from 5
 
 All 4 within 0.3% of PMAT-177 (tighter than c=1). Batching architecture divergence: vLLM 3.86× > llama.cpp 2.24× > realizr 1.46× > ollama 1.00×.
 
+### Measurement Stability — Serial c=8 Same-Session (PMAT-238, Mar 18)
+
+| Runtime | PMAT-177 | Serial c=8 | Δ | Scaling (c=8/c=1) | Decode |
+|---------|----------|-----------|---|-------------------|--------|
+| vLLM | 1,115.2 | 1,114.7 | −0.05% | 7.33× | 142.8 |
+| llama.cpp | 420.1 | 406.0 | −3.4% | 2.56× | 51.9 |
+| realizr | 351.7 | 355.5 | +1.1% | 2.38× | 75.1 |
+| ollama | 159.4 | 157.3 | −1.3% | 0.98× | 158.4 |
+
+**Per-request decode crossover at c=8:** realizr 75.1 vs llama.cpp 51.9 = **1.45× realizr advantage** (FP8 tensor core at M≥5). Aggregate still 12.4% below llama.cpp (scheduling overhead).
+
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
 | Runtime | BW (GB/s) | % of Peak |

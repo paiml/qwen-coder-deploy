@@ -4788,3 +4788,33 @@ roadmap:
     c=4 variance tighter than c=1 — batching averages out per-request noise.
     Scaling ratio (c=4/c=1): vLLM 3.86x, llama.cpp 2.24x, realizr 1.46x, ollama 1.00x.
     Combined with PMAT-236: c=1 parity confirmed, 3.68x spread by c=4 (587 vs 160).
+- id: PMAT-238
+  github_issue: null
+  item_type: task
+  title: 'PMAT-238: 4-runtime serial c=8 same-session baseline'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: All 4 runtimes measured at c=8 in serial isolation — DONE'
+  - 'AC2: Per-request decode crossover confirmed — DONE (realizr 75.1 vs llama.cpp 51.9 = 1.45x)'
+  - 'AC3: Scaling efficiency quantified — DONE (vLLM 0.92, llama.cpp 0.32, realizr 0.30)'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - measurement-stability
+  - scaling
+  - decode-crossover
+  - 4060L
+  notes: |
+    Serial isolated deployment on yoga RTX 4060L, locked 1900MHz.
+    realizr 355.5 (+1.1%), vLLM 1114.7 (-0.05%), llama.cpp 406.0 (-3.4%), ollama 157.3 (-1.3%).
+    Per-request decode crossover confirmed: realizr 75.1 vs llama.cpp 51.9 = 1.45x.
+    FP8 tensor core advantage at M>=5 (PMAT-207) empirically validated in production methodology.
+    Despite decode advantage, realizr aggregate still 12.4% below llama.cpp (scheduling overhead).
+    Combined PMAT-236/237/238: full c=1->4->8 scaling curve with <3.5% cross-session variance.
