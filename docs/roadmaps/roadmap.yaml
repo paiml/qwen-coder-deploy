@@ -5506,3 +5506,33 @@ roadmap:
     Paged KV marginal ROI at c=16: +100 tok/s (1.11x, was +423/1.72x).
     CB (mid-batch joins + per-M graphs) is now definitively higher-value Phase 1 target.
     Scheduling utilization gap (0.45-0.50x vs 0.97x) dominates over residual heterogeneity.
+
+- id: PMAT-261
+  github_issue: null
+  item_type: task
+  title: 'PMAT-261: B32 crossover precision — decode crossover shifted c=64 to c~66'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: B32 decode at c=64/80/128 — DONE (49.2/49.0/49.5)'
+  - 'AC2: Crossover point vs vLLM — DONE (c~66, shifted from c=64 at B16)'
+  - 'AC3: Trade-off quantified — DONE (-14% decode for +71% aggregate)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - crossover
+  - iteration-scheduler
+  - 4060L
+  notes: |
+    COMPLETED. B32 decode constant ~49 tok/s at c=64-128 (vs B16 57).
+    Crossover shifts only 2 c-units (c=64 -> c~66) because vLLM linear decay dominates.
+    r/v decode: 0.98x (c=64), 1.25x (c=80), 2.03x (c=128).
+    B16 comparison: 1.14x (c=64), 1.46x (c=80), 2.35x (c=128).
+    14% per-request decode trade-off buys 71% aggregate throughput.
+    Quality crossover preserved — shifts minimally.

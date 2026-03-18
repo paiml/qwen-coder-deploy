@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.3.0
+**Version:** 5.4.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1251,7 +1251,7 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 
 †Long vs short penalties are larger (20-23%) because short is faster than medium baseline. The decision gate uses long vs medium (the production baseline), yielding 12-14%. **Short-prompt boost (vs medium)**: realizr +1.1% (c=1), +10.2% (c=4), +9.1% (c=8), +12.3% (c=16) — shorter prompts help realizr at c≥4 by reducing FP8 prefill time. vLLM short boost: +0.2% (c=1), +0.3% (c=4), +2.0% (c=8), +3.5% (c=16) — near-zero, confirms prompt-invariance.
 
-**PMAT-254: Output-length sensitivity sweep — COMPLETED.** ✅ realizr heterogeneity penalty: **31% (c=4), 36% (c=8), 42% (c=16), 14% (c=32)**. vLLM: **0.4% (c=4), 0.1% (c=8), 2.5% (c=16), 9.5% (c=32)** — PagedAttention eliminates heterogeneity cost. **Paged KV ROI at c=16: +423 tok/s (1.72×), from 584→1,006.** But realizr fixed:128 is still 0.51× vLLM at c=16 — CB is needed in addition to paged KV. vLLM's near-zero penalty directly proves contiguous KV is the source of heterogeneity loss. Penalty grows with c (31%→42% at c=4→16) because longer-running requests waste more KV slots. Drops at c=32 (14%) because queuing overhead (c > BATCH=16) dominates. **Decision gate PASSED: penalty >30% at c≥4 → paged KV (PMAT-052) confirmed as highest-ROI fix.** realizr fixed:128/256 throughput converges (1006 vs 1012 at c=16) — output length >128 doesn't matter, KV scan cost plateaus.
+**PMAT-254: Output-length sensitivity sweep — COMPLETED.** ✅ realizr heterogeneity penalty (B16, batch-and-step): **31% (c=4), 36% (c=8), 42% (c=16), 14% (c=32)**. vLLM: **0.4% (c=4), 0.1% (c=8), 2.5% (c=16), 9.5% (c=32)** — PagedAttention eliminates heterogeneity cost. **⚠️ PMAT-260 UPDATE:** With B32 iteration scheduler, penalty reduced to **7-11%** (4× improvement). Paged KV marginal ROI at c=16: +100 tok/s (1.11×, was +423/1.72× with B16 B&S). Most of PMAT-254's penalty was scheduling waste, not memory fragmentation. CB (mid-batch joins) is now definitively higher-value than paged KV. See PMAT-260 for full comparison.
 
 **PMAT-254 detailed results:**
 
@@ -1334,6 +1334,27 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 **The PMAT-221 quality bug is definitively a scheduling issue.** The batch-and-step scheduler's monolithic prefill + decode cycle causes KV state inconsistency when >20 requests are processed simultaneously at BATCH=32. The iteration scheduler's slot-by-slot prefill and recycling avoids this by never doing batch-wide KV operations. This is the strongest evidence that the iteration scheduler path is architecturally correct.
 
 **Implication for Phase 1+CB:** With BATCH=32 + iteration scheduler, realizr is at 0.50× vLLM. The remaining 2× gap comes from per-request decode degradation (49.6 vs ~24 tok/s at c=128 — realizr's decode is actually higher, but vLLM compensates with ~3× more concurrent sequences). The next improvement requires either BATCH=64 (if the iteration scheduler scales) or per-M CUDA graph capture to reduce decode overhead. **PMAT-257+258 together recover 76% of the gap between original B&S (0.28×) and the 0.97× projection** without any code changes — just enabling the existing iteration scheduler and raising the batch cap.
+
+**PMAT-260: Iteration scheduler heterogeneity penalty — COMPLETED.** ✅ B32 iteration scheduler reduces heterogeneity penalty from 31-42% (PMAT-254, B16 B&S) to **7-11%** — a 4× improvement. Fixed:128 vs uniform:16,256 at c=4/8/16/32:
+
+| c | uniform:16,256 | fixed:128 | Penalty | PMAT-254 (B16 B&S) |
+|---|----------------|-----------|---------|---------------------|
+| 4 | 290.1 | 312.6 | **7.2%** | 31% |
+| 8 | 494.4 | 553.2 | **10.6%** | 36% |
+| 16 | 880.4 | 980.1 | **10.2%** | 42% |
+| 32 | 1,463.8 | 1,621.8 | **9.7%** | 14% |
+
+**Key finding: PMAT-254's 31-42% penalty was predominantly scheduling waste, not KV memory fragmentation.** Per-slot recycling (iteration scheduler) reclaims the scheduling waste; the residual 7-11% is from contiguous KV allocation overhead (fixed-size slots still pre-allocate max capacity). **Paged KV marginal ROI revised:** At c=16, +100 tok/s (1.11×) vs +423 tok/s (1.72×) with B16 B&S. The 4.2× decrease in marginal ROI means CB (mid-batch joins + per-M graphs) is now **definitively higher-value** than paged KV for Phase 1.
+
+**PMAT-261: B32 crossover precision — COMPLETED.** ✅ With BATCH=32, per-request decode drops 14% (49.2 vs 57.2 B16), shifting the decode/ITL crossover from c=64 to c≈66 — only 2 c-units. Results:
+
+| c | realizr B32 dec | vLLM dec | r/v dec (B32) | r/v dec (B16) | realizr B32 ITL | vLLM ITL | r/v ITL |
+|---|----------------|---------|---------------|---------------|----------------|---------|---------|
+| 64 | 49.2 | 50.4 | **0.98×** | 1.14× | 20.3 | 19.8 | **1.03×** |
+| 80 | 49.0 | 39.3 | **1.25×** | 1.46× | 20.4 | 25.5 | **0.80×** |
+| 128 | 49.5 | 24.4 | **2.03×** | 2.35× | 20.2 | 41.0 | **0.49×** |
+
+**B32 decode constant ~49 tok/s at c=64-128** (BATCH=32 caps KV scan). vLLM decay unchanged (linear). The 14% per-request decode trade-off buys 71% aggregate throughput while shifting the quality crossover only 2 c-units. Advantage at c=128: 2.03× (was 2.35× B16). **Trade-off is strongly favorable:** 71% aggregate for 14% per-request at the crossover point.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
@@ -3395,6 +3416,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-261** | **B32 crossover precision — decode crossover shifted c=64 → c≈66** | **B32 dec: 49.2 (c=64), 49.0 (c=80), 49.5 (c=128) vs vLLM 50.4/39.3/24.4. r/v: 0.98×/1.25×/2.03×** | ✅ MEASURED. BATCH=32 trades 14% per-request decode (49 vs 57 B16) for 71% aggregate throughput. Crossover shifts only 2 c-units (c=64→c≈66) because vLLM's linear decay dominates. Advantage at c=128: 2.03× (was 2.35× B16). B32 decode constant ~49 at c=64-128 (BATCH=32 caps KV scan growth). ITL crossover also at c≈66 (20.3ms vs 19.8ms at c=64, 20.4 vs 25.5 at c=80). |
 | **PMAT-260** | **B32 iter sched heterogeneity — penalty reduced 4× (31-42% → 7-11%)** | **fixed:128 vs uniform: 7.2% (c=4), 10.6% (c=8), 10.2% (c=16), 9.7% (c=32)** | ✅ MEASURED. Per-slot recycling reclaims most scheduling waste from variable output lengths. Remaining 7-11% penalty is from KV memory fragmentation (fixed-size slots), not scheduling. Paged KV ROI at c=16: +100 tok/s (1.11×, was +423/1.72× at B16 B&S). **CB is now definitively higher-value than paged KV** — scheduling utilization gap (0.45-0.50× vs projected 0.97×) dominates over residual heterogeneity (7-11%). Falsification PASSED: PMAT-254 penalty 31-42% was scheduling, not memory — proved by 4× reduction with scheduler change alone. |
 | **PMAT-258** | **BATCH=32 + iteration scheduler — quality bug eliminated, asymptote 1,515 tok/s (+71%)** | **c=32: 1464 (+68%), c=64: 1494 (+69%), c=128: 1515 (+71%). 0% errors, avg_tok correct. r/v: 0.50×** | ✅ MEASURED. PMAT-221 quality bug was batch-and-step scheduling issue, not kernel. Iteration scheduler per-slot recycling avoids KV corruption. B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). At c≥32: +67-71% from doubling active slots. Asymptote 1,515 tok/s (was 885). realizr now 1.55× llama.cpp at c=32. Revised r/v: 0.50× at c=128 (was 0.28×). Per-request decode 49.4-49.6 (vs 57.2 at B16, expected from larger KV scan). PMAT-257+258 together recover 76% of gap to 0.97× projection without code changes. |
 | **PMAT-257** | **Iteration scheduler benchmark — +34-55% aggregate, −48-83% TTFT, scores +8-12 points** | **c=4: 217→291 (+34%), c=16: 571→885 (+55%). TTFT c=16: 279→48ms (−83%). Scores: 58→70 (c=4), 64→75 (c=8), 70→78 (c=16)** | ✅ MEASURED. ITERATION_SCHEDULER=1 (existing framework, zero code changes) on yoga RTX 4060L. Hits BATCH=16 asymptote at c=16 instead of c=32 — requests join mid-decode. TTFT collapses: batch-wide prefill eliminated. ITL trade-off: +9-26% at c=4-16 (more active KV scan). At c≥32 both schedulers equivalent (queuing dominates). Revised r/v ratio: 0.50× (c=4, was 0.37×), 0.44× (c=8, was 0.32×), 0.45× (c=16, was 0.29×). Remaining gap (0.45× vs projected 0.97×) comes from missing mid-batch slot addition + per-M graph capture. **Single highest-value zero-implementation-cost improvement.** |
@@ -4392,6 +4414,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.4.0 | 2026-03-18 | **PMAT-261: B32 crossover precision — decode/ITL crossover shifted c=64 → c≈66.** BATCH=32 per-request decode 49.2 (c=64), 49.0 (c=80), 49.5 (c=128) — constant, caps at ~49 from larger KV scan. vLLM decays 50.4→39.3→24.4. Crossover shifts only 2 c-units despite 14% lower per-request decode, because vLLM's linear decay dominates. Advantage at c=128: 2.03× (was 2.35× B16). Trade-off: 14% per-request decode for 71% aggregate throughput — quality crossover barely moves. |
 | 5.3.0 | 2026-03-18 | **PMAT-260: Iteration scheduler heterogeneity — penalty reduced 4× (31-42% → 7-11%).** B32 iter sched with fixed:128 vs uniform:16,256: 7.2% (c=4), 10.6% (c=8), 10.2% (c=16), 9.7% (c=32). Per-slot recycling reclaims scheduling waste; remaining penalty is KV memory fragmentation. Paged KV marginal ROI decreased 4.2× (c=16: +100 tok/s / 1.11× vs +423 / 1.72× with B16 B&S). CB (mid-batch joins) confirmed as definitively higher-value Phase 1 target than paged KV. |
 | 5.2.0 | 2026-03-18 | **PMAT-258: BATCH=32 + iteration scheduler — quality bug eliminated, 1,515 tok/s asymptote.** PMAT-221 quality bug was batch-and-step scheduling issue. Iteration scheduler per-slot recycling eliminates KV corruption — 0% errors, correct avg_tok at all c with BATCH=32. Asymptote raised from 885 to 1,515 tok/s (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28×). Combined PMAT-257+258 recover 76% of gap to 0.97× projection without code changes. Production config updated to BATCH=32 + ITERATION_SCHEDULER=1. |
 | 5.1.0 | 2026-03-18 | **PMAT-257: Iteration scheduler benchmark — zero-code-change +34-55% throughput.** Existing ITERATION_SCHEDULER=1 framework delivers +33.8% (c=4), +40.7% (c=8), +54.9% (c=16) aggregate throughput. TTFT collapses 48-83%. Scores improve +8-12 points at c=4-16 (58→70, 64→75, 70→78). Hits BATCH=16 asymptote at c=16 instead of c=32. ITL trade-off +9-26%. At c≥32 both schedulers equivalent. Revised r/v ratio: 0.45-0.50× (was 0.29-0.37×). Single highest-value zero-cost improvement. Remaining gap from missing mid-batch joins + per-M graphs. |

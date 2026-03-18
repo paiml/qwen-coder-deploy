@@ -4,7 +4,7 @@
 
 Medium prompt (~102 tok), uniform:16,256 output, streaming, 5s warmup, 60s duration, locked 1900MHz.
 Each runtime deployed in isolation via forjar (serial benchmarks).
-realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround for PMAT-221 batched prefill bug).
+realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258, quality bug eliminated). Prior B16 data preserved below for reference.
 
 ### 4-Runtime Aggregate Throughput (tok/s)
 
@@ -383,6 +383,20 @@ PMAT-221 quality bug **eliminated** by iteration scheduler. Slot-level recycling
 | 128 | 885.6 | **1,514.7** | **+71.0%** | 134 | 0% |
 
 **Asymptote raised from 885 to 1,515 tok/s** (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28× with B&S B16). B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). PMAT-221 was a scheduling bug, not a kernel bug.
+
+### B32 Crossover Precision (PMAT-261, Mar 18)
+
+B32 iteration scheduler vs vLLM decode/ITL at high concurrency:
+
+| c | realizr B32 dec | vLLM dec | r/v dec | realizr B32 ITL | vLLM ITL | r/v ITL |
+|---|----------------|---------|---------|----------------|---------|---------|
+| 64 | 49.2 | 50.4 | **0.98×** | 20.3 | 19.8 | **1.03×** |
+| 80 | 49.0 | 39.3 | **1.25×** | 20.4 | 25.5 | **0.80×** |
+| 128 | 49.5 | 24.4 | **2.03×** | 20.2 | 41.0 | **0.49×** |
+
+**Crossover shifted c=64 → c≈66** (minimal, 2 units). B32 decode constant ~49 tok/s (vs B16 57, −14%). vLLM decay unchanged. BATCH=32 trades 14% per-request decode for 71% aggregate throughput — crossover barely moves because vLLM's linear decay dominates. Advantage at c=128: 2.03× (was 2.35× at B16).
+
+Compare B16 (PMAT-255): crossover at c=64, advantage 1.14→2.35×. B32 compresses the advantage window by ~14% but shifts entry point only 2 c-units.
 
 ### Iteration Scheduler Heterogeneity (PMAT-260, Mar 18)
 
