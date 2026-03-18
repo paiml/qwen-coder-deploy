@@ -369,6 +369,26 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### Per-Request Decode Decay Curve (PMAT-249, Mar 18)
+
+| c | realizr | llama.cpp | vLLM | ollama | r/l | r/v |
+|---|---------|-----------|------|--------|-----|-----|
+| 1 | 149.2 | 158.9 | 153.5 | 160.1 | 0.94× | 0.97× |
+| 4 | 82.4 | 89.7 | 149.7 | 160.8 | 0.92× | 0.55× |
+| 8 | **75.1** | 51.9 | 142.8 | 158.4 | **1.45×** | 0.53× |
+| 16 | **72.1** | 56.3 | 127.4 | 157.9 | **1.28×** | 0.57× |
+| 32 | 57.1 | 57.7 | 93.5 | — | 0.99× | 0.61× |
+| 64 | **57.7** | — | 50.4 | — | — | **1.14×** |
+| 128 | **57.2** | — | 24.4 | — | — | **2.34×** |
+
+**Decode preservation** (decode_c / decode_1):
+- ollama: 99-100% (serial, no degradation)
+- vLLM: 98%→93%→83%→61%→33%→**16%** (no floor — per-request quality collapses)
+- realizr: 55%→50%→48%→38%→39%→**38%** (stabilizes at BATCH=16 floor)
+- llama.cpp: 56%→33%→35%→36% (notch at c=8, then recovers)
+
+**Three crossover points:** (1) realizr beats llama.cpp decode at c=8 (1.45×), (2) realizr approaches parity at c=32 (0.99×), (3) realizr beats vLLM decode at c=64 (1.14×, widens to 2.34× at c=128). realizr's BATCH=16 cap is both its ceiling AND its floor — it prevents further decode degradation that vLLM suffers.
+
 ### Definitive Serial Scoring Curve (PMAT-248, Mar 18)
 
 | c | vLLM | realizr | llama.cpp | ollama |

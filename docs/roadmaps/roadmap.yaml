@@ -5120,3 +5120,32 @@ roadmap:
     vLLM degrades monotonically 98->63 (per-request quality collapses).
     Crossover point estimated at c~96.
     Capstone for serial characterization (PMAT-236-248).
+
+- id: PMAT-249
+  github_issue: null
+  item_type: task
+  title: 'PMAT-249: Per-request decode decay curve c=1-128 — three crossover points'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Full decode curve c=1-128 for all 4 runtimes — DONE'
+  - 'AC2: Three crossover points identified — DONE (r/l c=8, r/l c=32, r/v c=64)'
+  - 'AC3: Decode preservation quantified — DONE (vLLM 16%, realizr 38%, etc.)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analytical
+  - decode
+  - scaling
+  - 4060L
+  notes: |
+    Analytical synthesis from PMAT-236-247 serial data.
+    Per-request decode: realizr floor 38% (BATCH=16), vLLM no floor (16% at c=128).
+    Three crossovers: r/l at c=8 (1.45x), r/l parity c=32, r/v at c=64 (1.14x->2.34x).
+    BATCH=16 is ceiling AND floor: caps throughput but prevents quality collapse.
+    llama.cpp has notch at c=8 (33%) then recovers (fixed-slot scheduling).
