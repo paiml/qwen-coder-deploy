@@ -286,6 +286,40 @@ realizr is the ONLY runtime with a structural prompt-length penalty. The fused Q
 
 **Key finding: FP8 prefill overhead visible even at c=1.** realizr TTFT: 13.1→39.7ms (3.0× long/short ratio). vLLM: 12.2→12.9ms (1.06×). llama.cpp: 10.0→10.8ms (1.08×). Decode and ITL are prompt-invariant at c=1 for all runtimes — the penalty is purely TTFT at low concurrency, growing to aggregate throughput at high concurrency (PMAT-268→271).
 
+### Competitive Ratio × Prompt Profile (PMAT-274, Mar 18)
+
+Competitive ratios shift dramatically with prompt length:
+
+**realizr/vLLM ratio:**
+
+| c | Short | Medium | Long | Short−Long gap |
+|---|-------|--------|------|---------------|
+| 1 | 0.98× | 0.97× | 0.94× | +0.04× (+4%) |
+| 4 | 0.54× | 0.49× | 0.42× | +0.12× (+23%) |
+| 8 | 0.49× | 0.44× | 0.38× | +0.11× (+25%) |
+| 16 | 0.48× | 0.44× | 0.38× | +0.10× (+23%) |
+| 32 | 0.55× | 0.53× | 0.38× | +0.17× (+32%) |
+| 64 | 0.50× | 0.49× | 0.33× | +0.17× (+35%) |
+| 128 | 0.49× | 0.50× | 0.31× | **+0.18× (+36%)** |
+
+**realizr/llama.cpp ratio:**
+
+| c | Short | Medium | Long | Short−Long gap |
+|---|-------|--------|------|---------------|
+| 1 | 0.94× | 0.93× | 0.91× | +0.03× (+3%) |
+| 4 | 0.92× | 0.82× | 0.70× | +0.22× (+27%) |
+| 8 | **1.34×** | **1.18×** | 1.01× | +0.32× (+28%) |
+| 16 | **1.19×** | 0.98× | 0.81× | **+0.37× (+38%)** |
+| 32 | **1.83×** | **1.55×** | **1.21×** | **+0.63× (+40%)** |
+
+**Key findings:**
+1. **realizr/llama.cpp crossover shifts with prompt length:** short → realizr wins at c≥8. Medium → realizr wins at c=8,32 (loses c=16 at 0.98×). Long → realizr barely wins c=8 (1.01×), loses c=16 (0.81×)
+2. **realizr/vLLM gap widens 32-36% with long prompts** at c≥32: 0.50× (medium) → 0.31× (long) at c=128
+3. **Prompt-profile impact grows with concurrency:** +3% at c=1 → +40% at c=32
+4. **PMAT-054 ROI quantified:** fused Q4K GEMM would recover the 0.18× gap at c=128 (from 0.31× to ~0.49×), effectively making realizr prompt-invariant like llama.cpp
+
+Medium c=16 re-verified: 877.6 tok/s (−0.3% vs PMAT-258 880.4). All ratios are stable.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.

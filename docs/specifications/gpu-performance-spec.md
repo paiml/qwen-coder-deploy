@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.13.0
+**Version:** 5.14.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -73,7 +73,7 @@ realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,5
 1. **Per-request decode rate** (0.46-0.56× — binding factor, batch-GEMV KV scan scales with M) → per-M CUDA graph capture + continuous batching
 2. **Scheduling utilization** (**0.94-0.96× — near-optimal** with iteration scheduler, PMAT-264) → already close to vLLM's ~98%
    - *Sub-factor: output heterogeneity* (reduced to 7-11% by iter sched, PMAT-260; was 31-42% with B&S)
-   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **REQUIRED at c≥16 (PMAT-268: −21-26% long penalty)**
+   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **REQUIRED at c≥16 (PMAT-268: −21-26% long penalty). PMAT-274: competitive ratio widens 32-36% with long prompts (0.50→0.31× vLLM at c=128)**
 
 **Ollama (PMAT-182/191):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate flat at 159-161 tok/s regardless of c (confirmed c=1→32). TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8), **14573ms (c=16), 24419ms (c=32)** — linear with c. Ollama represents the M=1 kernel ceiling without scheduling overhead.
 
@@ -3501,6 +3501,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-274** | **Competitive ratio × prompt-profile analysis — gap widens 32-36% with long prompts** | **realizr/vLLM: 0.50→0.31× at c=128 long. realizr/llama.cpp crossover SHIFTS: wins c=16 short (1.19×), loses c=16 long (0.81×)** | ✅ ANALYZED + VERIFIED. Computed from PMAT-268→273 data. Medium c=16 re-verified: 877.6 (−0.3% vs 880.4). Prompt-profile impact grows with c: +3% (c=1) → +40% (c=32). PMAT-054 ROI quantified: recovers 0.18× gap at c=128. realizr competitive position is prompt-length dependent — short prompts favorable, long prompts expose FP8 overhead. |
 | **PMAT-272** | **llama.cpp prompt-sensitivity characterization — GENUINELY INVARIANT** | **Short ≈ long within ±4% at all c. Fused Q4K GEMM = single-pass, no dequant overhead** | ✅ MEASURED. Same-session isolated, ctx=8192. Short/long: c=4 343.9/343.9 (1.00×), c=8 411.6/406.7 (1.01×), c=16 834.4/850.6 (0.98×), c=32 929.6/893.7 (1.04×). Proves fused Q4K GEMM architecture eliminates prompt-length penalty entirely. PMAT-054 would give realizr this property. Complete 3-runtime picture: realizr PLATEAU (−24-26%), vLLM CONCAVE (−9% peak then reverses), llama.cpp INVARIANT (±4%). |
 | **PMAT-271** | **realizr full prompt-sensitivity characterization (c=4→128)** | **Long penalty PLATEAUS at −24-26% at asymptote. Short ~1,771, long ~1,125 tok/s** | ✅ MEASURED. Extended PMAT-268 to c=64/128. Long penalty: −24.3% (c=64), −25.7% (c=128) — plateaus, does NOT grow indefinitely. Short boost plateaus at +17%. At asymptote, both medium and long hit BATCH=32 ceiling → penalty ratio stabilizes. Per-request decode: short 57.5, long 37.5 (constant). Structural contrast: realizr plateau (fixed KV scan), vLLM reversal (CB amortizes). |
 | **PMAT-270** | **vLLM full prompt-sensitivity characterization (c=4→128)** | **Penalty is CONCAVE: peaks at c=16 (−8.8%) then reverses. c=128: short ≈ long (3,606 ≈ 3,610)** | ✅ MEASURED. Extension of PMAT-269 to c=64/128. Short boost: +14.0% (c=64), +18.2% (c=128). Long penalty reverses to +12.2%/+18.4%. Continuous batching + PagedAttention amortizes prefill at high c. Long KV caches improve attention compute density. Short/long converge at c=128. Structural contrast: realizr plateau at −24-26% (no amortization), vLLM concave (scheduling artifact). |
@@ -4510,6 +4511,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.14.0 | 2026-03-18 | **PMAT-274: Competitive ratio × prompt-profile analysis.** realizr/vLLM gap widens 32-36% with long prompts (0.50→0.31× at c=128). realizr/llama.cpp crossover SHIFTS: wins c=16 short (1.19×), loses c=16 long (0.81×). Prompt-profile impact grows with concurrency: +3% (c=1) → +40% (c=32). PMAT-054 ROI quantified: recovers 0.18× gap at c=128. Medium c=16 re-verified at 877.6 (−0.3%). |
 | 5.13.0 | 2026-03-18 | **PMAT-272: llama.cpp prompt-sensitivity — GENUINELY INVARIANT (±4%).** Fused Q4K GEMM = single-pass, no dequant overhead. Short≈long at all c (343.9/343.9 c=4, 929.6/893.7 c=32). Complete 3-runtime picture: realizr PLATEAU (−24-26%), vLLM CONCAVE (−9% peak→+18% reversal), llama.cpp INVARIANT (±4%). Proves PMAT-054 would eliminate realizr's penalty. Updated prompt-sensitivity claims: corrected "all fused-GEMM runtimes prompt-invariant" to "llama.cpp and ollama invariant, vLLM near-invariant at c≤8 with penalty at c≥16". |
 | 5.12.0 | 2026-03-18 | **PMAT-271: realizr full prompt-sensitivity characterization (c=4→128).** Extended PMAT-268 to c=64/128. Long penalty PLATEAUS at −24-26% at asymptote (does not grow). Short boost plateaus at +17%. Asymptotes: short ~1,771, medium ~1,515, long ~1,125 tok/s. Structural contrast: realizr plateau (fixed KV scan cost), vLLM reversal (CB amortizes at high c). Complete cross-runtime prompt-sensitivity picture: PMAT-268/269/270/271. |
 | 5.11.0 | 2026-03-18 | **PMAT-270: vLLM full prompt-sensitivity characterization (c=4→128).** Extended PMAT-269 to c=64/128. Penalty is CONCAVE: peaks at c=16 (−8.8%) then reverses. c=64: +12.2% (long faster than medium). c=128: short ≈ long (3,606 ≈ 3,610). Continuous batching + PagedAttention amortizes prefill. Structural contrast: realizr plateau at −24-26% (no amortization), vLLM concave (scheduling artifact resolved at high c). |

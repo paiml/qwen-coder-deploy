@@ -88,8 +88,9 @@ Iteration scheduler + BATCH=32: asymptote 1,515 tok/s (+71% vs BATCH=16 885). PM
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→272)
+### Key Findings (PMAT-209→274)
 
+- **Competitive ratio is prompt-dependent** (PMAT-274): realizr/vLLM widens 36% with long prompts (0.50→0.31× at c=128). realizr/llama.cpp crossover shifts: wins c=16 short (1.19×), loses c=16 long (0.81×)
 - **3-runtime prompt-sensitivity** (PMAT-268→272): realizr PLATEAU (−24-26%), vLLM CONCAVE (−9% peak→+18% reversal), llama.cpp INVARIANT (±4%). Fused Q4K GEMM eliminates penalty
 - **Prompt-length sensitivity INCREASES with iter sched** (PMAT-268): Long penalty −17→−26% at c=4→32 (was −12-14% B&S). Fused Q4K GEMM now **required** at c≥16
 - **Per-step pipeline analysis** (PMAT-267): GPU 7.4ms + serving 5.5ms = 13.8ms/step. Graph + event sync enables CPU-GPU overlap → **0.66-0.79× vLLM**
@@ -116,7 +117,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.13.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.14.0) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

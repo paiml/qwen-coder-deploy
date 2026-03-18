@@ -5615,6 +5615,38 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-274
+  github_issue: null
+  item_type: task
+  title: 'PMAT-274: Competitive ratio x prompt-profile — gap widens 32-36% with long prompts'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Full competitive ratio matrix (3 runtimes x 3 profiles x c=1-128) — DONE'
+  - 'AC2: Crossover shift analysis — DONE'
+  - 'AC3: Medium c=16 re-verification — DONE (877.6 = -0.3%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - analysis
+  - prompt-length
+  - competitive-ratio
+  notes: |
+    COMPLETED. Analytical derivation from PMAT-268-273 data + verification.
+    realizr/vLLM gap widens 32-36% with long prompts at c>=32:
+    - Medium: 0.50x (c=128). Long: 0.31x (c=128). Gap: +0.18x (+36%).
+    realizr/llama.cpp crossover SHIFTS with prompt length:
+    - Short: realizr wins c>=8. Medium: wins c=8,32. Long: barely wins c=8.
+    - c=16: 1.19x (short), 0.98x (medium), 0.81x (long).
+    Prompt-profile impact grows with concurrency: +3% (c=1) -> +40% (c=32).
+    PMAT-054 ROI quantified: recovers 0.18x gap at c=128.
+    Medium c=16 re-verified: 877.6 tok/s (-0.3% vs PMAT-258 880.4).
+
 - id: PMAT-273
   github_issue: null
   item_type: task
