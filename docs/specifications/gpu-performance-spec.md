@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.93.0
+**Version:** 3.94.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1111,6 +1111,17 @@ Scaling efficiency = (agg_c / agg_1) / c. Perfect linear scaling = 1.0.
 **Marginal throughput (Δ agg / Δ c):** vLLM +144.5 (c=1→4), +131.9 (c=4→8) — nearly constant (continuous batching). realizr +22.8, +34.5 — INCREASING as batch fills. llama.cpp +65.4, +12.8 — COLLAPSES 80% (fixed-slot saturation). ollama −0.1, −0.6 — flat (serial).
 
 **Decode preservation (decode_c / decode_1):** vLLM 97.5%/93.0% (c=4/8). ollama 100%/99% (serial). realizr 55.2%/50.3%. llama.cpp 56.5%/32.7% — llama.cpp degrades fastest. The crossover between realizr and llama.cpp decode preservation occurs at c~6 (where realizr's batch-GEMV stabilizes while llama.cpp's fixed-slot contention accelerates).
+
+**PMAT-241: Same-session serial scoring (all 4 runtimes, combined best-in-class):**
+
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 95 A+ | 97 A+ | 98 A+ | 74 B |
+| 4 | 58 C | 73 B | 98 A+ | 58 C |
+| 8 | 65 C+ | 62 C+ | 97 A+ | 57 C |
+| 16 | **71 B** | **71 B** | 94 A | 57 C |
+
+Scores match PMAT-229 production scoring within ±2 points — confirms both measurement and scoring stability. **realizr and llama.cpp TIE at c=16 (71 B)** despite llama.cpp having 46% higher aggregate: realizr's better decode (72 vs 56), 0% errors (vs 1.2%), and tighter TTFT tail compensate. realizr overtakes llama.cpp at c=8 (65 vs 62) for the first time in serial scoring.
 
 **Implication for Phase 1+CB:** Continuous batching would lift realizr's c=4 scaling efficiency from 0.37 to ~0.90 (matching vLLM × 0.97). The 2.6× efficiency gap at c=4 is the quantitative measure of what CB fixes. At c=16, the gap widens to 3.4× (0.24 vs 0.81) — this compounds into the 3.5× aggregate gap.
 
@@ -3172,6 +3183,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-241** | **Same-session serial scoring (c=1/4/8/16, 4-runtime combined)** | **Scores match PMAT-229 ±2 points. realizr ties llama.cpp at c=16 (71 B). realizr overtakes at c=8 (65 vs 62)** | ✅ SCORED. probador llm score on PMAT-236→240 serial results, combined 4-runtime with best-in-class bonuses. Scores: realizr 95/58/65/**71**, llama.cpp 97/73/62/**71**, vLLM 98/98/97/94, ollama 74/58/57/57 at c=1/4/8/16. Match PMAT-229 production scoring within ±2 points — confirms measurement AND scoring stability across sessions. **c=16 tie (71 B)**: realizr's decode advantage (72 vs 56), 0% errors (vs 1.2%), and tighter tail compensate for 46% aggregate deficit. **c=8 crossover**: realizr 65 > llama.cpp 62 — first serial scoring where realizr leads, driven by 1.45× decode + lower error rate. |
 | **PMAT-240** | **4-runtime serial c=16 same-session baseline** | **realizr decode still beats llama.cpp 1.28× (72.1 vs 56.3). llama.cpp variance grows to −4.8%. vLLM ≤0.1%** | ✅ MEASURED. Serial isolated deployment on yoga RTX 4060L. realizr 583.6 (+2.2% vs PMAT-177 571.3), vLLM 1980.1 (−0.1% vs 1982.9), llama.cpp 853.5 (−4.8% vs 896.6), ollama 156.8 (−2.6% vs 161.0). Per-request decode: realizr 72.1 vs llama.cpp 56.3 = 1.28× (narrowing from 1.45× at c=8 — realizr's BATCH=16 slots fully saturated). llama.cpp variance grows with concurrency: +0.2% (c=4), −3.4% (c=8), −4.8% (c=16) — fixed-slot contention. vLLM ≤0.1% at all c. Completes serial c=1/4/8/16 curve (PMAT-236→240). |
 | **PMAT-239** | **Comprehensive scaling curve synthesis (c=1/4/8 serial + c=16-128 production)** | **Per-request decode crossover at c=5-7. llama.cpp marginal throughput collapses 80% (c=4→8). vLLM marginal constant** | ✅ ANALYTICAL from PMAT-236/237/238 serial data + PMAT-177 production. Three key findings: (1) Per-request decode table shows realizr/llama.cpp crossover between c=5-7 (at c=4: 0.92×, at c=8: 1.45×). (2) Marginal throughput reveals architectural differences: vLLM ~constant +132-145 tok/s/req (continuous batching), realizr +23→+35 (INCREASING as batch fills), llama.cpp +65→+13 (COLLAPSES 80% at c=4→8, fixed-slot saturation). (3) Decode preservation: llama.cpp degrades fastest (57%→33% at c=4→8) while realizr stabilizes (55%→50%). vLLM 97%→93% (near-perfect). |
 | **PMAT-238** | **4-runtime serial c=8 same-session baseline** | **realizr overtakes llama.cpp on per-request decode 1.45× (75.1 vs 51.9). vLLM 0.92 scaling efficiency vs realizr 0.30** | ✅ MEASURED. Serial isolated deployment on yoga RTX 4060L. realizr 355.5 (+1.1% vs PMAT-177 351.7), vLLM 1114.7 (−0.05% vs 1115.2), llama.cpp 406.0 (−3.4% vs 420.1), ollama 157.3 (−1.3% vs 159.4). Per-request decode crossover confirmed: realizr 75.1 vs llama.cpp 51.9 = **1.45× realizr advantage** (FP8 tensor core M≥5 from PMAT-207). Despite this, realizr aggregate still 12.4% below llama.cpp (scheduling overhead exceeds decode advantage). Scaling efficiency (c=8/c=1/8): vLLM 0.92, llama.cpp 0.32, realizr 0.30, ollama 0.12. llama.cpp error rate 2.9% (ctx_size constraint). |
@@ -4150,6 +4162,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.94.0 | 2026-03-18 | **PMAT-241: Same-session serial scoring.** probador llm score on PMAT-236→240 serial results, 4-runtime combined. Scores match PMAT-229 ±2 points (measurement + scoring stability). realizr ties llama.cpp at c=16 (71 B) — decode 72 vs 56, 0% errors, tighter tail compensate for 46% aggregate deficit. realizr overtakes llama.cpp at c=8 (65 vs 62) — first serial scoring crossover. Added comprehensive scoring table to PMAT-239 scaling section. |
 | 3.93.0 | 2026-03-18 | **PMAT-240: 4-runtime serial c=16 same-session baseline.** Completes serial c=1/4/8/16 curve. Per-request decode table extended to c=16: realizr 72.1 vs llama.cpp 56.3 (1.28×, narrowing from 1.45× at c=8 — BATCH=16 saturated). llama.cpp variance grows with c: +0.2% (c=4) → −4.8% (c=16) from fixed-slot contention. vLLM ≤0.1% at all c (most stable runtime). Discovered realizr fell back to CPU mode during initial c=16 attempt due to stale vLLM EngineCore holding GPU memory — forjar completion_check needs compute_mode verification. |
 | 3.92.0 | 2026-03-18 | **PMAT-239: Comprehensive scaling curve synthesis.** Combined PMAT-236/237/238 serial data (c=1/4/8) with PMAT-177 production (c=16-128) into definitive scaling analysis. Per-request decode crossover at c=5-7 (realizr/llama.cpp). Marginal throughput reveals architecture: vLLM constant +132-145 (CB), realizr increasing +23→+35 (batch fills), llama.cpp collapses +65→+13 (−80%, fixed-slot). Decode preservation: llama.cpp fastest to degrade (57%→33% at c=4→8), realizr stabilizes (55%→50%), vLLM near-perfect (97%→93%). Added comprehensive tables to PMAT-235 scaling section. |
 | 3.91.0 | 2026-03-18 | **PMAT-238: 4-runtime serial c=8 same-session baseline.** realizr overtakes llama.cpp on per-request decode: 75.1 vs 51.9 (1.45×) — FP8 tensor core advantage at M≥5 confirmed (PMAT-207). Aggregate still 12.4% below llama.cpp (scheduling overhead > decode advantage). vLLM scaling efficiency 0.92 at c=8 (near-perfect). Combined PMAT-236/237/238: full c=1→4→8 scaling curve confirms variance <3.5% for all runtimes, per-request decode crossover at c~5-6, and 7.1× aggregate spread by c=8 (1115 vs 157). |

@@ -4876,3 +4876,31 @@ roadmap:
     vLLM <=0.1% at all c. Completes serial c=1/4/8/16 curve.
     Initial attempt failed: realizr fell back to CPU (vLLM EngineCore held GPU memory).
     Fix: kill GPU processes before deploy, verify compute_mode=gpu in health check.
+- id: PMAT-241
+  github_issue: null
+  item_type: task
+  title: 'PMAT-241: Same-session serial scoring (c=1/4/8/16, 4-runtime combined)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Combined scoring at all concurrency levels — DONE'
+  - 'AC2: Cross-session scoring stability verified — DONE (±2 points vs PMAT-229)'
+  - 'AC3: Crossover points in scoring identified — DONE (c=8 realizr > llama.cpp, c=16 tie)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - scoring
+  - analysis
+  - 4060L
+  notes: |
+    probador llm score on PMAT-236-240 serial results, 4-runtime combined.
+    realizr: 95/58/65/71 (A+/C/C+/B). llama.cpp: 97/73/62/71. vLLM: 98/98/97/94. ollama: 74/58/57/57.
+    Matches PMAT-229 ±2 points — measurement AND scoring stability confirmed.
+    c=16 tie (71 B): decode + errors + tail compensate for 46% aggregate deficit.
+    c=8 crossover: realizr 65 > llama.cpp 62 — first serial scoring lead.
+    realizr's quality advantage grows from c=8 onward despite aggregate deficit.

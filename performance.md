@@ -302,6 +302,17 @@ All 4 within 0.3% of PMAT-177 (tighter than c=1). Batching architecture divergen
 
 realizr decode still beats llama.cpp at c=16: 72.1 vs 56.3 = 1.28× (narrowing from 1.45× at c=8). llama.cpp variance grows with c (−4.8%). vLLM ≤0.1% at all c levels.
 
+### Same-Session Serial Scoring (PMAT-241, Mar 18)
+
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 95 A+ | 97 A+ | 98 A+ | 74 B |
+| 4 | 58 C | 73 B | 98 A+ | 58 C |
+| 8 | **65 C+** | 62 C+ | 97 A+ | 57 C |
+| 16 | **71 B** | **71 B** | 94 A | 57 C |
+
+Matches PMAT-229 production scoring ±2 points. realizr ties llama.cpp at c=16 (71 B) despite 46% aggregate deficit — decode, errors, and tail compensate. realizr overtakes at c=8 (65 vs 62).
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).
