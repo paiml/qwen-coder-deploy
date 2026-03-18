@@ -358,6 +358,17 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **PMAT-246 regression falsified**: PMAT-245 showed llama.cpp at 426.7 tok/s (−54.7%), but re-verification on same deploy (where c=16 = 863.1 tok/s) yields **888.5 tok/s** (−5.8%, within normal variance). Effective slots: 15.4/16 (near-max utilization). The PMAT-245 anomaly was transient — likely a llama.cpp HEAD build regression that resolved on subsequent deploy. 0.9% error rate (6/635). Per-request decode: realizr 57.1 ≈ llama.cpp 57.7 (near-parity at c=32).
 
+### Serial c=64/128 Same-Session (PMAT-247, Mar 18)
+
+| Runtime | c | PMAT-177 | Serial | Δ | Decode |
+|---------|---|----------|--------|---|--------|
+| vLLM | 64 | 3,036.1 | 3,151.0 | +3.8% | 50.4 |
+| vLLM | 128 | 3,049.4 | 3,086.3 | +1.2% | 24.4 |
+| realizr | 64 | 887.4 | 891.4 | +0.5% | 57.7 |
+| realizr | 128 | 857.1 | 885.4 | +3.3% | 57.2 |
+
+**Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).

@@ -5052,3 +5052,38 @@ roadmap:
     The -5.8% vs PMAT-177 (943.2) is within llama.cpp observed ±5% variance.
     Per-request decode 57.7 tok/s = consistent with PMAT-245 58.0.
     Conclusion: no persistent regression. llama.cpp c=32 stable at ~890 tok/s.
+
+- id: PMAT-247
+  github_issue: null
+  item_type: task
+  title: 'PMAT-247: Serial c=64/128 — realizr+vLLM asymptote verified, per-request decode 2.34x'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr c=64 serial — DONE (891.4 tok/s, +0.5% vs PMAT-177)'
+  - 'AC2: realizr c=128 serial — DONE (885.4 tok/s, +3.3% vs PMAT-177)'
+  - 'AC3: vLLM c=64 serial — DONE (3151.0 tok/s, +3.8% vs PMAT-177)'
+  - 'AC4: vLLM c=128 serial — DONE (3086.3 tok/s, +1.2% vs PMAT-177)'
+  - 'AC5: Per-request decode crossover quantified — DONE (2.34x at c=128)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - scaling
+  - realizr
+  - vllm
+  - 4060L
+  notes: |
+    Serial isolated deployment on yoga RTX 4060L, locked 1900MHz.
+    Completes serial curve c=1->128 for realizr+vLLM.
+    realizr at BATCH=16 asymptote: 885-891 tok/s. Decode 57.2-57.7 (constant).
+    vLLM at CB asymptote: 3050-3150 tok/s. Decode 50.4->24.4 (halving).
+    Per-request decode: realizr 2.34x vLLM at c=128 (57.2 vs 24.4).
+    TTFT gap: 125x at c=128 (16.6s vs 133ms).
+    All deltas vs PMAT-177 within +/-4%. 0% errors both runtimes.
+    Spec version 4.0.0 milestone: complete serial characterization.
