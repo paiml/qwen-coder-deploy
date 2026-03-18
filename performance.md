@@ -171,7 +171,38 @@ Per-request decode by prompt profile:
 
 TTFT (P50): short 35-42ms (flat across c), long 67-75ms (flat). Ratio: 1.8×. The iteration scheduler's per-slot prefill makes TTFT **constant with concurrency** (unlike B&S where TTFT grew linearly).
 
-**Key finding: The iteration scheduler INCREASES prompt-length sensitivity** vs B16 B&S. Long penalty grows from −12-14% (B&S) to −17-26% (iter sched). Cause: per-slot prefill concentrates FP8 2-step overhead on each request without batch amortization. Short prompts benefit (+9-17%) because less prefill per slot. Sensitivity grows with concurrency (more active KV to scan per decode step with longer sequences). **vLLM remains prompt-invariant (±6%, PMAT-253) — PagedAttention + fused Marlin absorbs prompt length.** The FP8 2-step pipeline remains realizr's prompt-length Achilles heel.
+**Key finding: The iteration scheduler INCREASES prompt-length sensitivity** vs B16 B&S. Long penalty grows from −12-14% (B&S) to −17-26% (iter sched). Cause: per-slot prefill concentrates FP8 2-step overhead on each request without batch amortization. Short prompts benefit (+9-17%) because less prefill per slot. Sensitivity grows with concurrency (more active KV to scan per decode step with longer sequences). **vLLM cross-validated same-session (PMAT-269): ±3% at c≤8, +3-12% short boost at c=16-32, long penalty −9% max (c=16) then reverses.** The FP8 2-step pipeline remains realizr's prompt-length Achilles heel.
+
+### vLLM Prompt-Length Cross-Validation (PMAT-269, Mar 18)
+
+Same-session cross-validation of PMAT-268. vLLM isolated on yoga RTX 4060L (realizr stopped):
+
+| c | Short agg | Medium agg* | Long agg | Short boost | Long penalty |
+|---|-----------|------------|----------|------------|-------------|
+| 4 | 588.8 | 587.4 | 569.7 | +0.2% | −3.0% |
+| 8 | 1,133.0 | 1,115.2 | 1,095.6 | +1.6% | −1.8% |
+| 16 | 2,053.5 | 1,982.9 | 1,809.3 | +3.6% | **−8.8%** |
+| 32 | **3,095.4** | 2,757.6 | 2,839.7 | **+12.3%** | +3.0% |
+
+*Medium from PMAT-258 (same B32 iter sched session, identical GPU clock lock).
+
+Per-request decode:
+
+| c | Short dec | Long dec | Delta |
+|---|-----------|----------|-------|
+| 4 | 149.9 | 146.0 | −2.6% |
+| 8 | 145.5 | 140.5 | −3.4% |
+| 16 | 132.1 | 116.2 | −12.0% |
+| 32 | 99.9 | 91.4 | −8.5% |
+
+**Key finding: vLLM is NOT fully prompt-invariant at high concurrency.** At c≤8, prompt length is noise (±3%). At c=16, long penalty reaches −8.8% aggregate / −12.0% per-request decode. At c=32, the aggregate penalty reverses (+3.0%) but per-request decode still drops −8.5%. This falsifies PMAT-253's "±6% noise" claim at c≥16.
+
+**However, the magnitude difference vs realizr is dramatic:**
+- realizr long penalty: −17% (c=4) → −26% (c=32), monotonically increasing
+- vLLM long penalty: −3% (c=4) → −9%/+3% (c=16/32), non-monotonic
+- **realizr penalty is 2-3× larger at all c levels**
+
+PagedAttention amortizes prefill KV across paged blocks. At high c, more concurrent requests share CUTLASS GEMM kernel launches, partially hiding prefill overhead. realizr's per-slot FP8 2-step pipeline has no such amortization.
 
 ### Reproducibility (PMAT-216)
 

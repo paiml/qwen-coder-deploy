@@ -5615,6 +5615,37 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-269
+  github_issue: null
+  item_type: task
+  title: 'PMAT-269: vLLM prompt-length cross-validation — FALSIFIES full invariance at c>=16'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Short/long at c=4/8/16/32 — DONE (8 benchmarks, same-session isolated)'
+  - 'AC2: Cross-validate PMAT-253 prompt-invariance claim — DONE (FALSIFIED at c>=16)'
+  - 'AC3: Penalty comparison vs realizr — DONE (2.4-9.2x smaller)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - prompt-length
+  - vllm
+  - falsification
+  notes: |
+    COMPLETED. vLLM isolated on yoga (realizr stopped). Short/long x c=4/8/16/32.
+    c<=8: +/-3% (noise floor). c=16: -8.8% agg / -12.0% decode (NOT invariant).
+    c=32: aggregate reverses (+3.0%) but decode still -8.5%. Non-monotonic.
+    PagedAttention amortizes prefill KV at very high c.
+    PMAT-253 "vLLM prompt-invariant (+/-6%)" FALSIFIED at c>=16.
+    realizr penalty 2.4-9.2x larger at all c levels. PMAT-054 urgency reinforced.
+    Short boost: vLLM +0.2% (c=4), +12.3% (c=32) — NOT negligible at high c.
+
 - id: PMAT-268
   github_issue: null
   item_type: task
