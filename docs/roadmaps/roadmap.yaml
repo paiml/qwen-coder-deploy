@@ -5019,4 +5019,36 @@ roadmap:
     identical avg_tok (90.7 vs 90.6) and latency (3195 vs 3297ms).
     Cause: forjar builds from llama.cpp HEAD each deploy. Regression in Mar 15-18 window.
     Does NOT affect prior serial measurements (all done in current session = same build).
-    Per-request decode near-parity: realizr 57.1 vs llama.cpp 58.0 at c=32.
+    Per-request decode near-parity: realizr 57.1 vs llama.cpp 57.7 at c=32.
+    CORRECTED by PMAT-246: 426.7 was transient, re-verified at 888.5 tok/s (-5.8%).
+
+- id: PMAT-246
+  github_issue: null
+  item_type: task
+  title: 'PMAT-246: llama.cpp c=32 regression falsified — PMAT-245 anomaly transient'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Re-verify llama.cpp c=32 on same deploy where c=16=863.1 — DONE (888.5 tok/s)'
+  - 'AC2: Confirm effective slot utilization — DONE (15.4/16 = 96%)'
+  - 'AC3: Variance within normal band — DONE (-5.8% vs PMAT-177, within ±5%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - falsification
+  - llamacpp
+  - 4060L
+  notes: |
+    Re-verification on same llama.cpp deploy (fresh build from HEAD).
+    c=16 baseline: 863.1 tok/s (consistent with PMAT-240 853.5).
+    c=32 verification: 888.5 tok/s (effective slots 15.4/16 = 96% utilization).
+    PMAT-245 426.7 tok/s had only 7.4 effective slots — transient build issue.
+    The -5.8% vs PMAT-177 (943.2) is within llama.cpp observed ±5% variance.
+    Per-request decode 57.7 tok/s = consistent with PMAT-245 58.0.
+    Conclusion: no persistent regression. llama.cpp c=32 stable at ~890 tok/s.

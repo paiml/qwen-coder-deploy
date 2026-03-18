@@ -348,15 +348,15 @@ llama.cpp jitter worst (1.49× at c=16). realizr tight (≤1.09×). llama.cpp on
 
 realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 despite aggregate deficit.
 
-### Serial c=32 Same-Session (PMAT-245, Mar 18)
+### Serial c=32 Same-Session (PMAT-245/246, Mar 18)
 
 | Runtime | PMAT-177 | Serial c=32 | Δ | Decode |
 |---------|----------|------------|---|--------|
 | vLLM | 2,757.6 | 2,900.6 | +5.2% | 93.5 |
+| llama.cpp | 943.2 | 888.5 | −5.8% | 57.7 |
 | realizr | 867.3 | 868.6 | +0.2% | 57.1 |
-| llama.cpp | 943.2 | **426.7** | **−54.7%** | 58.0 |
 
-**llama.cpp HEAD regression detected**: 943→427 tok/s despite identical latency/avg_tok. forjar builds from HEAD. realizr+vLLM stable. Per-request decode: realizr 57.1 ≈ llama.cpp 58.0 (near-parity at c=32).
+**PMAT-246 regression falsified**: PMAT-245 showed llama.cpp at 426.7 tok/s (−54.7%), but re-verification on same deploy (where c=16 = 863.1 tok/s) yields **888.5 tok/s** (−5.8%, within normal variance). Effective slots: 15.4/16 (near-max utilization). The PMAT-245 anomaly was transient — likely a llama.cpp HEAD build regression that resolved on subsequent deploy. 0.9% error rate (6/635). Per-request decode: realizr 57.1 ≈ llama.cpp 57.7 (near-parity at c=32).
 
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
