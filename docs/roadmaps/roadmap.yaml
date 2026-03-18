@@ -4990,3 +4990,33 @@ roadmap:
     realizr competitive profile: most predictable, error-free batching runtime.
     At c>=8, realizr quality equals/exceeds llama.cpp despite aggregate deficit.
     Completes the same-session characterization series (PMAT-236-244).
+- id: PMAT-245
+  github_issue: null
+  item_type: task
+  title: 'PMAT-245: Serial c=32 same-session — llama.cpp HEAD regression detected'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: realizr c=32 stable — DONE (868.6 vs 867.3 = +0.2%)'
+  - 'AC2: vLLM c=32 stable — DONE (2900.6 vs 2757.6 = +5.2%)'
+  - 'AC3: llama.cpp regression quantified — DONE (943.2->426.7 = -54.7%)'
+  phases: []
+  subtasks: []
+  estimated_effort: 25m
+  labels:
+  - benchmark
+  - regression
+  - llamacpp
+  - 4060L
+  notes: |
+    Serial isolated deployment on yoga RTX 4060L, locked 1900MHz.
+    realizr 868.6 (+0.2%), vLLM 2900.6 (+5.2%). Both stable.
+    llama.cpp 426.7 (-54.7%!) — throughput_rps halved (10.4->4.7) despite
+    identical avg_tok (90.7 vs 90.6) and latency (3195 vs 3297ms).
+    Cause: forjar builds from llama.cpp HEAD each deploy. Regression in Mar 15-18 window.
+    Does NOT affect prior serial measurements (all done in current session = same build).
+    Per-request decode near-parity: realizr 57.1 vs llama.cpp 58.0 at c=32.
