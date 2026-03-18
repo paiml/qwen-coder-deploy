@@ -71,18 +71,18 @@ c=64 confirmed clean same-session (avg ~135 tokens both). Tradeoff: −40% aggre
 - Score≥70: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
 - After Phase 1+CB: iso-quality gap shrinks from 12.8× to ~1.4× at ITL≤12ms
 
-### Scaling Efficiency (PMAT-235)
+### Scaling Efficiency (PMAT-235, updated PMAT-262)
 
 Scaling efficiency = (agg_c / agg_1) / c. Perfect = 1.0.
 
-| c | vLLM | realizr | llama.cpp | ollama |
-|---|------|---------|-----------|--------|
-| 4 | **0.96** | 0.37 | 0.56 | 0.26 |
-| 8 | **0.91** | 0.30 | 0.33 | 0.13 |
-| 16 | **0.81** | 0.24 | 0.35 | 0.07 |
-| 32 | 0.57 | 0.18 | 0.19 | 0.03 |
+| c | vLLM | realizr B32 iter | realizr B16 B&S | llama.cpp | ollama |
+|---|------|-----------------|-----------------|-----------|--------|
+| 4 | **0.96** | 0.49 | 0.37 | 0.56 | 0.26 |
+| 8 | **0.91** | 0.42 | 0.30 | 0.33 | 0.13 |
+| 16 | **0.81** | 0.37 | 0.24 | 0.35 | 0.07 |
+| 32 | **0.57** | 0.31 | 0.18 | 0.19 | 0.03 |
 
-vLLM is 2.6× more efficient than realizr at c=4. Same scaling knee (c=64) at 3.4× different levels.
+B32 iter sched: +33% (c=4), +41% (c=8), +54% (c=16), +69% (c=32) scaling efficiency vs B16 B&S. realizr now matches llama.cpp at c=8 (0.42 vs 0.33) and c=16 (0.37 vs 0.35). vLLM still 2.0× more efficient at c=4 (0.96 vs 0.49).
 
 ### Tail Latency & Jitter (PMAT-234)
 
@@ -497,18 +497,19 @@ Codebase review of realizr for continuous batching readiness:
 
 **Long-prompt penalty (vs medium)**: realizr −3.4% (c=1), −12.3% (c=4), −14.1% (c=8), −14.1% (c=16). vLLM −0.1% (c=1), −2.9% (c=4), −1.7% (c=8), −8.7% (c=16). TTFT long/short ratio: realizr 3.0× (c=1) → 7.7× (c=16); vLLM 1.0-1.1×. **Decision gate BORDERLINE**: 12-14% at c≥4 between 10% skip and 15% required thresholds. Phase 0 (fused Q4K GEMM) is optional — not mandatory for Phase 1. Short-prompt boost (vs medium): realizr +9-12% at c≥4.
 
-### Extended Competitive Advantage Matrix (PMAT-252, Mar 18)
+### Extended Competitive Advantage Matrix (PMAT-252, updated PMAT-261 for B32)
 
 | Metric | c=1 | c=4 | c=8 | c=16 | c=32 | c=64 | c=128 |
 |--------|-----|-----|-----|------|------|------|-------|
 | Aggregate | llama.cpp | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** |
-| Decode | ollama | ollama | ollama | ollama | vLLM | **realizr** | **realizr** |
+| Decode (B32) | ollama | ollama | ollama | ollama | vLLM | vLLM† | **realizr** |
 | TTFT | llama.cpp | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** |
-| ITL | ollama | ollama | ollama | ollama | vLLM | **realizr** | **realizr** |
+| ITL (B32) | ollama | ollama | ollama | ollama | vLLM | vLLM† | **realizr** |
 | Errors | r/v/o | r/v/o | r/v/o | r/v/o | r/v | r/v | r/v |
 | Score | vLLM | **vLLM** | **vLLM** | **vLLM** | **vLLM** | vLLM | **realizr** |
 
-**Four phase boundaries:** (1) c=1-4 parity, (2) c=5-7 FP8 crossover, (3) c=8-32 vLLM dominance, (4) c=64-128 quality crossover — realizr wins decode, ITL, errors, AND score.
+†B32 crossover at c≈66 (was c=64 at B16). At c=64: realizr 49.2 vs vLLM 50.4 (0.98×); at c=80: realizr 49.0 vs vLLM 39.3 (1.25×).
+**Four phase boundaries:** (1) c=1-4 parity, (2) c=5-7 FP8 crossover, (3) c=8-64 vLLM dominance, (4) c≈66-128 quality crossover — realizr wins decode, ITL, errors, AND score at c=128.
 
 ### ITL Crossover Analysis (PMAT-251, Mar 18)
 
