@@ -273,6 +273,19 @@ Isolated on yoga, ctx=8192, --parallel 16:
 
 realizr is the ONLY runtime with a structural prompt-length penalty. The fused Q4K GEMM (PMAT-054) is the definitive fix — llama.cpp proves the architecture eliminates the penalty entirely.
 
+### c=1 Prompt-Profile Comparison (PMAT-273, Mar 18)
+
+| Runtime | Profile | Aggregate | Decode | TTFT P50 | ITL P50 |
+|---------|---------|-----------|--------|----------|---------|
+| realizr | short | 148.8 | 150.0 | 13.1 | 6.7 |
+| realizr | long | 142.6 | 147.7 | **39.7** | 6.8 |
+| vLLM | short | 152.6 | 153.6 | 12.2 | 6.5 |
+| vLLM | long | 152.3 | 153.4 | 12.9 | 6.5 |
+| llama.cpp | short | 159.0 | 161.4 | 10.0 | 6.2 |
+| llama.cpp | long | 156.8 | 157.8 | 10.8 | 6.3 |
+
+**Key finding: FP8 prefill overhead visible even at c=1.** realizr TTFT: 13.1→39.7ms (3.0× long/short ratio). vLLM: 12.2→12.9ms (1.06×). llama.cpp: 10.0→10.8ms (1.08×). Decode and ITL are prompt-invariant at c=1 for all runtimes — the penalty is purely TTFT at low concurrency, growing to aggregate throughput at high concurrency (PMAT-268→271).
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
