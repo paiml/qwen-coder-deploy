@@ -5279,19 +5279,19 @@ roadmap:
 - id: PMAT-254
   github_issue: null
   item_type: task
-  title: 'PMAT-254: Output-length sensitivity sweep — paged KV ROI quantification'
-  status: planned
+  title: 'PMAT-254: Output-length sensitivity — heterogeneity penalty 31-42%, paged KV 1.72x'
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-03-18T00:00:00Z
   updated: 2026-03-18T00:00:00Z
   spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: fixed:32 at c=4/8/16/32 for realizr+vLLM'
-  - 'AC2: fixed:128 at c=4/8/16/32 for realizr+vLLM'
-  - 'AC3: fixed:256 at c=4/8/16/32 for realizr+vLLM'
-  - 'AC4: Heterogeneity penalty quantified (fixed vs uniform:16,256)'
-  - 'AC5: Paged KV ROI estimated from penalty delta'
+  - 'AC1: fixed:32 at c=4/8/16/32 for realizr+vLLM — DONE'
+  - 'AC2: fixed:128 at c=4/8/16/32 for realizr+vLLM — DONE'
+  - 'AC3: fixed:256 at c=4/8/16/32 for realizr+vLLM — DONE'
+  - 'AC4: Heterogeneity penalty — DONE (realizr 31-42%, vLLM 0-2.5%)'
+  - 'AC5: Paged KV ROI — DONE (+423 tok/s at c=16, 1.72x)'
   phases: []
   subtasks: []
   estimated_effort: 60m
@@ -5301,11 +5301,13 @@ roadmap:
   - paged-kv
   - 4060L
   notes: |
-    Quantifies heterogeneity penalty (PMAT-171 claimed 37-43%).
-    Compare fixed:32/128/256 vs production uniform:16,256 baseline.
-    Paged KV (PMAT-052) ROI = heterogeneity_penalty * aggregate_throughput.
-    Falsification: penalty <20% -> paged KV ROI lower than estimated.
-    vLLM should show minimal penalty (PagedAttention handles heterogeneity).
+    COMPLETED. Heterogeneity penalty: realizr 31/36/42/14% at c=4/8/16/32.
+    vLLM: 0.4/0.1/2.5/9.5% — PagedAttention eliminates heterogeneity cost.
+    Paged KV ROI at c=16: +423 tok/s (1.72x), from 584->1006.
+    realizr fixed:128 still 0.51x vLLM -> CB needed after paged KV.
+    Decision gate PASSED: penalty >30% confirms PMAT-052 highest-ROI.
+    fixed:128/256 convergence (1006 vs 1012) proves KV scan plateaus.
+    Strongest quantitative evidence for paged KV implementation priority.
 
 - id: PMAT-255
   github_issue: null

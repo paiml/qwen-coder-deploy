@@ -369,6 +369,30 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### Output-Length Sensitivity (PMAT-254, Mar 18)
+
+**realizr aggregate (tok/s):**
+
+| Output | c=4 | c=8 | c=16 | c=32 |
+|--------|-----|-----|------|------|
+| fixed:32 | 210.6 | 473.6 | 748.9 | 751.0 |
+| fixed:128 | **316.3** | **553.7** | **1,006.3** | **1,008.0** |
+| fixed:256 | 304.3 | 536.7 | 1,011.6 | 1,011.5 |
+| uniform:16,256 | 217.6 | 355.5 | 583.6 | 868.6 |
+
+**vLLM aggregate (tok/s):**
+
+| Output | c=4 | c=8 | c=16 | c=32 |
+|--------|-----|-----|------|------|
+| fixed:32 | 553.4 | 1,027.3 | 1,788.2 | 2,713.2 |
+| fixed:128 | 589.2 | 1,115.8 | 2,030.9 | 3,205.5 |
+| fixed:256 | 593.1 | 1,130.9 | 2,004.1 | 3,242.9 |
+| uniform:16,256 | 587.1 | 1,114.7 | 1,980.1 | 2,900.6 |
+
+**Heterogeneity penalty** (uniform vs fixed:128): realizr **31-42%** at c=4-16, **14% at c=32** (queuing dominates). vLLM **0-2.5%** at c=4-16, **9.5% at c=32**. PagedAttention eliminates heterogeneity cost.
+
+**Paged KV ROI**: At c=16, paged KV recovers +423 tok/s (1.72×) from 584→1,006. But realizr fixed:128 is still 0.51× vLLM — **CB is still needed after paged KV.** Combined Phase 1 projected 0.97× vLLM (PMAT-180).
+
 ### Extended Competitive Advantage Matrix (PMAT-252, Mar 18)
 
 | Metric | c=1 | c=4 | c=8 | c=16 | c=32 | c=64 | c=128 |
