@@ -269,6 +269,17 @@ Prefill gap: 1.4x (HGEMM FP16 on-demand vs fused Q4K GEMM). TTFT narrowed from 5
 
 7.3% total spread (149.2-160.1). 3/4 runtimes within 1.4% of PMAT-177 baseline. Ollama variance largest — M=1 exclusive decode is thermal-sensitive. Ranking stable: ollama > llama.cpp > vLLM > realizr.
 
+### Measurement Stability — Serial c=4 Same-Session (PMAT-237, Mar 18)
+
+| Runtime | PMAT-177 | Serial c=4 | Δ | Scaling (c=4/c=1) |
+|---------|----------|-----------|---|-------------------|
+| vLLM | 587.4 | 587.1 | −0.1% | 3.86× |
+| llama.cpp | 354.4 | 355.0 | +0.2% | 2.24× |
+| realizr | 217.6 | 217.6 | 0.0% | 1.46× |
+| ollama | 160.1 | 159.7 | −0.3% | 1.00× |
+
+All 4 within 0.3% of PMAT-177 (tighter than c=1). Batching architecture divergence: vLLM 3.86× > llama.cpp 2.24× > realizr 1.46× > ollama 1.00×.
+
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
 | Runtime | BW (GB/s) | % of Peak |

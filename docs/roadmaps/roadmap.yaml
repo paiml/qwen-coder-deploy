@@ -4760,3 +4760,31 @@ roadmap:
     7.3% total spread. Ranking stable: ollama > llama.cpp > vLLM > realizr.
     3/4 runtimes within 1.4% of PMAT-177. Ollama variance largest (thermal).
     Confirms measurement methodology produces <1.5% variance for batching runtimes.
+- id: PMAT-237
+  github_issue: null
+  item_type: task
+  title: 'PMAT-237: 4-runtime serial c=4 same-session baseline'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: All 4 runtimes measured at c=4 in serial isolation — DONE'
+  - 'AC2: Cross-session variance quantified — DONE (all within 0.3%)'
+  - 'AC3: Scaling ratios computed — DONE (vLLM 3.86x > llama.cpp 2.24x > realizr 1.46x > ollama 1.00x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - measurement-stability
+  - scaling
+  - 4060L
+  notes: |
+    Serial isolated deployment on yoga RTX 4060L, locked 1900MHz.
+    realizr 217.6 (0.0%), vLLM 587.1 (-0.1%), llama.cpp 355.0 (+0.2%), ollama 159.7 (-0.3%).
+    c=4 variance tighter than c=1 — batching averages out per-request noise.
+    Scaling ratio (c=4/c=1): vLLM 3.86x, llama.cpp 2.24x, realizr 1.46x, ollama 1.00x.
+    Combined with PMAT-236: c=1 parity confirmed, 3.68x spread by c=4 (587 vs 160).
