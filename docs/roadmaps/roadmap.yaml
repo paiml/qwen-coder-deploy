@@ -5615,6 +5615,39 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-271
+  github_issue: null
+  item_type: task
+  title: 'PMAT-271: realizr full prompt-sensitivity characterization — penalty PLATEAUS at asymptote'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Short/long at c=64/128 — DONE (4 benchmarks, same-session)'
+  - 'AC2: Full c=4-128 prompt-sensitivity table — DONE'
+  - 'AC3: Structural comparison with vLLM — DONE (plateau vs reversal)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - prompt-length
+  - realizr
+  - characterization
+  notes: |
+    COMPLETED. Extended PMAT-268 to c=64/128. Same B32 iter sched session.
+    Long penalty PLATEAUS at -24-26% at asymptote (does NOT grow indefinitely).
+    Short boost also plateaus at +17%.
+    Asymptotes: short ~1,771, medium ~1,515, long ~1,125 tok/s.
+    Per-request decode constant at asymptote: short 57.5, long 37.5 tok/s.
+    Structural contrast with vLLM (PMAT-270):
+    - realizr: plateau (fixed-slot KV scan cost proportional to sequence length)
+    - vLLM: concave reversal (CB + PagedAttention amortizes at high c)
+    realizr has no amortization mechanism without CB + fused Q4K GEMM.
+
 - id: PMAT-270
   github_issue: null
   item_type: task

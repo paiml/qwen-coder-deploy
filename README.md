@@ -88,9 +88,9 @@ Iteration scheduler + BATCH=32: asymptote 1,515 tok/s (+71% vs BATCH=16 885). PM
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→270)
+### Key Findings (PMAT-209→271)
 
-- **vLLM prompt-sensitivity is CONCAVE** (PMAT-270): Peaks at c=16 (−9%), reverses at c≥32 (+3→18%). Short≈long at c=128. realizr penalty monotonically increasing
+- **Prompt-sensitivity structural divergence** (PMAT-270/271): vLLM concave (peaks −9% c=16, reverses to +18% c=128). realizr plateaus at −24-26% at asymptote (short ~1,771, long ~1,125 tok/s)
 - **Prompt-length sensitivity INCREASES with iter sched** (PMAT-268): Long penalty −17→−26% at c=4→32 (was −12-14% B&S). Fused Q4K GEMM now **required** at c≥16
 - **Per-step pipeline analysis** (PMAT-267): GPU 7.4ms + serving 5.5ms = 13.8ms/step. Graph + event sync enables CPU-GPU overlap → **0.66-0.79× vLLM**
 - **nsys iter sched = batch-and-step** (PMAT-266): cuStreamSync 80.5% — identical CUDA dispatch. Scheduling is CPU-only improvement
@@ -116,7 +116,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.11.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.12.0) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

@@ -219,7 +219,34 @@ Extended PMAT-269 to c=64/128. Same-session, vLLM isolated:
 2. **c=16 (peak penalty):** Enough concurrency to interrupt decode batching, not enough to amortize. −8.8%.
 3. **c≥32 (reversal):** Continuous batching + PagedAttention fully amortizes prefill. Long prompts produce larger KV caches that improve attention compute density at high c. +3→18%.
 
-**Contrast with realizr:** realizr penalty is monotonically increasing (−17→−26%) because per-slot fixed-width KV means each decode step scans more memory with longer sequences, with no amortization from continuous batching. vLLM's penalty is a scheduling artifact (prefill interrupts decode); realizr's penalty is a memory bandwidth fundamental (more KV to scan per decode step).
+### realizr Full Prompt-Sensitivity Characterization (PMAT-271, Mar 18)
+
+Extended PMAT-268 to c=64/128. Same B32 iter sched session:
+
+| c | Short agg | Medium agg | Long agg | Short boost | Long penalty |
+|---|-----------|------------|----------|------------|-------------|
+| 4 | 317.0 | 290.1 | 241.0 | +9.3% | −16.9% |
+| 8 | 551.2 | 494.4 | 412.6 | +11.5% | −16.6% |
+| 16 | 990.9 | 880.4 | 691.4 | +12.6% | −21.5% |
+| 32 | 1,705.6 | 1,463.8 | 1,079.5 | +16.5% | −26.3% |
+| 64 | **1,747.6** | 1,494.1 | **1,131.0** | **+17.0%** | **−24.3%** |
+| 128 | **1,770.9** | 1,514.7 | **1,124.6** | **+16.9%** | **−25.7%** |
+
+Per-request decode at c=64/128: short 57.5/57.9 (constant at M=32 ceiling), long 37.5/37.5 (constant). Long decode penalty: −34.8% (c=64/128) — flat at asymptote.
+
+**Key finding: realizr long penalty PLATEAUS at c≥32 (−24 to −26%).** Does not grow indefinitely — once at BATCH=32 asymptote, both medium and long hit the ceiling and the penalty ratio stabilizes. Short boost also plateaus at +17%.
+
+**Asymptotes by prompt profile:**
+| Profile | Asymptote | vs Medium |
+|---------|-----------|-----------|
+| Short (23 tok) | ~1,771 tok/s | +17% |
+| Medium (102 tok) | ~1,515 tok/s | baseline |
+| Long (~311 tok) | ~1,125 tok/s | −26% |
+
+**Structural contrast with vLLM:**
+- **realizr:** penalty plateaus at −24-26% (fixed-slot KV scan cost proportional to sequence length at every decode step → constant % penalty at asymptote)
+- **vLLM:** penalty reverses at c≥32 (+3→18%, concave — continuous batching amortizes prefill, long KV improves attention density)
+- realizr has no amortization mechanism without continuous batching + fused Q4K GEMM
 
 ### Reproducibility (PMAT-216)
 
