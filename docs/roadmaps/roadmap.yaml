@@ -4933,3 +4933,31 @@ roadmap:
     realizr/vLLM gap: 1.3x (c=1) -> 10.6x (c=16).
     TTFT tail P99/P50: realizr tightest (1.02x at c=4,16), vLLM worst (2.33x at c=16).
     Genuine realizr advantage for latency-sensitive deploys despite absolute magnitude gap.
+- id: PMAT-243
+  github_issue: null
+  item_type: task
+  title: 'PMAT-243: ITL jitter scaling (same-session serial c=1-16)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Same-session jitter table — DONE'
+  - 'AC2: PMAT-234 cross-validation — DONE (within ±0.02x)'
+  - 'AC3: ITL growth factor — DONE (ollama 1.01x > vLLM 1.21x > realizr 2.07x > llama.cpp 2.82x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - jitter
+  - itl
+  - 4060L
+  notes: |
+    Analytical — derived from PMAT-236-240 serial results.
+    Jitter (TPOT P99/ITL P50): ollama 1.01x > vLLM <=1.04x > realizr <=1.09x > llama.cpp 1.49x.
+    llama.cpp jitter spikes from 1.03x (c=4) to 1.49x (c=16) — fixed-slot contention.
+    Error rates: llama.cpp 1.0-2.9% at all c. Others 0%.
+    Confirms PMAT-234 rankings within ±0.02x with same-session data.

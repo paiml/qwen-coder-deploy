@@ -324,6 +324,17 @@ Matches PMAT-229 production scoring ±2 points. realizr ties llama.cpp at c=16 (
 
 TTFT growth c=1→16: vLLM 1.9× (continuous batching) < llama.cpp 5.0× < realizr 14.9× < ollama 172×. realizr TTFT tail **tightest** at c=4,16 (P99/P50 = 1.02×) vs vLLM **worst** (2.33× at c=16).
 
+### ITL Jitter Scaling (PMAT-243, Mar 18, same-session serial, TPOT P99 / ITL P50)
+
+| c | realizr | llama.cpp | vLLM | ollama |
+|---|---------|-----------|------|--------|
+| 1 | 1.00× | 1.01× | 1.00× | 1.01× |
+| 4 | 1.05× | 1.03× | 1.01× | 1.02× |
+| 8 | 1.05× | 1.08× | 1.02× | 1.01× |
+| 16 | 1.09× | **1.49×** | 1.04× | 1.01× |
+
+llama.cpp jitter worst (1.49× at c=16). realizr tight (≤1.09×). llama.cpp only runtime with errors (1-2.9%).
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).
