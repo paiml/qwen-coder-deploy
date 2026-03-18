@@ -5446,3 +5446,63 @@ roadmap:
     realizr now 1.55x llama.cpp at c=32, 0.50x vLLM at c=128.
     PMAT-257+258 recover 76% of gap to 0.97x projection.
     Production config: CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1.
+
+- id: PMAT-259
+  github_issue: null
+  item_type: task
+  title: 'PMAT-259: Definitive 4-runtime scoring with B32 iteration scheduler'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 4-runtime combined scoring at c=1/4/8/16/32/64/128 — DONE'
+  - 'AC2: realizr B32 iter sched scores documented — DONE'
+  - 'AC3: README updated with definitive scores — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - scoring
+  - 4060L
+  notes: |
+    COMPLETED. Definitive 4-runtime scoring with realizr at B32 iter sched.
+    Scores: 95/70/76/78/75/64/66 at c=1/4/8/16/32/64/128.
+    realizr overtakes llama.cpp at c=8 (76 vs 62) and holds through c=32.
+    Quality crossover at c=128: realizr 66 vs vLLM 63.
+
+- id: PMAT-260
+  github_issue: null
+  item_type: task
+  title: 'PMAT-260: B32 iter sched heterogeneity — penalty reduced 4x (31-42% to 7-11%)'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: fixed:128 at c=4/8/16/32 with B32 iter sched — DONE'
+  - 'AC2: Penalty comparison vs PMAT-254 (B16 B&S) — DONE (7-11% vs 31-42%)'
+  - 'AC3: Paged KV ROI revised — DONE (+100 tok/s / 1.11x vs +423 / 1.72x)'
+  - 'AC4: Phase 1 priority updated (CB > paged KV) — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - heterogeneity
+  - iteration-scheduler
+  - paged-kv
+  - 4060L
+  notes: |
+    COMPLETED. Iteration scheduler reduces heterogeneity penalty 4x.
+    c=4: 7.2% (was 31%), c=8: 10.6% (was 36%), c=16: 10.2% (was 42%), c=32: 9.7% (was 14%).
+    Per-slot recycling reclaims scheduling waste from variable output lengths.
+    Remaining 7-11% is KV memory fragmentation (fixed-size slots), not scheduling.
+    Paged KV marginal ROI at c=16: +100 tok/s (1.11x, was +423/1.72x).
+    CB (mid-batch joins + per-M graphs) is now definitively higher-value Phase 1 target.
+    Scheduling utilization gap (0.45-0.50x vs 0.97x) dominates over residual heterogeneity.

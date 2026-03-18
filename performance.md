@@ -384,6 +384,21 @@ PMAT-221 quality bug **eliminated** by iteration scheduler. Slot-level recycling
 
 **Asymptote raised from 885 to 1,515 tok/s** (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28× with B&S B16). B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). PMAT-221 was a scheduling bug, not a kernel bug.
 
+### Iteration Scheduler Heterogeneity (PMAT-260, Mar 18)
+
+B32 iteration scheduler, fixed:128 vs uniform:16,256 output:
+
+| c | uniform:16,256 | fixed:128 | Penalty | PMAT-254 (B16 b&s) |
+|---|----------------|-----------|---------|---------------------|
+| 4 | 290.1 | 312.6 | **7.2%** | 31% |
+| 8 | 494.4 | 553.2 | **10.6%** | 36% |
+| 16 | 880.4 | 980.1 | **10.2%** | 42% |
+| 32 | 1,463.8 | 1,621.8 | **9.7%** | 14% |
+
+**Iteration scheduler reduces heterogeneity penalty from 31-42% to 7-11%** (4× improvement). Per-slot recycling reclaims most of the waste from variable output lengths — when a short request finishes, its slot is immediately available. Remaining 7-11% penalty is from KV memory fragmentation (fixed-size KV slots still pre-allocate max capacity).
+
+**Paged KV ROI revision**: At c=16, paged KV now recovers +100 tok/s (880→980 tok/s, 1.11×) vs +423 tok/s (584→1,006 tok/s, 1.72×) with B16 batch-and-step. Marginal ROI decreased 4.2× because iteration scheduler already captures most scheduling waste. **CB (mid-batch joins + per-M graphs) is now definitively the higher-value Phase 1 target** — the scheduling utilization gap (0.45-0.50× vs projected 0.97×) dominates over the residual heterogeneity gap (7-11%).
+
 ### Iteration Scheduler Benchmark (PMAT-257, Mar 18)
 
 `ITERATION_SCHEDULER=1` (existing framework, zero code changes, BATCH=16):

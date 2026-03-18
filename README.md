@@ -88,13 +88,13 @@ Iteration scheduler + BATCH=32: asymptote 1,515 tok/s (+71% vs BATCH=16 885). PM
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→258)
+### Key Findings (PMAT-209→260)
 
 - **Iteration scheduler + BATCH=32 (PMAT-258)**: Asymptote 1,515 tok/s (+71% vs BATCH=16). PMAT-221 quality bug **eliminated** — slot-level recycling avoids KV corruption. 0% errors at all c
 - **Iteration scheduler (PMAT-257)**: +34-55% aggregate, −48-83% TTFT at c=4-16 — zero code changes, just env var
 - **Decode/ITL crossover at c=64** (PMAT-255): realizr wins per-request decode 1.14-2.35× and ITL at c=64-128
-- **Heterogeneity penalty** (PMAT-254): 31-42% loss from uniform output. Paged KV (PMAT-052) recovers 1.72× at c=16
-- **Phase 1 readiness** (PMAT-256): Paged KV ready, scheduler is blocker (~1,000-1,400 LOC total)
+- **Heterogeneity penalty reduced 4×** (PMAT-260): Iter sched 7-11% (was 31-42% B&S). Paged KV marginal ROI now +100 tok/s (was +423)
+- **Phase 1 readiness** (PMAT-256): Paged KV ready, CB (mid-batch joins) is binding blocker (~1,000-1,400 LOC)
 - **Three-level kernel architecture**: realizr (44+ kernels, CUDA graph M=1) → llama.cpp (35 kernels) → vLLM (15 kernels, CUTLASS GEMM)
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
@@ -113,7 +113,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.2.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.3.0) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness
