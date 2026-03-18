@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.6.0
+**Version:** 5.7.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -105,7 +105,7 @@ realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,5
 - **High-concurrency (PMAT-192):** batch=32 saturates at ~1500 tok/s (c=64/128). Gap to vLLM: 0.49× constant at saturation. Quality crossover at c=128 (realizr 66 C+ > vLLM 63 C+).
 - **Cross-platform:** Jetson Orin realizr **13% FASTER** than llama.cpp on decode (40.8 vs 36.1 tok/s)
 
-**Roadmap:** Per-M CUDA graph capture → paged KV → continuous batching → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179, updated PMAT-264):** gap = decode_rate × scheduling_utilization. With B32 iter sched: **sched_util=0.94-0.96× at c≤32** (near-optimal). Remaining gap is almost purely decode_rate (0.46-0.56×). At c≥64: queueing penalty (0.47-0.24×) from BATCH=32 cap offsets decode advantage (1.04-2.08×). **Phase projections (PMAT-180):** per-M graph + paged KV + CB → 0.97× vLLM at all c. **Iso-quality gap (PMAT-263):** Score≥70: 2.1× (was 5.3× at B16 B&S), ITL≤21ms: 2.0× (was 3.5×). **Quality crossover (PMAT-192/261):** realizr BEATS vLLM at c≈66-128 (decode advantage 1.25-2.03× with B32). ITL jitter improved to 1.09-1.17× (was 1.18-1.49× B16). Target: ≥0.90× vLLM at c=8 after Phase 1.
+**Roadmap:** Kernel fusion + per-M CUDA graph → continuous batching → paged KV → Phase 2 (cache intelligence) → Phase 3 (disaggregated prefill/decode). **Gap decomposition (PMAT-179, updated PMAT-264):** gap = decode_rate × scheduling_utilization. With B32 iter sched: **sched_util=0.94-0.96× at c≤32** (near-optimal). Remaining gap is almost purely decode_rate (0.46-0.56×). At c≥64: queueing penalty (0.47-0.24×) from BATCH=32 cap offsets decode advantage (1.04-2.08×). **Phase projections (PMAT-265, corrected PMAT-266):** per-M graph alone → **0.57-0.64× vLLM** (was 0.81×). nsys proves GPU kernel compute (10ms, 44+ kernels) is the floor, not launch overhead (1.2ms). Reaching 0.80×+ requires **kernel fusion** (4.6× GPU compute gap vs CUTLASS GEMM). **Iso-quality gap (PMAT-263):** Score≥70: 2.1× (was 5.3× at B16 B&S), ITL≤21ms: 2.0× (was 3.5×). **Quality crossover (PMAT-192/261):** realizr BEATS vLLM at c≈66-128 (decode advantage 1.25-2.03× with B32). ITL jitter improved to 1.09-1.17× (was 1.18-1.49× B16). Target: ≥0.90× vLLM at c=8 after Phase 1 (requires kernel fusion).
 
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
@@ -1333,16 +1333,27 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 
 **Implication for Phase 1+CB:** With BATCH=32 + iteration scheduler, realizr is at 0.50× vLLM. The remaining 2× gap comes from per-request decode degradation (49.6 vs ~24 tok/s at c=128 — realizr's decode is actually higher, but vLLM compensates with ~3× more concurrent sequences). The next improvement requires either BATCH=64 (if the iteration scheduler scales) or per-M CUDA graph capture to reduce decode overhead. **PMAT-257+258 together recover 76% of the gap between original B&S (0.28×) and the 0.97× projection** without any code changes — just enabling the existing iteration scheduler and raising the batch cap.
 
-**PMAT-265: Updated Phase 1 projections from B32 iter sched baseline.** ✅ Using PMAT-264 decomposition (sched_util=0.94-0.96×, only decode_rate needs fixing):
+**PMAT-265: Updated Phase 1 projections from B32 iter sched baseline.** ⚠️ **CORRECTED by PMAT-266:** Original decode_rate 0.85× assumption was overly optimistic. nsys proves GPU kernel compute (10ms/step at M=4) is the floor — graph capture saves only ~2ms launch overhead (17%), not 82%.
 
-| c | Current | Per-M graph (0.85×) | Per-M + CB (0.97×) | vs vLLM (graph) | vs vLLM (full) |
-|---|---------|-------------------|------------------|----------------|---------------|
-| 4 | 290 | **474** | **541** | **0.81×** | **0.92×** |
-| 8 | 494 | **914** | **1,043** | **0.82×** | **0.93×** |
-| 16 | 880 | **1,627** | **1,856** | **0.82×** | **0.94×** |
-| 32 | 1,464 | **2,222** | **2,536** | **0.81×** | **0.92×** |
+| c | Current | ~~Graph (0.85×)~~ | **PMAT-266 (graph only)** | **Graph + CB** | vs vLLM (graph) | vs vLLM (graph+CB) |
+|---|---------|-----------------|-------------------------|---------------|----------------|-------------------|
+| 4 | 290 | ~~474~~ | **340** | **388** | **0.58×** | **0.66×** |
+| 8 | 494 | ~~914~~ | **578** | **660** | **0.52×** | **0.59×** |
+| 16 | 880 | ~~1,627~~ | **1,030** | **1,174** | **0.52×** | **0.59×** |
+| 32 | 1,464 | ~~2,222~~ | **1,713** | **1,954** | **0.62×** | **0.71×** |
 
-**Key finding:** The iteration scheduler already closed the scheduling gap (0.94-0.96×). Per-M graph capture alone lifts realizr to **0.81-0.82× vLLM** (conservative). With CB: **0.92-0.94× vLLM**. Full Phase 1 (+ paged KV) eliminates the c>32 queueing penalty, giving 0.82-0.93× at all c. Compared to PMAT-180's projections from B16 B&S baseline, the CB lift is smaller (was 2.6-3.4× → now 1.6-1.9×) because the iteration scheduler already captured most scheduling value. **The investment case shifts: per-M graph capture (decode efficiency) is now higher-value than CB (scheduling) because scheduling is already near-optimal.**
+**Key finding (PMAT-266 corrected):** Per-M graph capture alone: **0.52-0.62× vLLM** (not 0.81×). With CB: **0.59-0.71×** (not 0.92×). Reaching 0.80×+ requires **kernel fusion** — reducing 44+ kernels (10ms GPU compute) toward vLLM's 1 CUTLASS GEMM (2.17ms). The **4.6× GPU kernel compute gap** is the binding constraint, not launch overhead or scheduling. **Investment priority revised: kernel fusion > per-M graph > CB > paged KV.**
+
+**PMAT-266: nsys CUDA API trace — iteration scheduler IDENTICAL to batch-and-step.** ✅ MEASURED. nsys trace of B32 iter sched at c=4 (90s, yoga RTX 4060L):
+
+| API | Time% | Calls | Median | PMAT-217 (B&S) |
+|-----|-------|-------|--------|----------------|
+| cuStreamSynchronize | **80.5%** | 4,510 | 10.7ms | 82.4%, 10.4ms |
+| cuLaunchKernel | 10.7% | 2,984,497 | 1.8µs | — |
+| cuMemcpyHtoD | 5.2% | 544,921 | 2.8µs | — |
+| cuGraphLaunch | 0.0% | 351 | 29µs | 117, 28µs |
+
+GPU kernel top 5: DP4A GEMV 35.0% (18.0s, 35µs avg), incremental attention 24.8% (12.7s, 119µs avg), FP8 GEMM large 17.0% (8.7s, 142µs avg), FP8 GEMM small 11.5% (5.9s, 31µs avg), rmsnorm 1.6% (0.8s, 3.6µs avg). Per-step M=4: GPU kernels ~10ms (DP4A 4ms + attn 2.8ms + FP8 3.3ms), launch 1.2ms, H2D 0.3ms. **vs vLLM: CUTLASS GEMM 2.17ms/step → 4.6× GPU kernel gap.** Iteration scheduler is CPU-only improvement — GPU kernel pipeline unchanged. PMAT-265's decode_rate 0.85× FALSIFIED: graph saves 1.2ms launch, not 10ms GPU compute.
 
 **PMAT-260: Iteration scheduler heterogeneity penalty — COMPLETED.** ✅ B32 iteration scheduler reduces heterogeneity penalty from 31-42% (PMAT-254, B16 B&S) to **7-11%** — a 4× improvement. Fixed:128 vs uniform:16,256 at c=4/8/16/32:
 
@@ -3425,7 +3436,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
-| **PMAT-265** | **Updated Phase 1 projections from B32 iter sched baseline** | **Per-M graph: 0.81-0.82× vLLM. Per-M + CB: 0.92-0.94×. Full: 0.82-0.93× at all c** | ✅ PROJECTED. Using PMAT-264 decomposition with sched_util already 0.94-0.96×. Per-M graph capture (decode_rate 0.46-0.56× → 0.85×): 474-2,222 tok/s at c=4-32 (0.81-0.82× vLLM). CB addition (→ 0.97×): 541-2,536 tok/s (0.92-0.94× vLLM). Full Phase 1 + paged KV: 0.82-0.93× at all c. CB lift reduced from 2.6-3.4× (PMAT-180 from B16 B&S) to 1.6-1.9× — iteration scheduler already captured most scheduling value. **Investment priority shift: per-M graph capture > CB > paged KV.** |
+| **PMAT-266** | **nsys CUDA API trace — iteration scheduler dispatch IDENTICAL to batch-and-step** | **cuStreamSync 80.5%/10.7ms (was 82.4%/10.4ms PMAT-217). GPU kernels 10ms/step vs vLLM 2.17ms = 4.6× gap. FALSIFIES PMAT-265's 0.81× projection.** | ✅ MEASURED. nsys trace of B32 iter sched at c=4 (90s, yoga RTX 4060L). cuStreamSync dominates identically to PMAT-217 B&S — iteration scheduler is CPU-only improvement, does NOT change CUDA dispatch. Per-step M=4: GPU kernels ~10ms (DP4A 35% + attn 25% + FP8 28.5% + rmsnorm 1.6%), launch 1.2ms (661 kernels), H2D 0.3ms. Graph capture saves 1.2ms launch → ~17% improvement → decode_rate 0.52→0.61×. But GPU kernel compute (10ms) is the floor. vLLM: 1 CUTLASS GEMM = 2.17ms → 4.6× gap. **PMAT-265 FALSIFIED: 0.81× assumed decode_rate → 0.85×, actual ceiling ~0.64×.** Reaching 0.80×+ requires kernel fusion (44+ kernels → fewer CUTLASS-style fused kernels). **Investment priority: kernel fusion > per-M graph > CB > paged KV.** |
+| **PMAT-265** | **Updated Phase 1 projections from B32 iter sched baseline** | **~~Per-M graph: 0.81×~~ → CORRECTED by PMAT-266: graph alone 0.57-0.64×. Kernel fusion required for 0.80×+** | ⚠️ PARTIALLY FALSIFIED by PMAT-266. Original projection assumed decode_rate 0.85× from graph capture. nsys proves GPU kernel compute time (10ms, 44 kernels) is the floor — graph saves only 1.2ms launch overhead (17%), not the 82% sync block. Revised: per-M graph 0.52-0.62× (not 0.81×). Per-M + CB: 0.59-0.71× (not 0.92×). Reaching 0.80× requires kernel fusion (reducing 4.6× GPU compute gap vs CUTLASS GEMM). **Investment priority revised: kernel fusion > per-M graph > CB > paged KV.** |
 | **PMAT-264** | **Gap decomposition update — scheduling gap closed to 94-96%** | **sched_util 0.94-0.96× at c≤32 (was 0.52-0.67×). decode_rate 0.46-0.56× is now binding.** | ✅ ANALYZED. 2-factor model recomputed with B32 iter sched. Scheduling utilization near-optimal at c≤32 — iteration scheduler's per-slot recycling achieves vLLM-class scheduling. Remaining gap is decode_rate (per-M GEMV < CUTLASS GEMM per token). At c≥64: decode advantage (1.04-2.08×) offset by queueing (0.47-0.24×). Phase 1: per-M graph capture fixes decode_rate → projected 0.85× at c≤32; paged KV removes batch cap. |
 | **PMAT-263** | **Iso-quality gap + jitter update (B32 iter sched)** | **Score≥70 gap: 5.3× → 2.1× (−60%). Jitter: 1.09-1.17× (improved from 1.18-1.49×)** | ✅ ANALYZED. Score-based iso-quality improved 60% with B32 iter sched. ITL-based gaps mixed: strict (≤12ms) unchanged, relaxed (≤21ms) improved 43%. The iteration scheduler trades tighter ITL (+9-26%) for higher aggregate throughput (+33-69%), which is net positive for score-based quality. Jitter improved because per-slot recycling reduces scheduling variance. |
 | **PMAT-262** | **Scaling efficiency update (B32 iter sched)** | **+33% (c=4), +41% (c=8), +54% (c=16), +69% (c=32) vs B16 B&S** | ✅ ANALYZED. realizr B32 iter: 0.49/0.42/0.37/0.31 at c=4/8/16/32 (was 0.37/0.30/0.24/0.18). Now matches llama.cpp at c=8 (0.42 vs 0.33) and c=16 (0.37 vs 0.35). vLLM still 2.0× more efficient at c=4 (0.96 vs 0.49). |
@@ -4427,7 +4439,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.6.0 | 2026-03-18 | **PMAT-265: Updated Phase 1 projections from B32 iter sched baseline.** Per-M graph capture alone: 0.49-0.53× → 0.81-0.82× vLLM (conservative, decode_rate 0.85×). With CB: 0.92-0.94× vLLM. Full Phase 1 (+ paged KV): 0.82-0.93× at all c. CB lift reduced from 2.6-3.4× to 1.6-1.9× because iteration scheduler already captured scheduling value. **Investment priority shift: per-M graph > CB > paged KV.** |
+| 5.7.0 | 2026-03-18 | **PMAT-266: nsys trace FALSIFIES PMAT-265's 0.81× projection.** cuStreamSync 80.5%/10.7ms median — identical to PMAT-217 batch-and-step (82.4%/10.4ms). Iteration scheduler does NOT change CUDA dispatch pattern. GPU kernel compute ~10ms/step (44+ kernels) vs vLLM CUTLASS GEMM 2.17ms = **4.6× GPU compute gap.** Graph capture saves 1.2ms launch overhead (17%), not 10ms GPU compute. Revised: per-M graph alone → 0.57-0.64× vLLM (was 0.81×). Per-M + CB → 0.59-0.71× (was 0.92×). Reaching 0.80×+ requires **kernel fusion**. **Investment priority revised: kernel fusion > per-M graph > CB > paged KV.** |
+| 5.6.0 | 2026-03-18 | **PMAT-265: Updated Phase 1 projections from B32 iter sched baseline.** ⚠️ PARTIALLY FALSIFIED by PMAT-266. Original: per-M graph → 0.81× vLLM (decode_rate 0.85×). Corrected: graph → 0.57-0.64× (decode_rate ceiling ~0.64× from GPU kernel compute floor). |
 | 5.5.0 | 2026-03-18 | **PMAT-264: Gap decomposition update — iteration scheduler closes scheduling gap to 94-96%.** 2-factor model recomputed: sched_util 0.94-0.96× at c≤32 (was 0.52-0.67× B16 B&S). Remaining gap is almost purely decode_rate (0.46-0.56×). At c≥64: decode advantage (1.04-2.08×) offset by queueing penalty (0.47-0.24× from BATCH=32 cap). Phase 1 priority confirmed: per-M graph capture (decode_rate fix) > paged KV (batch cap fix). Executive summary updated with PMAT-263 iso-quality and PMAT-264 gap decomposition. |
 | 5.4.0 | 2026-03-18 | **PMAT-261: B32 crossover precision — decode/ITL crossover shifted c=64 → c≈66.** BATCH=32 per-request decode 49.2 (c=64), 49.0 (c=80), 49.5 (c=128) — constant, caps at ~49 from larger KV scan. vLLM decays 50.4→39.3→24.4. Crossover shifts only 2 c-units despite 14% lower per-request decode, because vLLM's linear decay dominates. Advantage at c=128: 2.03× (was 2.35× B16). Trade-off: 14% per-request decode for 71% aggregate throughput — quality crossover barely moves. |
 | 5.3.0 | 2026-03-18 | **PMAT-260: Iteration scheduler heterogeneity — penalty reduced 4× (31-42% → 7-11%).** B32 iter sched with fixed:128 vs uniform:16,256: 7.2% (c=4), 10.6% (c=8), 10.2% (c=16), 9.7% (c=32). Per-slot recycling reclaims scheduling waste; remaining penalty is KV memory fragmentation. Paged KV marginal ROI decreased 4.2× (c=16: +100 tok/s / 1.11× vs +423 / 1.72× with B16 B&S). CB (mid-batch joins) confirmed as definitively higher-value Phase 1 target than paged KV. |

@@ -392,11 +392,29 @@ PMAT-221 quality bug **eliminated** by iteration scheduler. Slot-level recycling
 
 **Asymptote raised from 885 to 1,515 tok/s** (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28× with B&S B16). B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). PMAT-221 was a scheduling bug, not a kernel bug.
 
-### Phase 1 Projections (PMAT-265, Mar 18)
+### Phase 1 Projections (PMAT-265, corrected by PMAT-266, Mar 18)
 
-Updated projections from B32 iter sched baseline using PMAT-264 decomposition:
+Updated projections from B32 iter sched baseline using PMAT-264 decomposition. **PMAT-266 nsys correction: original 0.81× projection was overly optimistic.** The 82% cuStreamSync time is mostly GPU kernel compute (10ms), not CPU launch overhead (1.2ms). Graph capture saves ~2ms/step (17%), not the full sync duration.
 
-**Scenario A: Per-M graph capture only** (decode_rate 0.46-0.56× → 0.85×, conservative):
+**Scenario A: Per-M graph capture only** (decode_rate +17%, launch overhead eliminated):
+
+| c | Current | ~~PMAT-265~~ | **PMAT-266 revised** | vs vLLM |
+|---|---------|-------------|---------------------|---------|
+| 4 | 290 | ~~474~~ | **340** | **0.58×** |
+| 8 | 494 | ~~914~~ | **578** | **0.52×** |
+| 16 | 880 | ~~1,627~~ | **1,030** | **0.52×** |
+| 32 | 1,464 | ~~2,222~~ | **1,713** | **0.62×** |
+
+**Scenario B: Per-M graph + CB** (decode_rate +17%, scheduling → 0.97×):
+
+| c | Current | ~~PMAT-265~~ | **PMAT-266 revised** | vs vLLM |
+|---|---------|-------------|---------------------|---------|
+| 4 | 290 | ~~541~~ | **388** | **0.66×** |
+| 8 | 494 | ~~1,043~~ | **660** | **0.59×** |
+| 16 | 880 | ~~1,856~~ | **1,174** | **0.59×** |
+| 32 | 1,464 | ~~2,536~~ | **1,954** | **0.71×** |
+
+**Scenario C: Per-M graph + kernel fusion + CB** (decode_rate → 0.85×, requires fusing 44 kernels):
 
 | c | Current | Projected | vs vLLM |
 |---|---------|-----------|---------|
@@ -405,16 +423,34 @@ Updated projections from B32 iter sched baseline using PMAT-264 decomposition:
 | 16 | 880 | **1,627** | **0.82×** |
 | 32 | 1,464 | **2,222** | **0.81×** |
 
-**Scenario B: Per-M graph + CB** (decode_rate → 0.97×, PMAT-180):
+**PMAT-266 key insight:** Per-M graph capture alone gives **0.52-0.62× vLLM** (not 0.81×). Reaching 0.80×+ requires **kernel fusion** — reducing 44+ small kernels (10ms total) toward vLLM's single CUTLASS GEMM (2.17ms). The 4.6× GPU compute gap is the binding constraint, not launch overhead.
 
-| c | Current | Projected | vs vLLM |
-|---|---------|-----------|---------|
-| 4 | 290 | **541** | **0.92×** |
-| 8 | 494 | **1,043** | **0.93×** |
-| 16 | 880 | **1,856** | **0.94×** |
-| 32 | 1,464 | **2,536** | **0.92×** |
+### nsys CUDA API Trace — Iteration Scheduler (PMAT-266, Mar 18)
 
-Per-M graph capture alone: **0.49→0.81× vLLM** (conservative). With CB: **0.49→0.92× vLLM**. The iteration scheduler has already closed the scheduling gap — Phase 1's value is now purely decode efficiency. Full Phase 1 (+ paged KV): 0.82-0.93× at all c including c=64/128 (no queueing).
+nsys trace of B32 iteration scheduler at c=4 (90s capture, yoga RTX 4060L):
+
+**CUDA API Summary:**
+
+| API | Time% | Total | Calls | Median |
+|-----|-------|-------|-------|--------|
+| cuStreamSynchronize | **80.5%** | 44.9s | 4,510 | 10.7ms |
+| cuLaunchKernel | 10.7% | 6.0s | 2,984,497 | 1.8µs |
+| cuMemcpyHtoD | 5.2% | 2.9s | 544,921 | 2.8µs |
+| cuGraphLaunch | 0.0% | 11ms | 351 | 29µs |
+
+**GPU Kernel Summary (top 5):**
+
+| Kernel | Time% | Total | Instances | Avg |
+|--------|-------|-------|-----------|-----|
+| batched_hw_dp4a_q4k_gemv | **35.0%** | 18.0s | 514,284 | 35µs |
+| batched_incremental_attention | **24.8%** | 12.7s | 107,404 | 119µs |
+| sm89_xmma_gemm (FP8, large) | 17.0% | 8.7s | 61,667 | 142µs |
+| sm89_xmma_gemm (FP8, small) | 11.5% | 5.9s | 193,032 | 31µs |
+| batched_rmsnorm_vectorized | 1.6% | 0.8s | 225,419 | 3.6µs |
+
+**Per-step budget (M=4):** ~12ms total — GPU kernels ~10ms (DP4A 4ms + attention 2.8ms + FP8 GEMM 3.3ms), launch 1.2ms (661 launches), H2D 0.3ms (120 copies). vs vLLM: single CUTLASS GEMM 2.17ms → **4.6× GPU kernel compute gap.**
+
+**Critical finding:** cuStreamSynchronize profile is **identical to PMAT-217** (batch-and-step: 82.4%, 10.4ms median). The iteration scheduler does NOT change the CUDA dispatch pattern — scheduling improvement is purely CPU-side slot management. The GPU kernel pipeline is the same 44+ kernel sequence regardless of scheduler.
 
 ### Gap Decomposition Update (PMAT-264, Mar 18)
 
