@@ -320,6 +320,27 @@ Competitive ratios shift dramatically with prompt length:
 
 Medium c=16 re-verified: 877.6 tok/s (−0.3% vs PMAT-258 880.4). All ratios are stable.
 
+### TTFT Scaling Architecture (PMAT-275, Mar 18)
+
+TTFT P50 (short prompt) across 3 runtimes:
+
+| c | realizr | vLLM | llama.cpp |
+|---|---------|------|-----------|
+| 1 | 13.1 | **12.2** | **10.0** |
+| 4 | 35.0 | **21.4** | 26.6 |
+| 8 | 38.4 | **22.3** | 44.1 |
+| 16 | 40.2 | **24.7** | 54.1 |
+| 32 | 42.2 | **33.2** | 1,546.2 |
+| 64 | 2,414.3 | **62.4** | — |
+| 128 | 7,101.8 | **110.9** | — |
+
+Three distinct TTFT scaling patterns:
+1. **realizr (iter sched):** FLAT at c≤32 (35-42ms), then CLIFF at c>32 (BATCH=32 queue). Per-slot prefill is non-blocking but FP8 overhead makes absolute TTFT higher than competitors
+2. **vLLM:** GRADUAL growth (12→111ms at c=128) — continuous batching interleaves prefill with decode. Best absolute TTFT at all c≥4
+3. **llama.cpp:** LINEAR growth (10→54ms at c≤16), then CLIFF at c=32 (--parallel 16 queue). Best c=1 TTFT (10ms) from fused Q4K GEMM
+
+**Key insight:** realizr TTFT is flat at c≤32 (Δ<8ms from c=4→32) — the iteration scheduler's per-slot prefill makes TTFT **independent of concurrency** below the batch cap. However, absolute TTFT is 1.5-1.7× higher than vLLM due to FP8 2-step overhead. PMAT-054 (fused Q4K GEMM) would reduce realizr TTFT to ~10-15ms (matching llama.cpp), maintaining the flat scaling while closing the absolute gap.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.

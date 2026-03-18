@@ -5615,6 +5615,39 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-275
+  github_issue: null
+  item_type: task
+  title: 'PMAT-275: TTFT scaling architecture — 3 distinct patterns (FLAT/GRADUAL/LINEAR-CLIFF)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: TTFT comparison table across 3 runtimes x 2 profiles x c=1-128 — DONE'
+  - 'AC2: Scaling pattern classification — DONE (FLAT/GRADUAL/LINEAR-CLIFF)'
+  - 'AC3: PMAT-054 TTFT projection — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - ttft
+  - characterization
+  notes: |
+    COMPLETED. Analytical derivation from PMAT-268-273 TTFT data.
+    Three distinct TTFT scaling patterns:
+    1. realizr (iter sched): FLAT at c<=32 (35-42ms short, 67-75ms long).
+       Per-slot prefill non-blocking. Then CLIFF at c>32 (BATCH=32 queue).
+    2. vLLM: GRADUAL growth (12->111ms c=1->128). CB interleaves.
+       Best absolute TTFT at all c>=4.
+    3. llama.cpp: LINEAR (10->54ms c=1->16), then CLIFF (--parallel 16 queue).
+       Best c=1 TTFT (10ms, fused Q4K).
+    realizr flat scaling unique but absolute TTFT 1.5-1.7x higher (FP8).
+    PMAT-054 would reduce to ~10-15ms, matching llama.cpp, maintaining flat.
+
 - id: PMAT-274
   github_issue: null
   item_type: task
