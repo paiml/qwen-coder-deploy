@@ -369,6 +369,18 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### Crossover Precision (PMAT-255, Mar 18)
+
+| c | realizr agg | vLLM agg | realizr dec | vLLM dec | r/v dec | realizr ITL | vLLM ITL | r/v ITL |
+|---|------------|---------|------------|---------|---------|------------|---------|---------|
+| 64 | 891.4 | 3,151.0 | 57.7 | 50.4 | **1.14×** | 17.3 | 19.8 | **0.87×** |
+| 80 | 883.9 | 3,074.3 | 57.3 | 39.3 | **1.46×** | 17.4 | 25.5 | **0.68×** |
+| 96 | 877.9 | 3,120.2 | 57.4 | 33.0 | **1.74×** | 17.4 | 30.3 | **0.58×** |
+| 112 | 885.9 | 3,137.0 | 57.5 | 28.5 | **2.02×** | 17.4 | 35.1 | **0.50×** |
+| 128 | 885.4 | 3,086.3 | 57.2 | 24.4 | **2.35×** | 17.5 | 41.0 | **0.43×** |
+
+**Crossover at c=64** (not c≈96 as previously interpolated). realizr decode constant 57.2-57.7 (BATCH=16 floor); vLLM decays linearly 50.4→24.4. realizr ITL constant 17.3-17.5ms; vLLM grows 19.8→41.0ms. Aggregate: realizr ~880-890 (BATCH=16 asymptote), vLLM ~3,070-3,150 (CB saturated). 0% errors both runtimes at all c levels.
+
 ### Output-Length Sensitivity (PMAT-254, Mar 18)
 
 **realizr aggregate (tok/s):**

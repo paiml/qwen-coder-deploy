@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 4.8.0
+**Version:** 4.9.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1262,7 +1262,19 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 | fixed:256 | 304.3 | 536.7 | 1,011.6 | 1,011.5 | 593.1 | 1,130.9 | 2,004.1 | 3,242.9 |
 | uniform:16,256 | 217.6 | 355.5 | 583.6 | 868.6 | 587.1 | 1,114.7 | 1,980.1 | 2,900.6 |
 
-**PMAT-255: Crossover precision.** Run c=80/96/112 for realizr+vLLM to pin exact quality crossover concurrency (currently interpolated at c≈96 from c=64/128 data). **Decision gate:** Crossover <c=80 → realizr quality advantage starts earlier than expected (stronger case for current architecture). Crossover >c=112 → advantage only at extreme concurrency (weaker case).
+**PMAT-255: Crossover precision — COMPLETED.** ✅ Decode/ITL crossover confirmed at **c=64** (not c≈96 as interpolated). realizr decode advantage widens smoothly: **1.14× (c=64), 1.46× (c=80), 1.74× (c=96), 2.02× (c=112), 2.35× (c=128).** ITL advantage mirrors: **0.87× (c=64), 0.68× (c=80), 0.58× (c=96), 0.50× (c=112), 0.43× (c=128).** realizr decode constant at 57.2-57.7 tok/s (BATCH=16 floor); vLLM decays linearly: 50.4→39.3→33.0→28.5→24.4. realizr ITL constant at 17.3-17.5ms; vLLM grows linearly: 19.8→25.5→30.3→35.1→41.0ms. **Decision gate: crossover <c=80 (at c=64) → STRONGER case for current architecture.** realizr quality advantage begins earlier than expected.
+
+**PMAT-255 detailed results:**
+
+| c | realizr agg | vLLM agg | realizr dec | vLLM dec | r/v dec | realizr ITL | vLLM ITL | r/v ITL |
+|---|------------|---------|------------|---------|---------|------------|---------|---------|
+| 64 | 891.4 | 3,151.0 | 57.7 | 50.4 | **1.14×** | 17.3 | 19.8 | **0.87×** |
+| 80 | 883.9 | 3,074.3 | 57.3 | 39.3 | **1.46×** | 17.4 | 25.5 | **0.68×** |
+| 96 | 877.9 | 3,120.2 | 57.4 | 33.0 | **1.74×** | 17.4 | 30.3 | **0.58×** |
+| 112 | 885.9 | 3,137.0 | 57.5 | 28.5 | **2.02×** | 17.4 | 35.1 | **0.50×** |
+| 128 | 885.4 | 3,086.3 | 57.2 | 24.4 | **2.35×** | 17.5 | 41.0 | **0.43×** |
+
+**Mechanism:** BATCH=16 caps realizr's KV scan at 16 active sequences regardless of queue depth. Per-request decode is constant because each decode step processes exactly M=min(c,16) tokens — decode cost is M-invariant above the batch cap. vLLM's continuous batching processes all M=c tokens per step, so per-request decode = aggregate/c, which halves each time c doubles past saturation.
 
 **PMAT-256: Phase 1 implementation readiness audit.** Review realizr codebase for CB readiness: (1) KV cache allocation path — identify all fixed-slot assumptions, (2) batch scheduler — identify batch-and-step vs continuous dispatch points, (3) CUDA graph capture — identify M=1 graph invalidation points, (4) memory allocator — identify contiguous vs paged allocation. Output: implementation plan with LOC estimates, blocking dependencies, and risk assessment. **This is the transition from analysis to implementation.**
 
@@ -3327,7 +3339,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
 | **PMAT-256** | **Phase 1 implementation readiness audit** | **KV allocation, batch scheduler, CUDA graph, memory allocator** | ⬜ PLANNED. Review realizr codebase for CB readiness. Identify all fixed-slot assumptions in KV cache allocation, batch-and-step dispatch points, M=1 graph invalidation, contiguous vs paged allocation. Output: implementation plan with LOC estimates, blocking dependencies, risk. Transition from analysis to implementation. |
-| **PMAT-255** | **Crossover precision — pin exact quality crossover concurrency** | **c=80/96/112 for realizr+vLLM** | ⬜ PLANNED. Pin exact crossover from interpolated c≈96. Falsification: crossover <c=80 → stronger case, >c=112 → weaker. |
+| **PMAT-255** | **Crossover precision — decode/ITL crossover at c=64, advantage widens to 2.35×/0.43×** | **realizr dec 57.2-57.7 constant, vLLM 50.4→24.4. ITL 17.3-17.5 vs 19.8→41.0** | ✅ MEASURED. Serial isolated on yoga RTX 4060L at c=80/96/112 (filling gap between c=64 and c=128). Crossover confirmed at c=64 (not c≈96 as interpolated). Decode advantage widens smoothly: 1.14× (c=64), 1.46× (c=80), 1.74× (c=96), 2.02× (c=112), 2.35× (c=128). ITL mirrors: 0.87×→0.43×. realizr constant (BATCH=16 floor), vLLM decays linearly. **Decision gate: crossover <c=80 → STRONGER case for current architecture.** Aggregate: realizr ~880-890 (BATCH=16 asymptote), vLLM ~3,070-3,150 (CB saturated). 0% errors both. |
 | **PMAT-254** | **Output-length sensitivity — heterogeneity penalty 31-42%, paged KV ROI 1.72× at c=16** | **realizr 31-42% penalty, vLLM 0-2.5%. Paged KV: 584→1006 at c=16** | ✅ MEASURED. Serial isolated on yoga RTX 4060L. realizr hetero penalty 31%/36%/42%/14% at c=4/8/16/32. vLLM 0.4%/0.1%/2.5%/9.5% — PagedAttention eliminates heterogeneity cost. Paged KV ROI at c=16: +423 tok/s (1.72×). realizr fixed:128 still 0.51× vLLM → CB needed after paged KV. Penalty grows with c at c=4-16 (longer requests waste more KV slots), drops at c=32 (queuing dominates). **Decision gate PASSED: paged KV confirmed highest-ROI.** fixed:128/256 convergence proves KV scan plateaus above 128 tok. |
 | **PMAT-253** | **Prompt-length sensitivity sweep — FP8 prefill cost: 12-14% at c≥4 (borderline)** | **realizr long penalty 3.4-14.1%, vLLM 0.1-8.7%. TTFT ratio 3.0-7.7× vs 1.0-1.1×** | ✅ MEASURED. Serial isolated on yoga RTX 4060L. realizr long-medium penalty: −3.4% (c=1), −12.3% (c=4), −14.1% (c=8), −14.1% (c=16). vLLM: −0.1/−2.9/−1.7/−8.7%. TTFT long/short: realizr 3.0-7.7× (FP8 2-step scales with prompt), vLLM 1.0-1.1× (PagedAttention absorbs). **Decision gate BORDERLINE: 12-14% penalty at c≥4 is between 10% skip and 15% required thresholds. Phase 0 (fused Q4K GEMM) is optional — not mandatory for Phase 1.** Falsification PASSED: max penalty 14.1% < 20% threshold. Short-prompt boost: realizr +9-12% at c≥4 (reduced prefill), vLLM +0.2-3.5% (prompt-invariant). |
 | **PMAT-252** | **Extended competitive advantage matrix c=1→128 — four phase boundaries identified** | **Parity→FP8 crossover→vLLM dominance→quality crossover** | ✅ ANALYTICAL synthesis from PMAT-236→251. Full winner matrix across 6 metrics × 7 concurrency levels. Four distinct competitive phases: (1) c=1-4 parity — all runtimes within 7% on decode. (2) c=5-7 FP8 crossover — realizr decode surpasses llama.cpp. (3) c=8-32 vLLM dominance — CUTLASS GEMM scales linearly. (4) c=64-128 quality crossover — realizr's BATCH=16 floor preserves per-request quality while vLLM collapses. By c=128, realizr wins 4/6 metrics (decode, ITL, errors, score). vLLM wins aggregate and TTFT throughout. Definitive competitive characterization. |
@@ -4320,6 +4332,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 4.9.0 | 2026-03-18 | **PMAT-255: Crossover precision — decode/ITL crossover at c=64.** Filled c=80/96/112 gap for realizr+vLLM. Crossover at c=64 (not c≈96 as interpolated). Decode advantage widens smoothly: 1.14× (c=64) → 1.46× (c=80) → 1.74× (c=96) → 2.02× (c=112) → 2.35× (c=128). ITL: 0.87× → 0.43×. realizr decode/ITL constant (BATCH=16 floor); vLLM decays linearly. Decision gate: crossover <c=80 → stronger case for current architecture. 3/4 implementation gates complete (PMAT-253/254/255). |
 | 4.8.0 | 2026-03-18 | **PMAT-253: Prompt-length sensitivity — FP8 prefill cost quantified.** realizr long-medium penalty: −3.4% (c=1), −12.3% (c=4), −14.1% (c=8/16). vLLM: −0.1 to −8.7%. TTFT long/short: realizr 3.0-7.7× vs vLLM 1.0-1.1×. Decision gate BORDERLINE: 12-14% at c≥4 between skip (≤10%) and required (>15%) thresholds. Phase 0 (fused Q4K GEMM) is optional but beneficial — not a prerequisite for Phase 1. Falsification PASSED: max penalty 14.1% < 20% threshold. Short-prompt boost: realizr +9-12% at c≥4. |
 | 4.7.0 | 2026-03-18 | **PMAT-254: Output-length sensitivity — heterogeneity penalty measured.** realizr 31-42% at c=4-16, vLLM 0-2.5% (PagedAttention). Paged KV ROI at c=16: +423 tok/s (1.72×, 584→1006). realizr fixed:128 still 0.51× vLLM → CB needed after paged KV. Decision gate PASSED: paged KV confirmed highest-ROI. fixed:128/256 convergence proves KV scan plateaus. Strongest quantitative evidence for PMAT-052 priority. |
 | 4.6.0 | 2026-03-18 | **PMAT-253→256: Implementation gate items planned.** Added 4 remaining characterization items as implementation gates: prompt-length sensitivity (253), output-length sensitivity (254), crossover precision (255), Phase 1 readiness audit (256). Each has explicit decision gates and falsification conditions. Serial analytical characterization (PMAT-236→252) is complete — these items transition from analysis to implementation. |

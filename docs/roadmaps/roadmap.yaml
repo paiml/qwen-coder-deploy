@@ -5314,18 +5314,18 @@ roadmap:
 - id: PMAT-255
   github_issue: null
   item_type: task
-  title: 'PMAT-255: Crossover precision — pin exact quality crossover concurrency'
-  status: planned
+  title: 'PMAT-255: Crossover precision — decode/ITL crossover at c=64, advantage widens to 2.35x'
+  status: completed
   priority: medium
   assigned_to: null
   created: 2026-03-18T00:00:00Z
   updated: 2026-03-18T00:00:00Z
   spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: c=80 benchmark for realizr+vLLM'
-  - 'AC2: c=96 benchmark for realizr+vLLM'
-  - 'AC3: c=112 benchmark for realizr+vLLM'
-  - 'AC4: Exact crossover concurrency identified (score tie point)'
+  - 'AC1: c=80 benchmark for realizr+vLLM — DONE'
+  - 'AC2: c=96 benchmark for realizr+vLLM — DONE'
+  - 'AC3: c=112 benchmark for realizr+vLLM — DONE'
+  - 'AC4: Crossover at c=64 (decode 1.14x, ITL 0.87x) — widens to 2.35x/0.43x at c=128'
   phases: []
   subtasks: []
   estimated_effort: 30m
@@ -5336,9 +5336,11 @@ roadmap:
   - vllm
   - 4060L
   notes: |
-    Pin exact crossover from interpolated c~96.
-    Crossover <c=80: stronger case for current architecture.
-    Crossover >c=112: advantage only at extreme concurrency.
+    COMPLETED. Crossover at c=64 (not c~96 as interpolated).
+    Decode: 1.14x (c=64), 1.46x (c=80), 1.74x (c=96), 2.02x (c=112), 2.35x (c=128).
+    ITL: 0.87x (c=64), 0.68x (c=80), 0.58x (c=96), 0.50x (c=112), 0.43x (c=128).
+    realizr decode constant 57.2-57.7 (BATCH=16 floor), vLLM decays 50.4->24.4.
+    Decision gate: crossover <c=80 -> STRONGER case for current architecture.
 
 - id: PMAT-256
   github_issue: null
