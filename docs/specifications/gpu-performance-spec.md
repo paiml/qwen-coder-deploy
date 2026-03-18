@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 4.4.0
+**Version:** 4.5.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1160,6 +1160,19 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 | Score | **vLLM** | **vLLM** | **realizr** | realizr/llama.cpp |
 
 **realizr wins**: TTFT tail (c=4,16), ITL jitter (c=16), error rate (all c), score (c=8). **realizr's competitive profile**: not the fastest, but the most predictable and error-free batching runtime. At c≥8, realizr quality (score) equals or exceeds llama.cpp despite 12-46% lower aggregate.
+
+**PMAT-252: Extended competitive advantage matrix (c=1→128, same-session serial):**
+
+| Metric | c=1 | c=4 | c=8 | c=16 | c=32 | c=64 | c=128 |
+|--------|-----|-----|-----|------|------|------|-------|
+| Aggregate | llama.cpp | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** |
+| Decode | ollama | ollama | ollama | ollama | vLLM | **realizr** | **realizr** |
+| TTFT | llama.cpp | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** | **vLLM** |
+| ITL | ollama | ollama | ollama | ollama | vLLM | **realizr** | **realizr** |
+| Errors | realizr/vLLM | realizr/vLLM | realizr/vLLM | realizr/vLLM | realizr/vLLM | realizr/vLLM | realizr/vLLM |
+| Score | vLLM | **vLLM** | **vLLM** | **vLLM** | **vLLM** | vLLM | **realizr** |
+
+**Architecture-dependent phase boundaries:** (1) c=1-4: parity zone — all runtimes within 7% on decode/ITL, llama.cpp wins M=1 GEMV. (2) c=5-7: FP8 crossover — realizr decode surpasses llama.cpp (PMAT-207). (3) c=8-32: vLLM dominance — CUTLASS GEMM scales linearly, realizr aggregate deficit widens. (4) c=64-128: **quality crossover** — realizr's BATCH=16 floor preserves per-request quality while vLLM per-request metrics collapse. vLLM wins 6/7 metrics through c=32, but by c=128 realizr wins decode, ITL, errors, AND composite score.
 
 **PMAT-248: Definitive serial scoring curve (c=1→128, same-session isolated, probador 1.0.3):**
 
@@ -3277,6 +3290,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-252** | **Extended competitive advantage matrix c=1→128 — four phase boundaries identified** | **Parity→FP8 crossover→vLLM dominance→quality crossover** | ✅ ANALYTICAL synthesis from PMAT-236→251. Full winner matrix across 6 metrics × 7 concurrency levels. Four distinct competitive phases: (1) c=1-4 parity — all runtimes within 7% on decode. (2) c=5-7 FP8 crossover — realizr decode surpasses llama.cpp. (3) c=8-32 vLLM dominance — CUTLASS GEMM scales linearly. (4) c=64-128 quality crossover — realizr's BATCH=16 floor preserves per-request quality while vLLM collapses. By c=128, realizr wins 4/6 metrics (decode, ITL, errors, score). vLLM wins aggregate and TTFT throughout. Definitive competitive characterization. |
 | **PMAT-251** | **ITL crossover analysis c=1→128 — realizr ITL beats vLLM at c≥64** | **realizr 17.3ms vs vLLM 19.8ms at c=64, 17.5ms vs 41.0ms at c=128 (2.3×)** | ✅ ANALYTICAL from PMAT-236→247 serial data. Full ITL P50 curve reveals crossover at c=64: realizr 17.3ms < vLLM 19.8ms (r/v = 0.87×). At c=128: 17.5ms vs 41.0ms (r/v = 0.43× — realizr 2.3× better). realizr ITL stabilizes at 17.3-17.5ms for c≥32 (BATCH=16 floor). vLLM ITL grows 6.3× from c=1→128 (no floor). This mirrors the decode crossover (PMAT-249) at the same concurrency — ITL = 1/decode_rate. The ITL stability is the mechanism behind the scoring crossover at c=128. llama.cpp errors 1-3% at all c (only runtime with errors). |
 | **PMAT-250** | **TTFT scaling full curve c=1→128 — phase transition at c=32, 124.5× gap at c=128** | **realizr TTFT grows 887× (c=1→128) vs vLLM 9.6×** | ✅ ANALYTICAL from PMAT-236→247 serial data. Full TTFT curve reveals phase transition at c=32 where both realizr and llama.cpp hit 16-slot boundary: realizr 279→2,235ms (8.0× per doubling), llama.cpp 60→1,646ms (27.3× per doubling). vLLM grows smoothly at 1.4-1.9× per doubling. r/v TTFT gap widens from 1.3× (c=1) to 124.5× (c=128). Despite absolute magnitude, realizr TTFT tail ratio stays ≤1.1× (deterministic batch scheduling). The 16-slot boundary is the architectural limit — paged KV (PMAT-052) removes it. Extends PMAT-242 analysis from c=16 to full c=128 range. |
 | **PMAT-249** | **Per-request decode decay curve c=1→128 — three crossover points, BATCH=16 floor** | **realizr floor 38% (stable c=32-128), vLLM no floor (16% at c=128)** | ✅ ANALYTICAL from PMAT-236→247 serial data. Full decode decay curve synthesized for all 4 runtimes. Three crossover points identified: (1) realizr beats llama.cpp at c=8 (1.45×), (2) r/l parity at c=32 (0.99×), (3) realizr beats vLLM at c=64 (1.14×, widens to 2.34× at c=128). Decode preservation: vLLM has no floor (98%→16%), realizr stabilizes at 38% (BATCH=16 cap). BATCH=16 is both ceiling AND floor — caps peak throughput but prevents per-request quality collapse. llama.cpp has a notch at c=8 (33%) then recovers to 36% at c=16-32 (fixed-slot scheduling effect). Ollama 99-100% (serial, no batching degradation). |
@@ -4266,6 +4280,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 4.5.0 | 2026-03-18 | **PMAT-252: Extended competitive advantage matrix.** Full winner matrix 6 metrics × 7 c levels (c=1→128). Four phase boundaries: (1) c=1-4 parity, (2) c=5-7 FP8 crossover, (3) c=8-32 vLLM dominance, (4) c=64-128 quality crossover. By c=128 realizr wins 4/6 metrics (decode, ITL, errors, score). Definitive competitive characterization across full concurrency range. |
 | 4.4.0 | 2026-03-18 | **PMAT-251: ITL crossover analysis.** Full ITL P50 curve c=1→128. Crossover at c=64: realizr 17.3ms < vLLM 19.8ms. At c=128: 17.5ms vs 41.0ms (realizr 2.3× better). realizr ITL stabilizes at 17.3-17.5ms (BATCH=16 floor); vLLM grows 6.3×. Mirrors decode crossover. ITL stability is the mechanism behind scoring crossover at c=128. Combined with PMAT-249/250: complete per-metric characterization (decode + TTFT + ITL) c=1→128. |
 | 4.3.0 | 2026-03-18 | **PMAT-250: TTFT scaling full curve c=1→128.** Phase transition at c=32: realizr 8.0× per doubling, llama.cpp 27.3×, vLLM 1.4-1.9× (smooth). TTFT growth c=1→128: realizr 887× vs vLLM 9.6×. r/v gap from 1.3× to 124.5×. 16-slot boundary is architectural limit — paged KV removes it. Extends PMAT-242 from c=16 to full c=128 range. |
 | 4.2.0 | 2026-03-18 | **PMAT-249: Per-request decode decay curve.** Full decode decay curve c=1→128 for all 4 runtimes. Three crossover points: r/l at c=8 (1.45×), r/l parity at c=32 (0.99×), r/v at c=64 (1.14×→2.34× at c=128). Decode preservation: vLLM no floor (98%→16%), realizr stabilizes at 38% (BATCH=16 cap), llama.cpp notch at c=8 (33%→36%). BATCH=16 is both ceiling AND floor — prevents per-request quality collapse that vLLM suffers. |
