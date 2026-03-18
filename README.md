@@ -39,46 +39,46 @@ make load                    # Load tests
 | vLLM | 8084 | AWQ INT4 | CUDA (PagedAttention, CUTLASS GEMM) |
 
 <!-- PERFORMANCE_START -->
-## Performance — RTX 4060 Laptop (2026-03-17, PMAT-177/228, locked 1900MHz)
+## Performance — RTX 4060 Laptop (2026-03-18, PMAT-257, locked 1900MHz)
 
 ### Production Methodology (medium prompt ~102 tok, uniform:16,256 output, streaming, 60s)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
 | 1 | 147.2 | 158.1 | 152.4 | 151.8 |
-| 4 | 217.6 | 354.4 | 587.4 | 160.1 |
-| 8 | 351.7 | 420.1 | 1,115.2 | 159.4 |
-| 16 | 571.3 | 896.6 | 1,982.9 | 161.0 |
-| 32 | 867.3 | 943.2 | 2,757.6 | 159.0 |
-| 64 | 887.4 | — | 3,036.1 | — |
-| 128 | 857.1 | — | 3,049.4 | — |
+| 4 | **291.3** | 354.4 | 587.4 | 160.1 |
+| 8 | **494.8** | 420.1 | 1,115.2 | 159.4 |
+| 16 | **884.8** | 896.6 | 1,982.9 | 161.0 |
+| 32 | 873.7 | 943.2 | 2,757.6 | 159.0 |
+| 64 | 882.0 | — | 3,036.1 | — |
+| 128 | 885.6 | — | 3,049.4 | — |
 
-realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hetero) / 1,010 (fixed:128). BATCH=32 bug at c≥20 medium (PMAT-221).
+realizr uses CUDA_MAX_BATCH=16 + ITERATION_SCHEDULER=1 (PMAT-257). Iteration scheduler: +34-55% at c=4-16, TTFT −48-83%. Asymptote ~885 tok/s (hetero).
 
-### Scorecards (probador llm score, PMAT-229 — definitive combined scoring)
+### Scorecards (probador llm score, PMAT-257 — iteration scheduler)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 94 A | 97 A+ | 97 A+ | 78 B |
-| 4 | 58 C | 73 B | 97 A+ | 58 C |
-| 8 | 64 C+ | 65 C+ | 96 A+ | 58 C |
-| 16 | 70 B | 72 B | 94 A | 58 C |
-| 32 | 66 C+ | 51 C | 86 A- | 57 C |
+| 1 | 95 A+ | 97 A+ | 97 A+ | 78 B |
+| 4 | 70 B | 73 B | 97 A+ | 58 C |
+| 8 | 75 B | 65 C+ | 96 A+ | 58 C |
+| 16 | 78 B | 72 B | 94 A | 58 C |
+| 32 | 67 C+ | 51 C | 86 A- | 57 C |
 | 64 | 68 C+ | — | 73 B | — |
-| 128 | **67 C+** | — | 63 C+ | — |
+| 128 | **68 C+** | — | 63 C+ | — |
 
-### Asymptotes (PMAT-192/195/197)
+realizr overtakes llama.cpp at c=8 (75 vs 65) and holds through c=32 (67 vs 51). Quality crossover: realizr **beats** vLLM at c=128 (68 C+ vs 63 C+).
+
+### Asymptotes (PMAT-192/195/197/257)
 
 | Runtime | Asymptote | Architecture |
 |---------|-----------|-------------|
 | vLLM | **3,050** tok/s | PagedAttention, continuous batching, CUTLASS GEMM |
-| realizr | 880 tok/s (BATCH=16) | Batch-and-step, queue+batch=16 (workaround) |
+| realizr | 885 tok/s (iter sched) | Iteration scheduler, BATCH=16 |
 | llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | Serial FIFO |
 
-realizr at BATCH=32: 1,500 tok/s but has quality bug at c≥20 (PMAT-221). BATCH=16 asymptote: 880 (hetero) / 1,010 (fixed:128).
-
-Quality crossover: realizr **beats** vLLM at c=128 (67 C+ vs 63 C+) even at BATCH=16.
+Iteration scheduler hits asymptote at c=16 (was c=32 with batch-and-step). TTFT: 48ms at c=16 (was 279ms).
 
 ### Cross-Platform Decode (c=1, isolated, streaming)
 
@@ -88,14 +88,15 @@ Quality crossover: realizr **beats** vLLM at c=128 (67 C+ vs 63 C+) even at BATC
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→217, nsys/ncu profiling)
+### Key Findings (PMAT-209→257)
 
+- **Iteration scheduler (PMAT-257)**: +34-55% aggregate, −48-83% TTFT at c=4-16 — zero code changes, just env var
 - **Three-level kernel architecture**: realizr (44+ kernels, CUDA graph M=1) → llama.cpp (35 kernels, ncols-templated GEMV) → vLLM (15 kernels, CUTLASS GEMM M=batch)
 - **vLLM GEMM is batch-invariant**: 2,139→2,199µs (+2.8%) from c=1 to c=16 — throughput scales linearly with batch size
-- **realizr CPU blocked 82.4%** in cuStreamSynchronize at c=4 (PMAT-217). M=1 graph invalid for M>1 → 771 kernel launches/step
-- **Prompt length hurts realizr most**: −13-16% long penalty (c≥4) vs llama.cpp −2-9%, vLLM −0-10%. TTFT gap: 24× at c=16 (673ms vs 28ms). FP8 2-step prefill is sole cause (PMAT-227)
-- **⚠️ Quality bug**: realizr batched prefill corrupts KV at long c≥9, medium c≥20 at BATCH=32 (PMAT-221/222). **Workaround: CUDA_MAX_BATCH=16** (PMAT-223)
-- **Heterogeneity penalty**: 37-43% throughput loss from uniform:16,256 vs fixed:128 output. Paged KV (PMAT-052) is highest-ROI fix
+- **Decode/ITL crossover at c=64** (PMAT-255): realizr wins per-request decode 1.14-2.35× and ITL 0.43-0.87× at c=64-128
+- **Heterogeneity penalty** (PMAT-254): 31-42% loss from uniform output. Paged KV (PMAT-052) recovers 1.72× at c=16
+- **Phase 1 readiness** (PMAT-256): Paged KV ready, scheduler is blocker (~1,000-1,400 LOC total)
+- **⚠️ Quality bug**: BATCH=32 corrupts KV at c≥20 medium (PMAT-221). **Workaround: CUDA_MAX_BATCH=16** (PMAT-223)
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
