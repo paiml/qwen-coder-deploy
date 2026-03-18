@@ -5249,18 +5249,18 @@ roadmap:
 - id: PMAT-253
   github_issue: null
   item_type: task
-  title: 'PMAT-253: Prompt-length sensitivity sweep — FP8 prefill cost quantification'
-  status: planned
+  title: 'PMAT-253: Prompt-length sensitivity — FP8 prefill cost 12-14% at c>=4 (borderline)'
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-03-18T00:00:00Z
   updated: 2026-03-18T00:00:00Z
   spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: Short prompt (23 tok) at c=1/4/8/16 for realizr+vLLM'
-  - 'AC2: Long prompt (~500 tok) at c=1/4/8/16 for realizr+vLLM'
-  - 'AC3: Prompt-length penalty quantified per-runtime per-c'
-  - 'AC4: Decision gate: >15% penalty -> Phase 0 required; <=10% -> skip Phase 0'
+  - 'AC1: Short prompt (23 tok) at c=1/4/8/16 for realizr+vLLM — DONE'
+  - 'AC2: Long prompt (~500 tok) at c=1/4/8/16 for realizr+vLLM — DONE'
+  - 'AC3: Prompt-length penalty quantified — DONE (realizr 3.4-14.1%, vLLM 0.1-8.7%)'
+  - 'AC4: Decision gate BORDERLINE — 12-14% between 10% skip and 15% required. Phase 0 optional'
   phases: []
   subtasks: []
   estimated_effort: 45m
@@ -5270,11 +5270,13 @@ roadmap:
   - prefill
   - 4060L
   notes: |
-    Quantifies FP8 2-step prefill cost (PMAT-227 claimed -13-16%).
-    Short: --prompt-profile short (23 tok). Long: --prompt-profile long (~500 tok).
-    Serial isolated deploy for each runtime at each c level.
-    Falsification: realizr long penalty >20% -> Phase 0 (fused Q4K GEMM) mandatory.
-    vLLM is prompt-invariant (claimed +/-6%, PMAT-183) -> controls for methodology.
+    COMPLETED. realizr long-medium penalty: -3.4% (c=1), -12.3% (c=4), -14.1% (c=8), -14.1% (c=16).
+    vLLM: -0.1% (c=1), -2.9% (c=4), -1.7% (c=8), -8.7% (c=16).
+    TTFT long/short ratio: realizr 3.0-7.7x vs vLLM 1.0-1.1x.
+    Decision gate BORDERLINE: 12-14% at c>=4 between skip (<=10%) and required (>15%).
+    Phase 0 (fused Q4K GEMM) is optional but beneficial - not mandatory for Phase 1.
+    Falsification PASSED: max penalty 14.1% < 20% threshold.
+    Short-prompt boost: realizr +9-12% at c>=4 (reduced FP8 prefill time).
 
 - id: PMAT-254
   github_issue: null

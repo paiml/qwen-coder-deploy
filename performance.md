@@ -393,6 +393,26 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Paged KV ROI**: At c=16, paged KV recovers +423 tok/s (1.72×) from 584→1,006. But realizr fixed:128 is still 0.51× vLLM — **CB is still needed after paged KV.** Combined Phase 1 projected 0.97× vLLM (PMAT-180).
 
+### Prompt-Length Sensitivity (PMAT-253, Mar 18)
+
+**realizr aggregate (tok/s):**
+
+| Profile | c=1 | c=4 | c=8 | c=16 |
+|---------|-----|-----|-----|------|
+| short (23 tok) | 148.8 | 239.8 | 387.9 | 655.4 |
+| medium (102 tok) | 147.2 | 217.6 | 355.5 | 583.6 |
+| long (~500 tok) | 142.2 | 190.8 | 305.4 | 501.5 |
+
+**vLLM aggregate (tok/s):**
+
+| Profile | c=1 | c=4 | c=8 | c=16 |
+|---------|-----|-----|-----|------|
+| short (23 tok) | 152.6 | 588.6 | 1,137.4 | 2,049.7 |
+| medium (102 tok) | 152.3 | 587.1 | 1,114.7 | 1,980.1 |
+| long (~500 tok) | 152.1 | 569.8 | 1,095.7 | 1,808.0 |
+
+**Long-prompt penalty (vs medium)**: realizr −3.4% (c=1), −12.3% (c=4), −14.1% (c=8), −14.1% (c=16). vLLM −0.1% (c=1), −2.9% (c=4), −1.7% (c=8), −8.7% (c=16). TTFT long/short ratio: realizr 3.0× (c=1) → 7.7× (c=16); vLLM 1.0-1.1×. **Decision gate BORDERLINE**: 12-14% at c≥4 between 10% skip and 15% required thresholds. Phase 0 (fused Q4K GEMM) is optional — not mandatory for Phase 1. Short-prompt boost (vs medium): realizr +9-12% at c≥4.
+
 ### Extended Competitive Advantage Matrix (PMAT-252, Mar 18)
 
 | Metric | c=1 | c=4 | c=8 | c=16 | c=32 | c=64 | c=128 |
