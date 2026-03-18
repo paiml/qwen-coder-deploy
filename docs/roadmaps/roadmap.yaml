@@ -5345,19 +5345,19 @@ roadmap:
 - id: PMAT-256
   github_issue: null
   item_type: task
-  title: 'PMAT-256: Phase 1 implementation readiness audit — CB architecture review'
-  status: planned
+  title: 'PMAT-256: Phase 1 readiness audit — paged KV ready, scheduler blocker, ~1000-1400 LOC'
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-03-18T00:00:00Z
   updated: 2026-03-18T00:00:00Z
   spec: docs/specifications/gpu-performance-spec.md
   acceptance_criteria:
-  - 'AC1: KV cache allocation path — all fixed-slot assumptions identified'
-  - 'AC2: Batch scheduler — batch-and-step vs continuous dispatch points identified'
-  - 'AC3: CUDA graph capture — M=1 graph invalidation points identified'
-  - 'AC4: Memory allocator — contiguous vs paged allocation points identified'
-  - 'AC5: Implementation plan with LOC estimates, blocking deps, risk assessment'
+  - 'AC1: KV cache — DONE (paged_kv/ is CB-ready, no fixed-slot assumptions)'
+  - 'AC2: Batch scheduler — DONE (cuda_batch_scheduler.rs is blocker, iteration_scheduler.rs incomplete)'
+  - 'AC3: CUDA graphs — DONE (invalidation unclear, PMAT-042 workspace realloc risk)'
+  - 'AC4: Memory allocator — DONE (per-layer HashMap, paged, CB-ready)'
+  - 'AC5: Implementation plan — DONE (~1000-1400 LOC, 4-5 files, critical path identified)'
   phases: []
   subtasks: []
   estimated_effort: 120m
@@ -5368,8 +5368,14 @@ roadmap:
   - paged-kv
   - continuous-batching
   notes: |
-    Transition from analysis to implementation. Review realizr codebase.
-    Identify all architectural changes needed for paged KV + CB.
-    Output: concrete implementation plan, not just analysis.
-    This gates Phase 1 implementation start.
-    Blocks: PMAT-052 (paged KV), PMAT-053 (continuous batching).
+    COMPLETED. Four-area codebase review of realizr for CB readiness.
+    KV cache (paged_kv/): READY — dynamic page alloc, CoW, defrag. No changes.
+    Batch scheduler: BLOCKER — cuda_batch_scheduler.rs (430 LOC) is synchronous
+    batch-and-step. iteration_scheduler.rs (459 LOC) framework exists but incomplete.
+    CUDA graphs: RISK — invalidation strategy unclear, PMAT-042 workspace realloc
+    can cause silent data corruption. Fix ~200-300 LOC.
+    Memory allocator: READY — per-layer HashMap, paged. No changes.
+    Total Phase 1: ~1,000-1,400 LOC across 4-5 files.
+    Critical path: graph safety -> async iteration loop -> mid-batch slot addition.
+    All 4 implementation gates (PMAT-253/254/255/256) complete.
+    Phase 1 implementation can begin.

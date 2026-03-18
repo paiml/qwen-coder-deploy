@@ -369,6 +369,19 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### Phase 1 Readiness Audit (PMAT-256, Mar 18)
+
+Codebase review of realizr for continuous batching readiness:
+
+| Area | Status | Files | LOC Change |
+|------|--------|-------|-----------|
+| KV cache (paged_kv/) | **READY** | mod_paged.rs (444 LOC) | 0 |
+| Memory allocator | **READY** | core.rs (per-layer HashMap) | 0 |
+| Batch scheduler | **BLOCKER** | cuda_batch_scheduler.rs (430), iteration_scheduler.rs (459) | +500-700 |
+| CUDA graphs | **RISK** | core.rs (decode_graph, batched_decode_graphs) | +200-300 |
+
+**Total Phase 1: ~1,000-1,400 LOC** across 4-5 files. PagedKvCache already implements dynamic page allocation, CoW, and defragmentation — no changes needed. Batch scheduler is the binding blocker: legacy `process_cuda_batch()` is synchronous batch-and-step; `iteration_scheduler.rs` framework exists (opt-in via `ITERATION_SCHEDULER=1`) but incomplete. CUDA graph invalidation strategy unclear — PMAT-042 workspace realloc risk of silent data corruption. Critical path: graph safety → async iteration loop → mid-batch slot addition → prefill chunking.
+
 ### Crossover Precision (PMAT-255, Mar 18)
 
 | c | realizr agg | vLLM agg | realizr dec | vLLM dec | r/v dec | realizr ITL | vLLM ITL | r/v ITL |
