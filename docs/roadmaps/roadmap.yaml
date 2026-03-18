@@ -5615,6 +5615,39 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-268
+  github_issue: null
+  item_type: task
+  title: 'PMAT-268: Iter sched prompt-length sensitivity — penalty INCREASES, PMAT-054 now REQUIRED'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Short/medium/long at c=4/8/16/32 — DONE (8 benchmarks)'
+  - 'AC2: Compare to PMAT-253 B16 B&S — DONE (penalty grows from -12-14% to -17-26%)'
+  - 'AC3: Decision gate update — DONE (PMAT-053 reclassified to REQUIRED at c>=16)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - prompt-length
+  - iteration-scheduler
+  - falsification
+  notes: |
+    COMPLETED. B32 iter sched prompt-length sensitivity at c=4/8/16/32.
+    Long penalty: -16.9% (c=4), -16.6% (c=8), -21.5% (c=16), -26.3% (c=32).
+    Was -12.3/-14.1/-14.1% with B16 B&S (PMAT-253). WORSE with iter sched.
+    Per-slot prefill concentrates FP8 overhead without batch amortization.
+    Sensitivity grows with concurrency (more active KV to scan with longer sequences).
+    Short boost: +9.3/+11.5/+12.6/+16.5% at c=4/8/16/32.
+    TTFT flat with c (35-42ms short, 67-75ms long) — per-slot prefill constant.
+    PMAT-253 reclassified: fused Q4K GEMM (PMAT-054) now REQUIRED at c>=16.
+    Long penalty exceeds 20% threshold at c=16 (-21.5%) and c=32 (-26.3%).
+
 - id: PMAT-267
   github_issue: null
   item_type: task

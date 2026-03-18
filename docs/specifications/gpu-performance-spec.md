@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.8.0
+**Version:** 5.9.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -73,7 +73,7 @@ realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,5
 1. **Per-request decode rate** (0.46-0.56× — binding factor, batch-GEMV KV scan scales with M) → per-M CUDA graph capture + continuous batching
 2. **Scheduling utilization** (**0.94-0.96× — near-optimal** with iteration scheduler, PMAT-264) → already close to vLLM's ~98%
    - *Sub-factor: output heterogeneity* (reduced to 7-11% by iter sched, PMAT-260; was 31-42% with B&S)
-   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Optional (PMAT-253)**
+   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **REQUIRED at c≥16 (PMAT-268: −21-26% long penalty)**
 
 **Ollama (PMAT-182/191):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate flat at 159-161 tok/s regardless of c (confirmed c=1→32). TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8), **14573ms (c=16), 24419ms (c=32)** — linear with c. Ollama represents the M=1 kernel ceiling without scheduling overhead.
 
@@ -1248,6 +1248,19 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 | vLLM (long vs medium) | **−0.1%** | **−2.9%** | **−1.7%** | **−8.7%** |
 
 †Long vs short penalties are larger (20-23%) because short is faster than medium baseline. The decision gate uses long vs medium (the production baseline), yielding 12-14%. **Short-prompt boost (vs medium)**: realizr +1.1% (c=1), +10.2% (c=4), +9.1% (c=8), +12.3% (c=16) — shorter prompts help realizr at c≥4 by reducing FP8 prefill time. vLLM short boost: +0.2% (c=1), +0.3% (c=4), +2.0% (c=8), +3.5% (c=16) — near-zero, confirms prompt-invariance.
+
+**PMAT-268: Iteration scheduler prompt-length sensitivity — COMPLETED.** ✅ B32 iter sched INCREASES prompt-length sensitivity vs B16 B&S. Per-slot prefill concentrates FP8 overhead without batch amortization.
+
+| c | Short (23 tok) | Medium (102 tok) | Long (~311 tok) | Short boost | Long penalty | PMAT-253 (B16) |
+|---|---------------|-----------------|----------------|------------|-------------|----------------|
+| 4 | 317.0 | 290.1 | 241.0 | **+9.3%** | **−16.9%** | −12.3% |
+| 8 | 551.2 | 494.4 | 412.6 | **+11.5%** | **−16.6%** | −14.1% |
+| 16 | 990.9 | 880.4 | 691.4 | **+12.6%** | **−21.5%** | −14.1% |
+| 32 | 1,705.6 | 1,463.8 | 1,079.5 | **+16.5%** | **−26.3%** | — |
+
+Decode degradation with long prompts: c=4 82.7→63.2 (−23.6%), c=32 57.0→36.6 (−35.8%) — KV attention scan grows with sequence length. TTFT: short 35-42ms (flat), long 67-75ms (flat). Ratio 1.8×. TTFT is **constant with concurrency** (unlike B&S where TTFT grows linearly) because per-slot prefill avoids batch-wide blocking.
+
+**Key finding:** Sensitivity GROWS with concurrency: −16.9% (c=4) → −26.3% (c=32). More active decode slots = more KV to scan per step = higher penalty from longer sequences. **Decision gate: PMAT-253 reclassified from BORDERLINE to REQUIRED at c≥16.** Long penalty exceeds 20% threshold at c=16 (−21.5%) and c=32 (−26.3%). Fused Q4K GEMM (PMAT-054) now mandatory for production workloads with variable prompt lengths at c≥16.
 
 **PMAT-254: Output-length sensitivity sweep — COMPLETED.** ✅ realizr heterogeneity penalty (B16, batch-and-step): **31% (c=4), 36% (c=8), 42% (c=16), 14% (c=32)**. vLLM: **0.4% (c=4), 0.1% (c=8), 2.5% (c=16), 9.5% (c=32)** — PagedAttention eliminates heterogeneity cost. **⚠️ PMAT-260 UPDATE:** With B32 iteration scheduler, penalty reduced to **7-11%** (4× improvement). Paged KV marginal ROI at c=16: +100 tok/s (1.11×, was +423/1.72× with B16 B&S). Most of PMAT-254's penalty was scheduling waste, not memory fragmentation. CB (mid-batch joins) is now definitively higher-value than paged KV. See PMAT-260 for full comparison.
 
@@ -3437,6 +3450,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-268** | **Iteration scheduler prompt-length sensitivity — penalty INCREASES** | **Long penalty −16.9% (c=4) → −26.3% (c=32). PMAT-253 decision gate reclassified: REQUIRED at c≥16** | ✅ MEASURED. B32 iter sched at c=4/8/16/32 with short/long vs medium baseline. Per-slot prefill concentrates FP8 overhead. Sensitivity GROWS with concurrency: −16.9/−16.6/−21.5/−26.3% at c=4/8/16/32 (was −12.3/−14.1/−14.1% B16 B&S). Short boost: +9.3/+11.5/+12.6/+16.5%. Decode drops 23-36% with long prompts (KV scan). TTFT flat with c (35-42ms short, 67-75ms long) — per-slot prefill avoids batch-wide blocking. **PMAT-253 reclassified: fused Q4K GEMM (PMAT-054) now REQUIRED at c≥16** (penalty exceeds 20% threshold). |
 | **PMAT-267** | **Per-step pipeline analysis — corrects PMAT-266's overcorrection** | **GPU kernels 7.4ms (not 10ms), serving 5.5ms (40% of step). Wall-time gap 2.0× (not 4.6×). Graph → 0.66-0.79× vLLM** | ✅ ANALYZED. Re-derived per-step budget from PMAT-266 nsys kernel totals / step count. GPU kernel time: 7.4ms per step (PMAT-266 stated 10ms — overstated by including partial overlap). Serving overhead: 5.5ms (HTTP, tokenizer, scheduling — not captured in nsys CUDA traces). Wall-time gap: 2.0× (13.8/6.8ms, directly from throughput). PMAT-266's "4.6× GPU kernel gap" compared realizr total GPU to a single vLLM GEMM call — misleading because vLLM has ~3 calls/step. Per-M graph + event sync enables CPU-GPU pipelining (serving overlaps GPU): projected 0.66-0.79× vLLM (50-80% overlap). PMAT-265's ~0.81× approximately correct at high overlap. **The binding question is achievable overlap %, not kernel fusion.** |
 | **PMAT-266** | **nsys CUDA API trace — iteration scheduler dispatch IDENTICAL to batch-and-step** | **cuStreamSync 80.5%/10.7ms (was 82.4%/10.4ms). GPU kernels 7.4ms/step. ⚠️ Initial 4.6× gap overstated — corrected to 2.0× by PMAT-267** | ✅ MEASURED. nsys trace of B32 iter sched at c=4 (90s, yoga RTX 4060L). cuStreamSync dominates identically to PMAT-217 B&S — iteration scheduler is CPU-only improvement, does NOT change CUDA dispatch. Per-step M=4: GPU kernels **7.4ms** (DP4A 2.8ms + attn 2.0ms + FP8 2.2ms + other 0.4ms), launch 0.9ms, H2D 0.4ms, serving 5.5ms. PMAT-267 correction: initial "10ms GPU, 4.6× gap" was overstated (included overlap and compared to single vLLM GEMM call). Actual wall-time gap: **2.0×**. Graph + event sync enables pipelining → 0.66-0.79× vLLM. |
 | **PMAT-265** | **Updated Phase 1 projections from B32 iter sched baseline** | **Graph: ~0.81× → PMAT-266 overcorrected to 0.57-0.64× → PMAT-267 re-corrected to 0.66-0.79×** | ⚠️ PARTIALLY VALIDATED by PMAT-267 after PMAT-266 overcorrection. PMAT-266 said GPU kernel compute (10ms) is floor → 0.57-0.64×. PMAT-267 found GPU is 7.4ms (not 10ms), serving 5.5ms — graph + event sync enables CPU-GPU pipelining → 0.66-0.79× (50-80% overlap). Original 0.81× achievable at ~80% overlap. **The binding question is implementation overlap achievability, not kernel architecture.** |
@@ -4441,6 +4455,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.9.0 | 2026-03-18 | **PMAT-268: Iteration scheduler prompt-length sensitivity.** B32 iter sched INCREASES long-prompt penalty vs B16 B&S: −16.9% (c=4), −16.6% (c=8), −21.5% (c=16), −26.3% (c=32). Was −12-14% with B&S. Penalty grows with concurrency — more active KV to scan. Short-prompt boost: +9-17%. PMAT-253 decision gate reclassified: fused Q4K GEMM (PMAT-054) now **REQUIRED** at c≥16 (exceeds 20% threshold). TTFT flat with concurrency (per-slot prefill, no batch-wide blocking). |
 | 5.8.0 | 2026-03-18 | **PMAT-267: Per-step pipeline analysis — corrects PMAT-266's overcorrection.** Re-derived per-step budget: GPU kernels **7.4ms** (not 10ms), serving overhead **5.5ms** (40% of step). Wall-time gap: **2.0×** (not 4.6×). The "4.6× GPU kernel gap" compared realizr total GPU to single vLLM GEMM call — misleading. Graph + event sync enables CPU-GPU pipelining → **0.66-0.79× vLLM** (50-80% overlap). PMAT-265's ~0.81× approximately correct at high overlap. **Binding question: achievable overlap %, not kernel architecture.** Investment priority: per-M graph + event sync > kernel fusion (conditional) > CB > paged KV. |
 | 5.7.0 | 2026-03-18 | **PMAT-266: nsys trace — iter sched dispatch identical to B&S.** cuStreamSync 80.5%/10.7ms. ⚠️ Initial "4.6× gap, graph saves only 17%" overcorrected by PMAT-267. GPU kernels are 7.4ms (not 10ms); serving 5.5ms not captured in nsys. |
 | 5.6.0 | 2026-03-18 | **PMAT-265: Phase 1 projections.** Graph → ~0.81× (original). PMAT-266 overcorrected to 0.57-0.64×. PMAT-267 re-corrected to 0.66-0.79× (50-80% overlap). |

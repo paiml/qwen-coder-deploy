@@ -126,9 +126,9 @@ vLLM: 11,467 pre-captured graph launches, event-based sync, 18.9µs median sync.
 **PMAT-267 correction of PMAT-266**: GPU kernel time is **7.4ms** (not 10ms). Serving overhead is **5.5ms** (40% of step, not captured in nsys). Graph + event-based sync enables CPU-GPU overlap: serving runs concurrently with GPU.
 **Revised projection**: per-M graph + event sync → **390-466 tok/s** at c=4 (0.66-0.79× vLLM) depending on achievable overlap (50-80%). Wall-time gap is **2.0×** (not 4.6×).
 
-### Prompt-Length Sensitivity (PMAT-219/220)
+### Prompt-Length Sensitivity (PMAT-219/220, updated PMAT-268)
 
-Competitive ratios (realizr/llama.cpp) across prompt lengths with heterogeneous output:
+Competitive ratios (realizr/llama.cpp) across prompt lengths with heterogeneous output (B16 B&S):
 
 | Workload | c=1 | c=4 | c=8 | c=16 |
 |----------|-----|-----|-----|------|
@@ -146,6 +146,32 @@ realizr/vLLM ratios:
 
 † realizr c=16 long: output degradation (p50=10 tokens).
 Prompt length monotonically hurts realizr. FP8 prefill BW overhead scales linearly.
+
+### Iteration Scheduler Prompt-Length Sensitivity (PMAT-268, Mar 18)
+
+B32 iter sched prompt-length penalty vs medium baseline (uniform:16,256 output, streaming, 60s):
+
+| c | Short agg | Medium agg | Long agg | Short boost | Long penalty | PMAT-253 (B16 B&S) |
+|---|-----------|------------|----------|------------|-------------|---------------------|
+| 4 | 317.0 | 290.1 | 241.0 | **+9.3%** | **−16.9%** | −12.3% |
+| 8 | 551.2 | 494.4 | 412.6 | **+11.5%** | **−16.6%** | −14.1% |
+| 16 | 990.9 | 880.4 | 691.4 | **+12.6%** | **−21.5%** | −14.1% |
+| 32 | 1,705.6 | 1,463.8 | 1,079.5 | **+16.5%** | **−26.3%** | — |
+
+Per-request decode by prompt profile:
+
+| c | Short dec | Medium dec* | Long dec | Short/Med | Long/Med |
+|---|-----------|------------|----------|-----------|----------|
+| 4 | 82.7 | ~82 | 63.2 | ~1.01× | **0.77×** |
+| 8 | 71.4 | ~65 | 53.5 | ~1.10× | **0.82×** |
+| 16 | 65.3 | ~57 | 46.0 | ~1.15× | **0.81×** |
+| 32 | 57.0 | ~49 | 36.6 | ~1.16× | **0.75×** |
+
+*Medium decode estimated from aggregate/active_slots.
+
+TTFT (P50): short 35-42ms (flat across c), long 67-75ms (flat). Ratio: 1.8×. The iteration scheduler's per-slot prefill makes TTFT **constant with concurrency** (unlike B&S where TTFT grew linearly).
+
+**Key finding: The iteration scheduler INCREASES prompt-length sensitivity** vs B16 B&S. Long penalty grows from −12-14% (B&S) to −17-26% (iter sched). Cause: per-slot prefill concentrates FP8 2-step overhead on each request without batch amortization. Short prompts benefit (+9-17%) because less prefill per slot. Sensitivity grows with concurrency (more active KV to scan per decode step with longer sequences). **vLLM remains prompt-invariant (±6%, PMAT-253) — PagedAttention + fused Marlin absorbs prompt length.** The FP8 2-step pipeline remains realizr's prompt-length Achilles heel.
 
 ### Reproducibility (PMAT-216)
 
