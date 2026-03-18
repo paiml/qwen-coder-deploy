@@ -39,18 +39,25 @@ resources:
     command: "sudo ufw status | grep -q '8081:8084' || sudo ufw allow from 192.168.50.0/24 to any port 8081:8084 proto tcp"
     completion_check: "sudo ufw status | grep -q '8081:8084'"
 
+  clean-gpu-mem:
+    type: task
+    machine: yoga
+    command: "nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | xargs -r kill -9 2>/dev/null; sleep 2; true"
+    completion_check: "test $(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null || echo 0) -lt 100"
+    depends_on: [stop-ollama, stop-llamacpp, stop-apr]
+
   lock-clocks:
     type: task
     machine: yoga
     command: "sudo nvidia-smi -lgc 1900,1900 2>/dev/null || true"
     completion_check: "nvidia-smi --query-gpu=clocks.current.graphics --format=csv,noheader 2>/dev/null | grep -q '[0-9]'"
-    depends_on: [stop-ollama, stop-llamacpp, stop-apr, ufw-bench-ports]
+    depends_on: [clean-gpu-mem, ufw-bench-ports]
 
   apr-gguf-gpu:
     type: task
     machine: yoga
     command: "SKIP_PARITY_GATE=1 CUDA_MAX_BATCH=16 nohup apr serve run {{params.gguf_model}} --gpu --host 0.0.0.0 --port 8081 > /tmp/apr-gguf-gpu.log 2>&1 & sleep 15; curl -sf http://127.0.0.1:8081/health >/dev/null"
-    completion_check: "curl -sf http://127.0.0.1:8081/health >/dev/null 2>&1"
+    completion_check: "curl -sf http://127.0.0.1:8081/health 2>/dev/null | grep -q '\"compute_mode\":\"gpu\"'"
     depends_on: [lock-clocks]
 
 policy:
