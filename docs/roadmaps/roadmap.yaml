@@ -5149,3 +5149,33 @@ roadmap:
     Three crossovers: r/l at c=8 (1.45x), r/l parity c=32, r/v at c=64 (1.14x->2.34x).
     BATCH=16 is ceiling AND floor: caps throughput but prevents quality collapse.
     llama.cpp has notch at c=8 (33%) then recovers (fixed-slot scheduling).
+
+- id: PMAT-250
+  github_issue: null
+  item_type: task
+  title: 'PMAT-250: TTFT scaling full curve c=1-128 — phase transition at c=32'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Full TTFT curve c=1-128 — DONE'
+  - 'AC2: Phase transition at c=32 quantified — DONE (8x realizr, 27x llama.cpp)'
+  - 'AC3: r/v gap at c=128 — DONE (124.5x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analytical
+  - ttft
+  - scaling
+  - 4060L
+  notes: |
+    Analytical synthesis from PMAT-236-247 serial data.
+    Phase transition at c=32: both realizr and llama.cpp hit 16-slot boundary.
+    realizr TTFT growth c=1->128: 887x. vLLM: 9.6x. r/v gap: 1.3x->124.5x.
+    Per-doubling: realizr 8.0x at c=32, llama.cpp 27.3x, vLLM 1.4-1.9x (smooth).
+    16-slot boundary is architectural limit. Paged KV (PMAT-052) removes it.
+    Extends PMAT-242 analysis from c=16 to full c=128 range.

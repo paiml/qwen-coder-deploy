@@ -369,6 +369,20 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### TTFT Scaling Full Curve (PMAT-250, Mar 18)
+
+| c | realizr | llama.cpp | vLLM | ollama | r/v |
+|---|---------|-----------|------|--------|-----|
+| 1 | 18.7 | 12.0 | 13.9 | 87.0 | 1.3× |
+| 4 | 76.5 | 24.7 | 21.7 | 3,108 | 3.5× |
+| 8 | 148.0 | 44.5 | 23.2 | 6,634 | 6.4× |
+| 16 | 279.0 | 60.4 | 26.2 | 14,952 | 10.6× |
+| 32 | **2,234.8** | **1,646.3** | 36.4 | — | **61.4×** |
+| 64 | 7,180.0 | — | 70.8 | — | 101.4× |
+| 128 | 16,593.8 | — | 133.3 | — | **124.5×** |
+
+**Phase transition at c=32:** Both realizr and llama.cpp have 16-slot architectures (BATCH=16 / --parallel 16). At c>16, queuing creates a TTFT cliff: realizr 279→2,235ms (8.0× per doubling), llama.cpp 60→1,646ms (27.3×). vLLM: smooth 1.4-1.9× per doubling (continuous batching). TTFT growth factor c=1→128: realizr 887× vs vLLM 9.6×. The gap widens from 1.3× (c=1) to 124.5× (c=128). Despite this, realizr maintains tightest TTFT tail (P99/P50 ≤1.1×) — deterministic batch scheduling.
+
 ### Per-Request Decode Decay Curve (PMAT-249, Mar 18)
 
 | c | realizr | llama.cpp | vLLM | ollama | r/l | r/v |
