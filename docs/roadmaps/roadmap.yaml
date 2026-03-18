@@ -4818,3 +4818,31 @@ roadmap:
     FP8 tensor core advantage at M>=5 (PMAT-207) empirically validated in production methodology.
     Despite decode advantage, realizr aggregate still 12.4% below llama.cpp (scheduling overhead).
     Combined PMAT-236/237/238: full c=1->4->8 scaling curve with <3.5% cross-session variance.
+- id: PMAT-239
+  github_issue: null
+  item_type: task
+  title: 'PMAT-239: Comprehensive scaling curve synthesis (c=1/4/8 serial + c=16-128 production)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Per-request decode crossover point identified — DONE (c=5-7)'
+  - 'AC2: Marginal throughput architecture analysis — DONE (vLLM constant, llama.cpp collapses)'
+  - 'AC3: Decode preservation comparison — DONE (llama.cpp fastest degradation)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - analysis
+  - scaling
+  - synthesis
+  - 4060L
+  notes: |
+    Analytical — derived from PMAT-236/237/238 serial data + PMAT-177 production.
+    Per-request decode crossover at c=5-7 (realizr 0.92x at c=4, 1.45x at c=8).
+    Marginal throughput: vLLM constant +132-145, realizr +23->+35 (increasing), llama.cpp +65->+13 (collapses).
+    Decode preservation: llama.cpp 57%->33% (fastest), realizr 55%->50% (stable), vLLM 97%->93%.
+    Three architectural profiles: continuous batching (vLLM), batch-and-step (realizr), fixed-slot (llama.cpp).
