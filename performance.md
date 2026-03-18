@@ -313,6 +313,17 @@ realizr decode still beats llama.cpp at c=16: 72.1 vs 56.3 = 1.28× (narrowing f
 
 Matches PMAT-229 production scoring ±2 points. realizr ties llama.cpp at c=16 (71 B) despite 46% aggregate deficit — decode, errors, and tail compensate. realizr overtakes at c=8 (65 vs 62).
 
+### TTFT Scaling Curve (PMAT-242, Mar 18, same-session serial)
+
+| c | realizr | llama.cpp | vLLM | ollama | r/vLLM |
+|---|---------|-----------|------|--------|--------|
+| 1 | 18.7 | 12.0 | 13.9 | 87.0 | 1.3× |
+| 4 | 76.5 | 24.7 | 21.7 | 3,108 | 3.5× |
+| 8 | 148.0 | 44.5 | 23.2 | 6,634 | 6.4× |
+| 16 | 279.0 | 60.4 | 26.2 | 14,952 | **10.6×** |
+
+TTFT growth c=1→16: vLLM 1.9× (continuous batching) < llama.cpp 5.0× < realizr 14.9× < ollama 172×. realizr TTFT tail **tightest** at c=4,16 (P99/P50 = 1.02×) vs vLLM **worst** (2.33× at c=16).
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).

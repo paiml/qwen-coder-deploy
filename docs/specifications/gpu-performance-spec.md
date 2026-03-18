@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 3.94.0
+**Version:** 3.95.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1122,6 +1122,19 @@ Scaling efficiency = (agg_c / agg_1) / c. Perfect linear scaling = 1.0.
 | 16 | **71 B** | **71 B** | 94 A | 57 C |
 
 Scores match PMAT-229 production scoring within ±2 points — confirms both measurement and scoring stability. **realizr and llama.cpp TIE at c=16 (71 B)** despite llama.cpp having 46% higher aggregate: realizr's better decode (72 vs 56), 0% errors (vs 1.2%), and tighter TTFT tail compensate. realizr overtakes llama.cpp at c=8 (65 vs 62) for the first time in serial scoring.
+
+**PMAT-242: TTFT scaling curve (same-session serial, medium prompt ~102 tok):**
+
+| c | realizr | llama.cpp | vLLM | ollama | r/vLLM |
+|---|---------|-----------|------|--------|--------|
+| 1 | 18.7 | 12.0 | 13.9 | 87.0 | 1.3× |
+| 4 | 76.5 | 24.7 | 21.7 | 3,108 | 3.5× |
+| 8 | 148.0 | 44.5 | 23.2 | 6,634 | 6.4× |
+| 16 | 279.0 | 60.4 | 26.2 | 14,952 | **10.6×** |
+
+**TTFT growth factor (c=1→c=16):** ollama 172× (serial queue) > realizr 14.9× (batch blocks decode) > llama.cpp 5.0× (parallel slots) > vLLM 1.9× (continuous batching). **realizr TTFT is the steepest among batching runtimes** because batch prefill processes all N prompts before any decode can start (FP8 2-step pipeline). vLLM interleaves prefill into decode iterations — TTFT grows only 1.1× per doubling of c. llama.cpp uses 16 parallel slots with shared-memory attention.
+
+**TTFT tail ratio (P99/P50):** realizr has TIGHTEST tail at c=4,16 (1.02×) — batch scheduling is deterministic once queue fills. vLLM has WORST tail at c=16 (2.33×) — non-deterministic admission timing. **This is a genuine realizr advantage for latency-sensitive deployments** where TTFT predictability matters more than TTFT magnitude.
 
 **Implication for Phase 1+CB:** Continuous batching would lift realizr's c=4 scaling efficiency from 0.37 to ~0.90 (matching vLLM × 0.97). The 2.6× efficiency gap at c=4 is the quantitative measure of what CB fixes. At c=16, the gap widens to 3.4× (0.24 vs 0.81) — this compounds into the 3.5× aggregate gap.
 
@@ -3183,6 +3196,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-242** | **TTFT scaling curve analysis (same-session serial c=1→16)** | **realizr/vLLM TTFT gap widens from 1.3× (c=1) to 10.6× (c=16). realizr tail tightest (1.02×) vs vLLM worst (2.33×)** | ✅ ANALYTICAL from PMAT-236→240 serial data. TTFT growth: realizr 14.9× (batch blocks decode), llama.cpp 5.0× (parallel slots), vLLM 1.9× (continuous batching), ollama 172× (serial queue). TTFT tail (P99/P50): realizr tightest at c=4,16 (1.02×, deterministic batch scheduling), vLLM worst at c=16 (2.33×, non-deterministic admission). Realizr TTFT predictability is a genuine advantage for latency-sensitive deploys despite absolute magnitude being 10.6× vLLM. |
 | **PMAT-241** | **Same-session serial scoring (c=1/4/8/16, 4-runtime combined)** | **Scores match PMAT-229 ±2 points. realizr ties llama.cpp at c=16 (71 B). realizr overtakes at c=8 (65 vs 62)** | ✅ SCORED. probador llm score on PMAT-236→240 serial results, combined 4-runtime with best-in-class bonuses. Scores: realizr 95/58/65/**71**, llama.cpp 97/73/62/**71**, vLLM 98/98/97/94, ollama 74/58/57/57 at c=1/4/8/16. Match PMAT-229 production scoring within ±2 points — confirms measurement AND scoring stability across sessions. **c=16 tie (71 B)**: realizr's decode advantage (72 vs 56), 0% errors (vs 1.2%), and tighter tail compensate for 46% aggregate deficit. **c=8 crossover**: realizr 65 > llama.cpp 62 — first serial scoring where realizr leads, driven by 1.45× decode + lower error rate. |
 | **PMAT-240** | **4-runtime serial c=16 same-session baseline** | **realizr decode still beats llama.cpp 1.28× (72.1 vs 56.3). llama.cpp variance grows to −4.8%. vLLM ≤0.1%** | ✅ MEASURED. Serial isolated deployment on yoga RTX 4060L. realizr 583.6 (+2.2% vs PMAT-177 571.3), vLLM 1980.1 (−0.1% vs 1982.9), llama.cpp 853.5 (−4.8% vs 896.6), ollama 156.8 (−2.6% vs 161.0). Per-request decode: realizr 72.1 vs llama.cpp 56.3 = 1.28× (narrowing from 1.45× at c=8 — realizr's BATCH=16 slots fully saturated). llama.cpp variance grows with concurrency: +0.2% (c=4), −3.4% (c=8), −4.8% (c=16) — fixed-slot contention. vLLM ≤0.1% at all c. Completes serial c=1/4/8/16 curve (PMAT-236→240). |
 | **PMAT-239** | **Comprehensive scaling curve synthesis (c=1/4/8 serial + c=16-128 production)** | **Per-request decode crossover at c=5-7. llama.cpp marginal throughput collapses 80% (c=4→8). vLLM marginal constant** | ✅ ANALYTICAL from PMAT-236/237/238 serial data + PMAT-177 production. Three key findings: (1) Per-request decode table shows realizr/llama.cpp crossover between c=5-7 (at c=4: 0.92×, at c=8: 1.45×). (2) Marginal throughput reveals architectural differences: vLLM ~constant +132-145 tok/s/req (continuous batching), realizr +23→+35 (INCREASING as batch fills), llama.cpp +65→+13 (COLLAPSES 80% at c=4→8, fixed-slot saturation). (3) Decode preservation: llama.cpp degrades fastest (57%→33% at c=4→8) while realizr stabilizes (55%→50%). vLLM 97%→93% (near-perfect). |
@@ -4162,6 +4176,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.95.0 | 2026-03-18 | **PMAT-242: TTFT scaling curve analysis.** TTFT growth from serial c=1→16: realizr 14.9× (batch blocks decode), llama.cpp 5.0× (parallel), vLLM 1.9× (continuous batching), ollama 172× (serial). realizr/vLLM gap widens from 1.3× (c=1) to 10.6× (c=16). TTFT tail ratio (P99/P50): realizr TIGHTEST at c=4,16 (1.02×) — deterministic batch scheduling. vLLM WORST at c=16 (2.33×) — non-deterministic admission. Realizr's TTFT predictability is a genuine competitive advantage despite absolute magnitude gap. |
 | 3.94.0 | 2026-03-18 | **PMAT-241: Same-session serial scoring.** probador llm score on PMAT-236→240 serial results, 4-runtime combined. Scores match PMAT-229 ±2 points (measurement + scoring stability). realizr ties llama.cpp at c=16 (71 B) — decode 72 vs 56, 0% errors, tighter tail compensate for 46% aggregate deficit. realizr overtakes llama.cpp at c=8 (65 vs 62) — first serial scoring crossover. Added comprehensive scoring table to PMAT-239 scaling section. |
 | 3.93.0 | 2026-03-18 | **PMAT-240: 4-runtime serial c=16 same-session baseline.** Completes serial c=1/4/8/16 curve. Per-request decode table extended to c=16: realizr 72.1 vs llama.cpp 56.3 (1.28×, narrowing from 1.45× at c=8 — BATCH=16 saturated). llama.cpp variance grows with c: +0.2% (c=4) → −4.8% (c=16) from fixed-slot contention. vLLM ≤0.1% at all c (most stable runtime). Discovered realizr fell back to CPU mode during initial c=16 attempt due to stale vLLM EngineCore holding GPU memory — forjar completion_check needs compute_mode verification. |
 | 3.92.0 | 2026-03-18 | **PMAT-239: Comprehensive scaling curve synthesis.** Combined PMAT-236/237/238 serial data (c=1/4/8) with PMAT-177 production (c=16-128) into definitive scaling analysis. Per-request decode crossover at c=5-7 (realizr/llama.cpp). Marginal throughput reveals architecture: vLLM constant +132-145 (CB), realizr increasing +23→+35 (batch fills), llama.cpp collapses +65→+13 (−80%, fixed-slot). Decode preservation: llama.cpp fastest to degrade (57%→33% at c=4→8), realizr stabilizes (55%→50%), vLLM near-perfect (97%→93%). Added comprehensive tables to PMAT-235 scaling section. |

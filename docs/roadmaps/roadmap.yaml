@@ -4904,3 +4904,32 @@ roadmap:
     c=16 tie (71 B): decode + errors + tail compensate for 46% aggregate deficit.
     c=8 crossover: realizr 65 > llama.cpp 62 — first serial scoring lead.
     realizr's quality advantage grows from c=8 onward despite aggregate deficit.
+- id: PMAT-242
+  github_issue: null
+  item_type: task
+  title: 'PMAT-242: TTFT scaling curve analysis (same-session serial c=1-16)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: TTFT scaling table — DONE'
+  - 'AC2: Growth factor analysis — DONE (realizr 14.9x, vLLM 1.9x, llama.cpp 5.0x)'
+  - 'AC3: Tail ratio comparison — DONE (realizr 1.02x best, vLLM 2.33x worst at c=16)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - ttft
+  - scaling
+  - 4060L
+  notes: |
+    Analytical — derived from PMAT-236-240 serial results.
+    TTFT growth c=1->16: realizr 14.9x (batch blocks decode), llama.cpp 5.0x (parallel),
+    vLLM 1.9x (continuous batching), ollama 172x (serial queue).
+    realizr/vLLM gap: 1.3x (c=1) -> 10.6x (c=16).
+    TTFT tail P99/P50: realizr tightest (1.02x at c=4,16), vLLM worst (2.33x at c=16).
+    Genuine realizr advantage for latency-sensitive deploys despite absolute magnitude gap.
