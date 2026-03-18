@@ -5615,10 +5615,45 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-267
+  github_issue: null
+  item_type: task
+  title: 'PMAT-267: Per-step pipeline analysis — corrects PMAT-266 overcorrection'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Derive per-step GPU kernel time from nsys totals — DONE (7.4ms, not 10ms)'
+  - 'AC2: Identify serving overhead — DONE (5.5ms, 40% of step, not in nsys)'
+  - 'AC3: Compute wall-time gap — DONE (2.0x, not 4.6x)'
+  - 'AC4: Model graph + event sync pipelining — DONE (0.66-0.79x at 50-80% overlap)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - analysis
+  - pipeline
+  - phase-1
+  - correction
+  notes: |
+    COMPLETED. Re-derived PMAT-266 per-step budget from kernel totals / step count.
+    GPU kernel time: 7.4ms per step (PMAT-266 stated 10ms — overstated).
+    Serving overhead: 5.5ms per step (HTTP, tokenizer, scheduling — not in nsys CUDA traces).
+    Wall-time gap: 2.0x (13.8/6.8ms, from throughput), NOT 4.6x.
+    PMAT-266's 4.6x compared realizr total GPU to single vLLM GEMM call — misleading.
+    Graph + event-based sync enables CPU-GPU pipelining: serving overlaps GPU execution.
+    Projected: 0.66-0.79x vLLM (50-80% overlap). PMAT-265's ~0.81x approximately correct
+    at high overlap. PMAT-266 was too pessimistic (missed overlap opportunity).
+    Binding question: achievable overlap %, not kernel architecture.
+    Investment priority: per-M graph + event sync > kernel fusion (conditional) > CB > paged KV.
+
 - id: PMAT-266
   github_issue: null
   item_type: task
-  title: 'PMAT-266: nsys iter sched trace — FALSIFIES PMAT-265 0.81x projection'
+  title: 'PMAT-266: nsys iter sched trace — dispatch identical to B&S (overcorrected by PMAT-267)'
   status: completed
   priority: critical
   assigned_to: null
@@ -5628,8 +5663,8 @@ roadmap:
   acceptance_criteria:
   - 'AC1: nsys CUDA API trace of B32 iter sched — DONE (cuStreamSync 80.5%, 10.7ms median)'
   - 'AC2: Compare vs PMAT-217 B&S profile — DONE (identical: 82.4%→80.5%, 10.4→10.7ms)'
-  - 'AC3: GPU kernel per-step budget — DONE (~10ms: DP4A 4ms + attn 2.8ms + FP8 3.3ms)'
-  - 'AC4: Revised projections — DONE (graph alone 0.57-0.64x, not 0.81x)'
+  - 'AC3: GPU kernel per-step budget — CORRECTED by PMAT-267 (7.4ms, not 10ms)'
+  - 'AC4: Projections — OVERCORRECTED (0.57-0.64x), re-corrected by PMAT-267 to 0.66-0.79x'
   phases: []
   subtasks: []
   estimated_effort: 1h
@@ -5639,16 +5674,12 @@ roadmap:
   - falsification
   - phase-1
   notes: |
-    COMPLETED. nsys trace of B32 iteration scheduler at c=4 (90s capture, yoga RTX 4060L).
-    cuStreamSynchronize: 80.5% (44.9s), 4510 calls, 10.7ms median — IDENTICAL to PMAT-217 B&S (82.4%, 10.4ms).
-    Iteration scheduler does NOT change CUDA dispatch pattern. GPU kernel pipeline unchanged.
-    Per-step M=4 budget: GPU kernels ~10ms (DP4A 4ms + attention 2.8ms + FP8 GEMM 3.3ms).
-    Launch overhead: 1.2ms (661 kernels/step). H2D: 0.3ms (120 copies/step).
-    vs vLLM: single CUTLASS GEMM = 2.17ms/step → 4.6x GPU kernel compute gap.
-    PMAT-265 FALSIFIED: assumed decode_rate 0.85x from graph capture. Actual: graph saves 1.2ms (17%),
-    GPU kernel compute (10ms) is the floor. Revised: graph alone → 0.57-0.64x (not 0.81x).
-    Reaching 0.80x+ requires kernel fusion (44 kernels → fewer CUTLASS-style fused kernels).
-    Investment priority revised: kernel fusion > per-M graph > CB > paged KV.
+    COMPLETED but OVERCORRECTED by PMAT-267. nsys trace valid; per-step analysis was wrong.
+    cuStreamSync: 80.5% (44.9s), 4510 calls, 10.7ms median — IDENTICAL to PMAT-217 B&S.
+    Iteration scheduler does NOT change CUDA dispatch pattern.
+    PMAT-267 correction: GPU kernels are 7.4ms/step (not 10ms). Serving overhead 5.5ms
+    was not captured in nsys CUDA API data. The 4.6x compared total GPU to single GEMM call.
+    Wall-time gap is 2.0x. Graph + event sync enables pipelining → 0.66-0.79x vLLM.
 
 - id: PMAT-265
   github_issue: null

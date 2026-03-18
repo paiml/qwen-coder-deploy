@@ -88,10 +88,10 @@ Iteration scheduler + BATCH=32: asymptote 1,515 tok/s (+71% vs BATCH=16 885). PM
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→266)
+### Key Findings (PMAT-209→267)
 
-- **4.6× GPU kernel compute gap** (PMAT-266): nsys trace — realizr 44+ kernels at 10ms/step vs vLLM 1 CUTLASS GEMM at 2.17ms. Kernel fusion required for 0.80×+ vLLM
-- **PMAT-265 FALSIFIED** (PMAT-266): Per-M graph alone → 0.57-0.64× vLLM (was 0.81×). Launch overhead (1.2ms) is not the bottleneck — GPU kernel compute (10ms) is
+- **Per-step pipeline analysis** (PMAT-267): GPU kernels 7.4ms + serving 5.5ms = 13.8ms/step. Wall-time gap **2.0×** vLLM. Graph + event sync enables CPU-GPU overlap → **0.66-0.79× vLLM**
+- **nsys iter sched = batch-and-step** (PMAT-266): cuStreamSync 80.5% — identical CUDA dispatch. Scheduling is CPU-only improvement
 - **Iteration scheduler + BATCH=32 (PMAT-258)**: Asymptote 1,515 tok/s (+71% vs BATCH=16). PMAT-221 quality bug **eliminated** — slot-level recycling avoids KV corruption. 0% errors at all c
 - **Iteration scheduler (PMAT-257)**: +34-55% aggregate, −48-83% TTFT at c=4-16 — zero code changes, just env var
 - **Decode/ITL crossover at c=64** (PMAT-255): realizr wins per-request decode 1.14-2.35× and ITL at c=64-128
@@ -114,7 +114,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.7.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.8.0) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

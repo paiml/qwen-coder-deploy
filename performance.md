@@ -122,9 +122,9 @@ M=1 graph is invalid for M>1 → 771 individual kernel launches per decode step.
 llama.cpp: 3,579 graph launches, dynamic re-capture, 0.46µs median sync.
 vLLM: 11,467 pre-captured graph launches, event-based sync, 18.9µs median sync.
 
-**Per-step c=4 budget**: 1.2ms launch + 10ms GPU kernels + 0.3ms H2D = ~12ms → 290 tok/s.
-**PMAT-266 correction**: Graph capture saves ~1.2ms launch overhead (17% improvement), but GPU kernel compute (10ms, 44 kernels) is the floor. vs vLLM: 2.17ms (1 CUTLASS GEMM) = **4.6× GPU kernel gap.**
-**Revised projection**: per-M graph → ~340 tok/s at c=4 (was ~400). Reaching 0.80×+ vLLM requires **kernel fusion** (44 → ~15 kernels).
+**Per-step c=4 budget (PMAT-267 corrected)**: GPU kernels 7.4ms + launch 0.9ms + H2D 0.4ms + serving 5.5ms = 13.8ms → 290 tok/s.
+**PMAT-267 correction of PMAT-266**: GPU kernel time is **7.4ms** (not 10ms). Serving overhead is **5.5ms** (40% of step, not captured in nsys). Graph + event-based sync enables CPU-GPU overlap: serving runs concurrently with GPU.
+**Revised projection**: per-M graph + event sync → **390-466 tok/s** at c=4 (0.66-0.79× vLLM) depending on achievable overlap (50-80%). Wall-time gap is **2.0×** (not 4.6×).
 
 ### Prompt-Length Sensitivity (PMAT-219/220)
 
@@ -425,7 +425,16 @@ Updated projections from B32 iter sched baseline using PMAT-264 decomposition. *
 | 16 | 880 | **1,627** | **0.82×** |
 | 32 | 1,464 | **2,222** | **0.81×** |
 
-**PMAT-266 key insight:** Per-M graph capture alone gives **0.52-0.62× vLLM** (not 0.81×). Reaching 0.80×+ requires **kernel fusion** — reducing 44+ small kernels (10ms total) toward vLLM's single CUTLASS GEMM (2.17ms). The 4.6× GPU compute gap is the binding constraint, not launch overhead.
+**PMAT-267 corrected projections (per-step pipeline analysis):**
+
+| Scenario | c=4 | c=8 | c=16 | c=32 |
+|----------|-----|-----|------|------|
+| ~~PMAT-265 (decode_rate 0.85×)~~ | ~~0.81×~~ | ~~0.82×~~ | ~~0.82×~~ | ~~0.81×~~ |
+| ~~PMAT-266 (flat 17%)~~ | ~~0.58×~~ | ~~0.52×~~ | ~~0.52×~~ | ~~0.62×~~ |
+| **PMAT-267 (50% overlap)** | **0.71×** | **0.63×** | **0.61×** | **0.73×** |
+| **PMAT-267 (80% overlap)** | **0.79×** | — | — | — |
+
+**PMAT-267 key insight:** PMAT-266's "4.6× GPU kernel gap" was misleading — it compared realizr total GPU (7.4ms, not 10ms) to a single vLLM GEMM call (2.17ms). The actual per-step wall-time gap is **2.0×** (13.8 vs 6.8ms). The step decomposes as: GPU kernels (7.4ms, 54%) + serving overhead (5.5ms, 40%) + CUDA launch (1.4ms, 10%). Graph + event-based sync enables **CPU-GPU pipelining**: GPU executes while CPU handles serving. Projected: max(7.4, serving×overlap%) + serving×(1−overlap%) ≈ **8.6-10.2ms** (50-80% overlap). PMAT-265's ~0.81× was approximately correct at high overlap. The achievable overlap is an implementation question.
 
 ### nsys CUDA API Trace — Iteration Scheduler (PMAT-266, Mar 18)
 
@@ -450,9 +459,9 @@ nsys trace of B32 iteration scheduler at c=4 (90s capture, yoga RTX 4060L):
 | sm89_xmma_gemm (FP8, small) | 11.5% | 5.9s | 193,032 | 31µs |
 | batched_rmsnorm_vectorized | 1.6% | 0.8s | 225,419 | 3.6µs |
 
-**Per-step budget (M=4):** ~12ms total — GPU kernels ~10ms (DP4A 4ms + attention 2.8ms + FP8 GEMM 3.3ms), launch 1.2ms (661 launches), H2D 0.3ms (120 copies). vs vLLM: single CUTLASS GEMM 2.17ms → **4.6× GPU kernel compute gap.**
+**Per-step budget (M=4, 6,527 steps in 90s):** GPU kernels **7.4ms** (DP4A 2.8ms + attention 2.0ms + FP8 GEMM 2.2ms + other 0.4ms), launch 0.9ms, H2D 0.4ms, serving 5.5ms = **13.8ms total.** The 10ms stated in initial PMAT-266 was overstated — actual GPU kernel time is 7.4ms (54% of step), serving overhead is 5.5ms (40%). **Wall-time gap vs vLLM: 2.0× (not 4.6×).**
 
-**Critical finding:** cuStreamSynchronize profile is **identical to PMAT-217** (batch-and-step: 82.4%, 10.4ms median). The iteration scheduler does NOT change the CUDA dispatch pattern — scheduling improvement is purely CPU-side slot management. The GPU kernel pipeline is the same 44+ kernel sequence regardless of scheduler.
+**Critical finding:** cuStreamSynchronize profile is **identical to PMAT-217** (batch-and-step: 82.4%, 10.4ms median). The iteration scheduler does NOT change the CUDA dispatch pattern — scheduling improvement is purely CPU-side slot management. Per-M graph + event-based sync enables **CPU-GPU pipelining** (serving overlaps GPU execution). Projected improvement: **42% at 50% overlap** (13.8 → 10.2ms), not the 17% from PMAT-266's naive launch-saving estimate.
 
 ### Gap Decomposition Update (PMAT-264, Mar 18)
 
