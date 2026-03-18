@@ -392,6 +392,30 @@ PMAT-221 quality bug **eliminated** by iteration scheduler. Slot-level recycling
 
 **Asymptote raised from 885 to 1,515 tok/s** (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28× with B&S B16). B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). PMAT-221 was a scheduling bug, not a kernel bug.
 
+### Phase 1 Projections (PMAT-265, Mar 18)
+
+Updated projections from B32 iter sched baseline using PMAT-264 decomposition:
+
+**Scenario A: Per-M graph capture only** (decode_rate 0.46-0.56× → 0.85×, conservative):
+
+| c | Current | Projected | vs vLLM |
+|---|---------|-----------|---------|
+| 4 | 290 | **474** | **0.81×** |
+| 8 | 494 | **914** | **0.82×** |
+| 16 | 880 | **1,627** | **0.82×** |
+| 32 | 1,464 | **2,222** | **0.81×** |
+
+**Scenario B: Per-M graph + CB** (decode_rate → 0.97×, PMAT-180):
+
+| c | Current | Projected | vs vLLM |
+|---|---------|-----------|---------|
+| 4 | 290 | **541** | **0.92×** |
+| 8 | 494 | **1,043** | **0.93×** |
+| 16 | 880 | **1,856** | **0.94×** |
+| 32 | 1,464 | **2,536** | **0.92×** |
+
+Per-M graph capture alone: **0.49→0.81× vLLM** (conservative). With CB: **0.49→0.92× vLLM**. The iteration scheduler has already closed the scheduling gap — Phase 1's value is now purely decode efficiency. Full Phase 1 (+ paged KV): 0.82-0.93× at all c including c=64/128 (no queueing).
+
 ### Gap Decomposition Update (PMAT-264, Mar 18)
 
 The PMAT-179 2-factor model (gap = decode_rate × scheduling_utilization) recomputed with B32 iter sched:

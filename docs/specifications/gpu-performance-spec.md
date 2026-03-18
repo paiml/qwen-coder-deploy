@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.5.0
+**Version:** 5.6.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1334,6 +1334,17 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 **The PMAT-221 quality bug is definitively a scheduling issue.** The batch-and-step scheduler's monolithic prefill + decode cycle causes KV state inconsistency when >20 requests are processed simultaneously at BATCH=32. The iteration scheduler's slot-by-slot prefill and recycling avoids this by never doing batch-wide KV operations. This is the strongest evidence that the iteration scheduler path is architecturally correct.
 
 **Implication for Phase 1+CB:** With BATCH=32 + iteration scheduler, realizr is at 0.50× vLLM. The remaining 2× gap comes from per-request decode degradation (49.6 vs ~24 tok/s at c=128 — realizr's decode is actually higher, but vLLM compensates with ~3× more concurrent sequences). The next improvement requires either BATCH=64 (if the iteration scheduler scales) or per-M CUDA graph capture to reduce decode overhead. **PMAT-257+258 together recover 76% of the gap between original B&S (0.28×) and the 0.97× projection** without any code changes — just enabling the existing iteration scheduler and raising the batch cap.
+
+**PMAT-265: Updated Phase 1 projections from B32 iter sched baseline.** ✅ Using PMAT-264 decomposition (sched_util=0.94-0.96×, only decode_rate needs fixing):
+
+| c | Current | Per-M graph (0.85×) | Per-M + CB (0.97×) | vs vLLM (graph) | vs vLLM (full) |
+|---|---------|-------------------|------------------|----------------|---------------|
+| 4 | 290 | **474** | **541** | **0.81×** | **0.92×** |
+| 8 | 494 | **914** | **1,043** | **0.82×** | **0.93×** |
+| 16 | 880 | **1,627** | **1,856** | **0.82×** | **0.94×** |
+| 32 | 1,464 | **2,222** | **2,536** | **0.81×** | **0.92×** |
+
+**Key finding:** The iteration scheduler already closed the scheduling gap (0.94-0.96×). Per-M graph capture alone lifts realizr to **0.81-0.82× vLLM** (conservative). With CB: **0.92-0.94× vLLM**. Full Phase 1 (+ paged KV) eliminates the c>32 queueing penalty, giving 0.82-0.93× at all c. Compared to PMAT-180's projections from B16 B&S baseline, the CB lift is smaller (was 2.6-3.4× → now 1.6-1.9×) because the iteration scheduler already captured most scheduling value. **The investment case shifts: per-M graph capture (decode efficiency) is now higher-value than CB (scheduling) because scheduling is already near-optimal.**
 
 **PMAT-260: Iteration scheduler heterogeneity penalty — COMPLETED.** ✅ B32 iteration scheduler reduces heterogeneity penalty from 31-42% (PMAT-254, B16 B&S) to **7-11%** — a 4× improvement. Fixed:128 vs uniform:16,256 at c=4/8/16/32:
 
@@ -3416,6 +3427,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-265** | **Updated Phase 1 projections from B32 iter sched baseline** | **Per-M graph: 0.81-0.82× vLLM. Per-M + CB: 0.92-0.94×. Full: 0.82-0.93× at all c** | ✅ PROJECTED. Using PMAT-264 decomposition with sched_util already 0.94-0.96×. Per-M graph capture (decode_rate 0.46-0.56× → 0.85×): 474-2,222 tok/s at c=4-32 (0.81-0.82× vLLM). CB addition (→ 0.97×): 541-2,536 tok/s (0.92-0.94× vLLM). Full Phase 1 + paged KV: 0.82-0.93× at all c. CB lift reduced from 2.6-3.4× (PMAT-180 from B16 B&S) to 1.6-1.9× — iteration scheduler already captured most scheduling value. **Investment priority shift: per-M graph capture > CB > paged KV.** |
 | **PMAT-264** | **Gap decomposition update — scheduling gap closed to 94-96%** | **sched_util 0.94-0.96× at c≤32 (was 0.52-0.67×). decode_rate 0.46-0.56× is now binding.** | ✅ ANALYZED. 2-factor model recomputed with B32 iter sched. Scheduling utilization near-optimal at c≤32 — iteration scheduler's per-slot recycling achieves vLLM-class scheduling. Remaining gap is decode_rate (per-M GEMV < CUTLASS GEMM per token). At c≥64: decode advantage (1.04-2.08×) offset by queueing (0.47-0.24×). Phase 1: per-M graph capture fixes decode_rate → projected 0.85× at c≤32; paged KV removes batch cap. |
 | **PMAT-263** | **Iso-quality gap + jitter update (B32 iter sched)** | **Score≥70 gap: 5.3× → 2.1× (−60%). Jitter: 1.09-1.17× (improved from 1.18-1.49×)** | ✅ ANALYZED. Score-based iso-quality improved 60% with B32 iter sched. ITL-based gaps mixed: strict (≤12ms) unchanged, relaxed (≤21ms) improved 43%. The iteration scheduler trades tighter ITL (+9-26%) for higher aggregate throughput (+33-69%), which is net positive for score-based quality. Jitter improved because per-slot recycling reduces scheduling variance. |
 | **PMAT-262** | **Scaling efficiency update (B32 iter sched)** | **+33% (c=4), +41% (c=8), +54% (c=16), +69% (c=32) vs B16 B&S** | ✅ ANALYZED. realizr B32 iter: 0.49/0.42/0.37/0.31 at c=4/8/16/32 (was 0.37/0.30/0.24/0.18). Now matches llama.cpp at c=8 (0.42 vs 0.33) and c=16 (0.37 vs 0.35). vLLM still 2.0× more efficient at c=4 (0.96 vs 0.49). |
@@ -4417,6 +4429,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.6.0 | 2026-03-18 | **PMAT-265: Updated Phase 1 projections from B32 iter sched baseline.** Per-M graph capture alone: 0.49-0.53× → 0.81-0.82× vLLM (conservative, decode_rate 0.85×). With CB: 0.92-0.94× vLLM. Full Phase 1 (+ paged KV): 0.82-0.93× at all c. CB lift reduced from 2.6-3.4× to 1.6-1.9× because iteration scheduler already captured scheduling value. **Investment priority shift: per-M graph > CB > paged KV.** |
 | 5.5.0 | 2026-03-18 | **PMAT-264: Gap decomposition update — iteration scheduler closes scheduling gap to 94-96%.** 2-factor model recomputed: sched_util 0.94-0.96× at c≤32 (was 0.52-0.67× B16 B&S). Remaining gap is almost purely decode_rate (0.46-0.56×). At c≥64: decode advantage (1.04-2.08×) offset by queueing penalty (0.47-0.24× from BATCH=32 cap). Phase 1 priority confirmed: per-M graph capture (decode_rate fix) > paged KV (batch cap fix). Executive summary updated with PMAT-263 iso-quality and PMAT-264 gap decomposition. |
 | 5.4.0 | 2026-03-18 | **PMAT-261: B32 crossover precision — decode/ITL crossover shifted c=64 → c≈66.** BATCH=32 per-request decode 49.2 (c=64), 49.0 (c=80), 49.5 (c=128) — constant, caps at ~49 from larger KV scan. vLLM decays 50.4→39.3→24.4. Crossover shifts only 2 c-units despite 14% lower per-request decode, because vLLM's linear decay dominates. Advantage at c=128: 2.03× (was 2.35× B16). Trade-off: 14% per-request decode for 71% aggregate throughput — quality crossover barely moves. |
 | 5.3.0 | 2026-03-18 | **PMAT-260: Iteration scheduler heterogeneity — penalty reduced 4× (31-42% → 7-11%).** B32 iter sched with fixed:128 vs uniform:16,256: 7.2% (c=4), 10.6% (c=8), 10.2% (c=16), 9.7% (c=32). Per-slot recycling reclaims scheduling waste; remaining penalty is KV memory fragmentation. Paged KV marginal ROI decreased 4.2× (c=16: +100 tok/s / 1.11× vs +423 / 1.72× with B16 B&S). CB (mid-batch joins) confirmed as definitively higher-value Phase 1 target than paged KV. |

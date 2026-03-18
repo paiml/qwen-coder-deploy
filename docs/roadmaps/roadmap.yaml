@@ -5614,3 +5614,32 @@ roadmap:
     At c>=64: decode advantage (1.04-2.08x) offset by queueing (0.47-0.24x).
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
+
+- id: PMAT-265
+  github_issue: null
+  item_type: task
+  title: 'PMAT-265: Updated Phase 1 projections — per-M graph 0.81x, full 0.93x vLLM'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Per-M graph projection — DONE (0.81-0.82x vLLM conservative)'
+  - 'AC2: Full Phase 1 projection — DONE (0.92-0.94x vLLM)'
+  - 'AC3: Investment priority documented — DONE (graph > CB > paged KV)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - analysis
+  - projections
+  - phase-1
+  notes: |
+    COMPLETED. Key finding: iteration scheduler closed scheduling gap.
+    Per-M graph alone: 0.49-0.53x -> 0.81-0.82x vLLM (conservative).
+    Per-M + CB: 0.92-0.94x vLLM.
+    Full Phase 1 + paged KV: 0.82-0.93x at all c.
+    CB lift reduced from 2.6-3.4x to 1.6-1.9x (iter sched captured scheduling value).
+    Investment priority: per-M graph capture > CB > paged KV.
