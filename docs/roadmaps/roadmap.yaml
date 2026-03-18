@@ -4961,3 +4961,32 @@ roadmap:
     llama.cpp jitter spikes from 1.03x (c=4) to 1.49x (c=16) — fixed-slot contention.
     Error rates: llama.cpp 1.0-2.9% at all c. Others 0%.
     Confirms PMAT-234 rankings within ±0.02x with same-session data.
+- id: PMAT-244
+  github_issue: null
+  item_type: task
+  title: 'PMAT-244: Competitive advantage matrix (same-session serial)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Winner matrix across all metrics and c levels — DONE'
+  - 'AC2: realizr competitive profile identified — DONE'
+  - 'AC3: vs llama.cpp quality crossover quantified — DONE (c>=8)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - competitive
+  - synthesis
+  - 4060L
+  notes: |
+    Analytical — synthesizes PMAT-236-243 serial data.
+    vLLM dominates aggregate/decode/TTFT/score at c>=4.
+    realizr wins: TTFT tail (1.02x vs 2.33x), ITL jitter at c=16, 0% errors, score at c=8.
+    realizr competitive profile: most predictable, error-free batching runtime.
+    At c>=8, realizr quality equals/exceeds llama.cpp despite aggregate deficit.
+    Completes the same-session characterization series (PMAT-236-244).

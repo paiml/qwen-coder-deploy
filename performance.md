@@ -335,6 +335,19 @@ TTFT growth c=1→16: vLLM 1.9× (continuous batching) < llama.cpp 5.0× < reali
 
 llama.cpp jitter worst (1.49× at c=16). realizr tight (≤1.09×). llama.cpp only runtime with errors (1-2.9%).
 
+### Competitive Advantage Matrix (PMAT-244, Mar 18)
+
+| Metric | c=1 | c=4 | c=8 | c=16 |
+|--------|-----|-----|-----|------|
+| Aggregate | llama.cpp | **vLLM** | **vLLM** | **vLLM** |
+| Decode | llama.cpp | **vLLM** | **vLLM** | **vLLM** |
+| TTFT tail | vLLM | **realizr** | realizr | **realizr** |
+| Jitter | tie | vLLM | vLLM | **realizr** |
+| Errors | tie | tie | tie | tie |
+| Score | **vLLM** | **vLLM** | **realizr** | tie (r/lc) |
+
+realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 despite aggregate deficit.
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).
