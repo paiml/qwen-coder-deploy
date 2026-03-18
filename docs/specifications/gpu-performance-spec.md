@@ -41,41 +41,39 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 17, 2026 — yoga RTX 4060L @ 1900MHz):**
+**Competition Reality (Mar 18, 2026 — yoga RTX 4060L @ 1900MHz):**
 
-**Production-realistic benchmark (PMAT-177/228, medium prompt + uniform:16,256 output, 60s, streaming):**
+**Production-realistic benchmark (PMAT-258/259, medium prompt + uniform:16,256 output, 60s, streaming, B32 iter sched):**
 
 | c | realizr | llama.cpp | vLLM | ollama | realizr/vLLM |
 |---|---------|-----------|------|--------|-------------|
 | 1 | 147.2 | 158.1 | 152.4 | 151.8 | 0.97× |
-| 4 | 217.6 | 354.4 | 587.4 | 160.1 | 0.37× |
-| 8 | 351.7 | 420.1 | 1,115.2 | 159.4 | 0.32× |
-| 16 | 571.3 | 896.6 | 1,982.9 | 161.0 | 0.29× |
-| 32 | 867.3 | 943.2 | 2,757.6 | 159.0 | 0.31× |
-| 64 | 887.4 | — | 3,036.1 | — | 0.29× |
-| 128 | 857.1 | — | 3,049.4 | — | 0.28× |
+| 4 | 290.1 | 354.4 | 587.4 | 160.1 | 0.49× |
+| 8 | 494.4 | 420.1 | 1,115.2 | 159.4 | 0.44× |
+| 16 | 880.4 | 896.6 | 1,982.9 | 161.0 | 0.44× |
+| 32 | **1,463.8** | 943.2 | 2,757.6 | 159.0 | 0.53× |
+| 64 | **1,494.1** | — | 3,036.1 | — | 0.49× |
+| 128 | **1,514.7** | — | 3,049.4 | — | 0.50× |
 
-realizr uses CUDA_MAX_BATCH=16 (PMAT-223 workaround). Asymptote ~880 tok/s (hetero) / 1,010 (fixed:128).
+realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,515 tok/s** (+71% vs B16 885). PMAT-221 quality bug eliminated by iteration scheduler. Gap decomposition (PMAT-264): scheduling near-optimal (0.94-0.96×), remaining gap is purely decode_rate (0.46-0.56×).
 
-**⚠️ PMAT-224 CORRECTION:** The initial PMAT-224 results (showing +46-72% realizr improvement) were INVALID — `--output` was incorrectly used as `--max-tokens-distribution`, resulting in fixed:128 output instead of uniform:16,256. With correct flags, realizr numbers match PMAT-177 within noise (±2.6%). The Mar 16 binary update had **no measurable throughput improvement** under production conditions. However, PMAT-224 fixed:128 data is valid for that workload (c=1: 147, c=4: 316, c=8: 560, c=16: 1008 tok/s).
+**Scorecards (probador llm score, PMAT-259 — definitive combined scoring, B32 iter sched):**
 
-**Scorecards (probador llm score, PMAT-229 — definitive combined scoring, realizr at BATCH=16):**
+| c | vLLM | realizr | llama.cpp | ollama |
+|---|------|---------|-----------|--------|
+| 1 | 98 A+ | 95 A+ | 97 A+ | 74 B |
+| 4 | **98 A+** | 70 B | 73 B | 58 C |
+| 8 | **97 A+** | **76 B** | 62 C+ | 57 C |
+| 16 | **94 A** | **78 B** | 71 B | 57 C |
+| 32 | **89 A-** | **75 B** | 63 C+ | — |
+| 64 | 75 B | 64 C+ | — | — |
+| 128 | 63 C+ | **66 C+** | — | — |
 
-| c | vLLM | llama.cpp | realizr | ollama |
-|---|------|-----------|---------|--------|
-| 1 | **97 A+** | 97 A+ | 94 A | 78 B |
-| 4 | **97 A+** | 73 B | 58 C | 58 C |
-| 8 | **96 A+** | 65 C+ | 64 C+ | 58 C |
-| 16 | **94 A** | 72 B | 70 B | 58 C |
-| 32 | **86 A-** | 51 C | 66 C+ | 57 C |
-| 64 | **73 B** | — | 68 C+ | — |
-| 128 | 63 C+ | — | **67 C+** | — |
-
-**realizr loses to vLLM at c=1-64 but WINS at c=128 (67 vs 63 C+) even at BATCH=16.** The quality crossover persists because realizr's batch=16 caps decode degradation (41 tok/s constant at c=64/128) while vLLM's per-request decode keeps halving (31→15 tok/s). At c=32, realizr (66 C+) overtakes llama.cpp (51 C). vLLM degrades: 97 A+ → 86 A- → 73 B → 63 C+ at c=4/32/64/128. Ollama: best c=1 decode/ITL (100/100) but serial processing gives 58-57 C at c≥4. Two structural deficits (PMAT-179 decomposition, exact at all c):
-1. **Per-request decode rate** (0.52-0.57× factor — batch-GEMV KV scan scales with M, PMAT-172) → continuous batching per-token dispatch
-2. **Scheduling utilization** (0.52-0.67× factor — batch-and-step waste compounds with c, PMAT-179) → paged KV (PMAT-052) + continuous batching. vLLM maintains ~98% utilization at all c; realizr drops from 66% at c=4 to 51% at c=16
-   - *Sub-factor: output heterogeneity* (contiguous KV wastes 36% vs vLLM's 3%, PMAT-171)
-   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Output-length dependent (PMAT-176):** +49% at 16 tok, +4% at 256 tok
+**realizr B32 iter sched overtakes llama.cpp at c=8** (76 vs 62) and holds through c=32 (75 vs 63). Quality crossover at c=128: realizr 66 > vLLM 63. vLLM degrades: 98 A+ → 89 A- → 75 B → 63 C+ at c=4/32/64/128. Remaining structural deficit (PMAT-264 updated decomposition):
+1. **Per-request decode rate** (0.46-0.56× — binding factor, batch-GEMV KV scan scales with M) → per-M CUDA graph capture + continuous batching
+2. **Scheduling utilization** (**0.94-0.96× — near-optimal** with iteration scheduler, PMAT-264) → already close to vLLM's ~98%
+   - *Sub-factor: output heterogeneity* (reduced to 7-11% by iter sched, PMAT-260; was 31-42% with B&S)
+   - *Sub-factor: TTFT overhead* (FP8 2-step, PMAT-167) → fused Q4K GEMM (PMAT-054). **Optional (PMAT-253)**
 
 **Ollama (PMAT-182/191):** Best M=1 decode (163.5 tok/s) and best ITL (6.1ms) but serial processing — no batching at all. Aggregate flat at 159-161 tok/s regardless of c (confirmed c=1→32). TTFT: 71ms (c=1), 2941ms (c=4), 6394ms (c=8), **14573ms (c=16), 24419ms (c=32)** — linear with c. Ollama represents the M=1 kernel ceiling without scheduling overhead.
 
