@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.0.0
+**Version:** 5.1.0
 **Status:** ACTIVE
 **Date:** 2026-03-17
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1293,7 +1293,26 @@ Scores match PMAT-229 production scoring within ±2 points — confirms both mea
 - **Critical risk:** Silent data corruption from stale graph pointers (must fix first)
 - **Key files:** `src/api/cuda_batch_scheduler.rs`, `src/api/iteration_scheduler.rs`, `src/cuda/executor/core.rs`, `src/paged_kv/mod_paged.rs`
 
-**Implication for Phase 1+CB:** Continuous batching would lift realizr's c=4 scaling efficiency from 0.37 to ~0.90 (matching vLLM × 0.97). The 2.6× efficiency gap at c=4 is the quantitative measure of what CB fixes. At c=16, the gap widens to 3.4× (0.24 vs 0.81) — this compounds into the 3.5× aggregate gap.
+**PMAT-257: Iteration scheduler benchmark — COMPLETED.** ✅ Existing `ITERATION_SCHEDULER=1` framework (zero code changes) delivers massive throughput and TTFT improvements at c=4-16:
+
+| c | Batch-and-step | Iteration sched | Δ agg | TTFT b&s | TTFT iter | Δ TTFT | ITL b&s | ITL iter | Δ ITL | Score b&s | Score iter |
+|---|---------------|----------------|-------|----------|-----------|--------|---------|----------|-------|-----------|------------|
+| 1 | 147.2 | 147.2 | 0.0% | 18.7 | 18.7 | 0.0% | 6.7 | 6.7 | 0.0% | 94 A | 95 A+ |
+| 4 | 217.6 | **291.3** | **+33.8%** | 82.0 | **42.9** | **−47.7%** | 12.1 | 13.2 | +8.7% | 58 C | **70 B** |
+| 8 | 351.7 | **494.8** | **+40.7%** | 178.0 | **46.3** | **−74.0%** | 13.3 | 15.5 | +16.9% | 64 C+ | **75 B** |
+| 16 | 571.3 | **884.8** | **+54.9%** | 279.0 | **47.8** | **−82.9%** | 13.9 | 17.5 | +25.9% | 70 B | **78 B** |
+| 32 | 867.3 | 873.7 | +0.7% | 2,235 | 2,246 | +0.5% | 17.5 | 17.5 | −0.2% | 66 C+ | 67 C+ |
+| 64 | 891.4 | 882.0 | −1.1% | — | 7,245 | — | 17.3 | 17.4 | — | 68 C+ | 68 C+ |
+
+**Key findings:** (1) The iteration scheduler hits BATCH=16 asymptote at c=16 instead of c=32 — filling the batch faster because requests join mid-decode rather than waiting for batch completion. (2) TTFT collapses by 47-83% at c=4-16 — requests no longer blocked behind batch-wide prefill. (3) ITL increases 9-26% at c=4-16 — expected trade-off from more active KV scan. (4) At c≥32 both schedulers are equivalent (BATCH=16 saturated, queuing dominates). (5) **Score improvement: +12 points at c=4 (58→70), +11 at c=8 (64→75), +8 at c=16 (70→78).** The iteration scheduler is the single highest-value zero-implementation-cost improvement available.
+
+**Revised competitive position with iteration scheduler:**
+- c=4: realizr 0.50× vLLM (was 0.37×) — +35% closer
+- c=8: realizr 0.44× vLLM (was 0.32×) — +41% closer
+- c=16: realizr 0.45× vLLM (was 0.29×) — +55% closer
+- **Score gap narrowed:** realizr 70-78 B vs vLLM 96-100 A+ at c=4-16 (was 58-70 vs 96-100)
+
+**Implication for Phase 1+CB:** Continuous batching would lift realizr's c=4 scaling efficiency from 0.37 to ~0.90 (matching vLLM × 0.97). The 2.6× efficiency gap at c=4 is the quantitative measure of what CB fixes. At c=16, the gap widens to 3.4× (0.24 vs 0.81) — this compounds into the 3.5× aggregate gap. **PMAT-257 demonstrates that even the incomplete iteration scheduler (no mid-batch joins, no prefill chunking) already recovers significant scheduling utilization.** The remaining gap (0.45× vs projected 0.97×) comes from the missing mid-batch slot addition and per-M CUDA graph capture.
 
 **Beyond vLLM: NVIDIA Dynamo and the Agentic Inference Architecture (PMAT-129, Mar 14):**
 
@@ -3353,6 +3372,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-257** | **Iteration scheduler benchmark — +34-55% aggregate, −48-83% TTFT, scores +8-12 points** | **c=4: 217→291 (+34%), c=16: 571→885 (+55%). TTFT c=16: 279→48ms (−83%). Scores: 58→70 (c=4), 64→75 (c=8), 70→78 (c=16)** | ✅ MEASURED. ITERATION_SCHEDULER=1 (existing framework, zero code changes) on yoga RTX 4060L. Hits BATCH=16 asymptote at c=16 instead of c=32 — requests join mid-decode. TTFT collapses: batch-wide prefill eliminated. ITL trade-off: +9-26% at c=4-16 (more active KV scan). At c≥32 both schedulers equivalent (queuing dominates). Revised r/v ratio: 0.50× (c=4, was 0.37×), 0.44× (c=8, was 0.32×), 0.45× (c=16, was 0.29×). Remaining gap (0.45× vs projected 0.97×) comes from missing mid-batch slot addition + per-M graph capture. **Single highest-value zero-implementation-cost improvement.** |
 | **PMAT-256** | **Phase 1 readiness audit — paged KV ready, scheduler is blocker, ~1000-1400 LOC** | **KV+allocator: ready. Scheduler: 500-700 LOC refactor. Graphs: 200-300 LOC safety fixes** | ✅ AUDIT. Four-area codebase review of realizr. (1) PagedKvCache: dynamic page alloc, CoW, defrag — CB-ready, no changes. (2) Batch scheduler: BLOCKER — `cuda_batch_scheduler.rs` is synchronous batch-and-step; `iteration_scheduler.rs` framework exists but incomplete (no mid-batch joins, no prefill chunking). Refactor ~500-700 LOC. (3) CUDA graphs: HashMap<batch_size, GraphExec> exists but invalidation unclear; PMAT-042 workspace realloc risk → silent corruption. Fix ~200-300 LOC. (4) Memory allocator: per-layer HashMap, paged — ready. **Total: ~1,000-1,400 LOC.** Critical risk: stale graph pointers. Phase 1a order: graph safety → async iteration loop → mid-batch slot addition. |
 | **PMAT-255** | **Crossover precision — decode/ITL crossover at c=64, advantage widens to 2.35×/0.43×** | **realizr dec 57.2-57.7 constant, vLLM 50.4→24.4. ITL 17.3-17.5 vs 19.8→41.0** | ✅ MEASURED. Serial isolated on yoga RTX 4060L at c=80/96/112 (filling gap between c=64 and c=128). Crossover confirmed at c=64 (not c≈96 as interpolated). Decode advantage widens smoothly: 1.14× (c=64), 1.46× (c=80), 1.74× (c=96), 2.02× (c=112), 2.35× (c=128). ITL mirrors: 0.87×→0.43×. realizr constant (BATCH=16 floor), vLLM decays linearly. **Decision gate: crossover <c=80 → STRONGER case for current architecture.** Aggregate: realizr ~880-890 (BATCH=16 asymptote), vLLM ~3,070-3,150 (CB saturated). 0% errors both. |
 | **PMAT-254** | **Output-length sensitivity — heterogeneity penalty 31-42%, paged KV ROI 1.72× at c=16** | **realizr 31-42% penalty, vLLM 0-2.5%. Paged KV: 584→1006 at c=16** | ✅ MEASURED. Serial isolated on yoga RTX 4060L. realizr hetero penalty 31%/36%/42%/14% at c=4/8/16/32. vLLM 0.4%/0.1%/2.5%/9.5% — PagedAttention eliminates heterogeneity cost. Paged KV ROI at c=16: +423 tok/s (1.72×). realizr fixed:128 still 0.51× vLLM → CB needed after paged KV. Penalty grows with c at c=4-16 (longer requests waste more KV slots), drops at c=32 (queuing dominates). **Decision gate PASSED: paged KV confirmed highest-ROI.** fixed:128/256 convergence proves KV scan plateaus above 128 tok. |
@@ -4347,6 +4367,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.1.0 | 2026-03-18 | **PMAT-257: Iteration scheduler benchmark — zero-code-change +34-55% throughput.** Existing ITERATION_SCHEDULER=1 framework delivers +33.8% (c=4), +40.7% (c=8), +54.9% (c=16) aggregate throughput. TTFT collapses 48-83%. Scores improve +8-12 points at c=4-16 (58→70, 64→75, 70→78). Hits BATCH=16 asymptote at c=16 instead of c=32. ITL trade-off +9-26%. At c≥32 both schedulers equivalent. Revised r/v ratio: 0.45-0.50× (was 0.29-0.37×). Single highest-value zero-cost improvement. Remaining gap from missing mid-batch joins + per-M graphs. |
 | 5.0.0 | 2026-03-18 | **PMAT-256: Phase 1 implementation readiness audit.** Four-area codebase review of realizr for CB readiness. KV cache (paged_kv/): READY — dynamic page alloc, CoW, defrag, no fixed-slot assumptions. Batch scheduler: BLOCKER — legacy batch-and-step active, iteration_scheduler framework exists but incomplete. CUDA graphs: RISK — invalidation strategy unclear, PMAT-042 workspace realloc can cause silent corruption. Memory allocator: READY — per-layer HashMap, paged. Total Phase 1: ~1,000-1,400 LOC across 4-5 files. Critical path: graph safety → async iteration loop → mid-batch slot addition. **All 4 implementation gates (PMAT-253/254/255/256) complete.** Milestone version: analysis→implementation transition. |
 | 4.9.0 | 2026-03-18 | **PMAT-255: Crossover precision — decode/ITL crossover at c=64.** Filled c=80/96/112 gap for realizr+vLLM. Crossover at c=64 (not c≈96 as interpolated). Decode advantage widens smoothly: 1.14× (c=64) → 1.46× (c=80) → 1.74× (c=96) → 2.02× (c=112) → 2.35× (c=128). ITL: 0.87× → 0.43×. realizr decode/ITL constant (BATCH=16 floor); vLLM decays linearly. Decision gate: crossover <c=80 → stronger case for current architecture. 3/4 implementation gates complete (PMAT-253/254/255). |
 | 4.8.0 | 2026-03-18 | **PMAT-253: Prompt-length sensitivity — FP8 prefill cost quantified.** realizr long-medium penalty: −3.4% (c=1), −12.3% (c=4), −14.1% (c=8/16). vLLM: −0.1 to −8.7%. TTFT long/short: realizr 3.0-7.7× vs vLLM 1.0-1.1×. Decision gate BORDERLINE: 12-14% at c≥4 between skip (≤10%) and required (>15%) thresholds. Phase 0 (fused Q4K GEMM) is optional but beneficial — not a prerequisite for Phase 1. Falsification PASSED: max penalty 14.1% < 20% threshold. Short-prompt boost: realizr +9-12% at c≥4. |

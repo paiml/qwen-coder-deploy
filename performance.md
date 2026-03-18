@@ -369,6 +369,21 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### Iteration Scheduler Benchmark (PMAT-257, Mar 18)
+
+`ITERATION_SCHEDULER=1` (existing framework, zero code changes, BATCH=16):
+
+| c | Batch-and-step | Iteration sched | Δ agg | TTFT b&s | TTFT iter | Δ TTFT | Score b&s | Score iter |
+|---|---------------|----------------|-------|----------|-----------|--------|-----------|------------|
+| 1 | 147.2 | 147.2 | 0.0% | 18.7 | 18.7 | 0.0% | 94 A | 95 A+ |
+| 4 | 217.6 | **291.3** | **+33.8%** | 82.0 | **42.9** | **−47.7%** | 58 C | **70 B** |
+| 8 | 351.7 | **494.8** | **+40.7%** | 178.0 | **46.3** | **−74.0%** | 64 C+ | **75 B** |
+| 16 | 571.3 | **884.8** | **+54.9%** | 279.0 | **47.8** | **−82.9%** | 70 B | **78 B** |
+| 32 | 867.3 | 873.7 | +0.7% | 2,235 | 2,246 | +0.5% | 66 C+ | 67 C+ |
+| 64 | 891.4 | 882.0 | −1.1% | — | 7,245 | — | 68 C+ | 68 C+ |
+
+Hits BATCH=16 asymptote at c=16 (was c=32). TTFT collapses because requests join mid-decode instead of waiting for batch-wide prefill. ITL trade-off: +9-26% at c=4-16. At c≥32 both schedulers equivalent. Revised r/v ratio: 0.45-0.50× (was 0.29-0.37×). **Single highest-value zero-implementation-cost improvement.**
+
 ### Phase 1 Readiness Audit (PMAT-256, Mar 18)
 
 Codebase review of realizr for continuous batching readiness:
