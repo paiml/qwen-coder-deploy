@@ -114,15 +114,17 @@ Jitter = TPOT P99 / ITL P50. llama.cpp is the only runtime with errors (avg_tok 
 | Kernel types | 44+ | ~35 | ~15 |
 | Launches/step | 771 (no graph), 1 (graph) | ~350 | ~113 |
 
-### CUDA API Root Cause (PMAT-217)
+### CUDA API Root Cause (PMAT-217, updated PMAT-266)
 
-At c=4, realizr CPU spends **82.4%** of time blocked in cuStreamSynchronize (10.4ms median).
+At c=4, realizr CPU spends **80-82%** of time blocked in cuStreamSynchronize (10.4-10.7ms median).
 M=1 graph is invalid for M>1 → 771 individual kernel launches per decode step.
+**PMAT-266: This profile is IDENTICAL between batch-and-step and iteration scheduler** — scheduling changes don't affect CUDA dispatch.
 llama.cpp: 3,579 graph launches, dynamic re-capture, 0.46µs median sync.
 vLLM: 11,467 pre-captured graph launches, event-based sync, 18.9µs median sync.
 
-**Per-step c=4 budget**: 1.6ms launch + 7ms GPU + 10.4ms sync = 12.5ms → 216 tok/s.
-**Fix projection**: per-M graph + event sync → +85% to ~400 tok/s at c=4.
+**Per-step c=4 budget**: 1.2ms launch + 10ms GPU kernels + 0.3ms H2D = ~12ms → 290 tok/s.
+**PMAT-266 correction**: Graph capture saves ~1.2ms launch overhead (17% improvement), but GPU kernel compute (10ms, 44 kernels) is the floor. vs vLLM: 2.17ms (1 CUTLASS GEMM) = **4.6× GPU kernel gap.**
+**Revised projection**: per-M graph → ~340 tok/s at c=4 (was ~400). Reaching 0.80×+ vLLM requires **kernel fusion** (44 → ~15 kernels).
 
 ### Prompt-Length Sensitivity (PMAT-219/220)
 
