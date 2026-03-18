@@ -64,12 +64,19 @@ Same-session c=64 decode: realizr 57.5 vs vLLM 50.5 — **realizr wins per-reque
 †BATCH=32 c=32 decode inflated by quality bug (avg_tok=67 vs expected ~136, PMAT-232 confirmed).
 c=64 confirmed clean same-session (avg ~135 tokens both). Tradeoff: −40% aggregate for +17% per-request decode at c≥64.
 
-### Iso-Quality Gap (PMAT-187/193/230)
+### Iso-Quality Gap (PMAT-187/193/230, updated PMAT-263)
 
-- ITL≤12ms: 12.8× (vLLM c=32 2758 tok/s vs realizr c=4 218 tok/s)
-- ITL≤15ms: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
-- Score≥70: 4.9× (vLLM c=32 vs realizr c=16 571 tok/s) — **was 3.0× at BATCH=32**
-- After Phase 1+CB: iso-quality gap shrinks from 12.8× to ~1.4× at ITL≤12ms
+**B32 iter sched vs B16 batch-and-step:**
+
+| Constraint | B16 B&S gap | B32 iter gap | Δ |
+|------------|-------------|-------------|---|
+| ITL≤12ms | 18.7× | 18.7× | same (c=1 for both) |
+| ITL≤15ms | 4.8× (r c=16) | 9.5× (r c=4) | **worse** (ITL +8.7% at c=4-16) |
+| ITL≤21ms | 3.5× (r c=128) | **2.0×** (r c=128) | **−43%** (aggregate +71%) |
+| Score≥70 | 5.3× (r c=16 571) | **2.1×** (r c=32 1464) | **−60%** |
+| Score≥75 | — | **2.1×** (r c=32 1464) | new (B16 never reached 75 at c≥4) |
+
+**Trade-off:** Iteration scheduler increases ITL (+9-26% at c=4-16), widening the strict-ITL gap. But +33-69% aggregate throughput more than compensates at relaxed constraints. Score-based gap: **60% improvement** (5.3× → 2.1×). After Phase 1+CB: projected ~1.0-1.4× across all constraints.
 
 ### Scaling Efficiency (PMAT-235, updated PMAT-262)
 
@@ -90,7 +97,8 @@ B32 iter sched: +33% (c=4), +41% (c=8), +54% (c=16), +69% (c=32) scaling efficie
 |---------|-------------|------------|---------------------|
 | ollama | **1.01×** (perfect) | 0% | 1.10-1.14× |
 | vLLM | 1.10× | 0% | 1.06-2.49× |
-| realizr (B16) | 1.18× (c≤64), 1.49× (c=128) | 0% | **1.01-1.12×** (tightest) |
+| realizr (B16 B&S) | 1.18× (c≤64), 1.49× (c=128) | 0% | **1.01-1.12×** (tightest) |
+| realizr (B32 iter) | **1.09-1.17×** (all c) | 0% | — |
 | llama.cpp | **1.38×** (worst) | **1-2%** | 1.10-1.57× |
 
 Jitter = TPOT P99 / ITL P50. llama.cpp is the only runtime with errors (avg_tok ~92 vs ~136, ctx_size constraint).
