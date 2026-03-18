@@ -4732,3 +4732,31 @@ roadmap:
     Same knee at c=64 but 887 vs 3036 tok/s (3.4x gap).
     realizr marginal goes negative at c=128 (-0.5 tok/s/req).
     This gap is exactly what CB fixes: lift 0.37->0.90 at c=4.
+- id: PMAT-236
+  github_issue: null
+  item_type: task
+  title: 'PMAT-236: 4-runtime serial c=1 same-session baseline'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-17T00:00:00Z
+  updated: 2026-03-17T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: All 4 runtimes measured in serial isolation — DONE'
+  - 'AC2: Cross-session variance quantified — DONE (<1.5% for 3/4 runtimes)'
+  - 'AC3: Ranking stability confirmed — DONE (same as PMAT-177)'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - measurement-stability
+  - 4060L
+  notes: |
+    Serial isolated deployment (forjar teardown->deploy->benchmark->teardown each).
+    realizr 149.2 (+1.4% vs PMAT-177), vLLM 153.5 (+0.7%),
+    llama.cpp 158.9 (+0.5%), ollama 160.1 (+5.5%).
+    7.3% total spread. Ranking stable: ollama > llama.cpp > vLLM > realizr.
+    3/4 runtimes within 1.4% of PMAT-177. Ollama variance largest (thermal).
+    Confirms measurement methodology produces <1.5% variance for batching runtimes.

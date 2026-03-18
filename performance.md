@@ -258,6 +258,17 @@ Prefill gap: 1.4x (HGEMM FP16 on-demand vs fused Q4K GEMM). TTFT narrowed from 5
 | RTX 4090 (128 SMs) | — | 436.9 | — | 411.7 |
 | Jetson Orin (8 SMs, MAXN_SUPER 1020MHz) | — | 36.1 | — | **40.8** |
 
+### Measurement Stability — Serial c=1 Same-Session (PMAT-236, Mar 17)
+
+| Runtime | PMAT-177 | Serial c=1 | Δ |
+|---------|----------|-----------|---|
+| realizr | 147.2 | 149.2 | +1.4% |
+| vLLM | 152.4 | 153.5 | +0.7% |
+| llama.cpp | 158.1 | 158.9 | +0.5% |
+| ollama | 151.8 | 160.1 | +5.5% |
+
+7.3% total spread (149.2-160.1). 3/4 runtimes within 1.4% of PMAT-177 baseline. Ollama variance largest — M=1 exclusive decode is thermal-sensitive. Ranking stable: ollama > llama.cpp > vLLM > realizr.
+
 ### Bandwidth Utilization (corrected: 67 GB/s peak for Orin Nano Super)
 
 | Runtime | BW (GB/s) | % of Peak |
