@@ -5615,6 +5615,35 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-273
+  github_issue: null
+  item_type: task
+  title: 'PMAT-273: c=1 prompt profile — FP8 overhead visible even at c=1'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=1 short/long for all 3 runtimes — DONE'
+  - 'AC2: TTFT ratio analysis — DONE (realizr 3.0x, vLLM 1.06x, llama.cpp 1.08x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - prompt-length
+  - characterization
+  notes: |
+    COMPLETED. c=1 data for realizr/vLLM/llama.cpp × short/long.
+    FP8 prefill overhead visible even at c=1:
+    - realizr TTFT: 13.1→39.7ms (3.0x long/short)
+    - vLLM TTFT: 12.2→12.9ms (1.06x)
+    - llama.cpp TTFT: 10.0→10.8ms (1.08x)
+    Decode and ITL invariant at c=1 for all runtimes.
+    Penalty transitions from TTFT-only (c=1) to aggregate throughput (c>=4).
+
 - id: PMAT-272
   github_issue: null
   item_type: task
