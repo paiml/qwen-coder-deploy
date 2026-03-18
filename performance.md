@@ -369,6 +369,20 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### ITL Crossover Analysis (PMAT-251, Mar 18)
+
+| c | realizr | llama.cpp | vLLM | ollama | r/v | realizr growth | vLLM growth |
+|---|---------|-----------|------|--------|-----|----------------|-------------|
+| 1 | 6.7 | 6.3 | 6.5 | 6.2 | 1.03× | 1.0× | 1.0× |
+| 4 | 12.1 | 11.1 | 6.7 | 6.2 | 1.81× | 1.8× | 1.0× |
+| 8 | 13.3 | 19.3 | 7.0 | 6.3 | 1.90× | 2.0× | 1.1× |
+| 16 | 13.9 | 17.7 | 7.9 | 6.3 | 1.76× | 2.1× | 1.2× |
+| 32 | 17.5 | 17.3 | 10.7 | — | 1.64× | 2.6× | 1.6× |
+| 64 | **17.3** | — | 19.8 | — | **0.87×** | 2.6× | 3.0× |
+| 128 | **17.5** | — | 41.0 | — | **0.43×** | 2.6× | 6.3× |
+
+**ITL crossover at c=64:** realizr 17.3ms < vLLM 19.8ms. At c=128: 17.5ms vs 41.0ms — **realizr ITL 2.3× better.** realizr ITL stabilizes at 17.3-17.5ms for c≥32 (BATCH=16 floor). vLLM ITL grows 6.3× from c=1→128 (no floor). This mirrors the decode crossover and is the fundamental quality advantage that drives the scoring crossover at c=128. Error rates: llama.cpp 1-3% at all c, all others 0%.
+
 ### TTFT Scaling Full Curve (PMAT-250, Mar 18)
 
 | c | realizr | llama.cpp | vLLM | ollama | r/v |

@@ -5179,3 +5179,34 @@ roadmap:
     Per-doubling: realizr 8.0x at c=32, llama.cpp 27.3x, vLLM 1.4-1.9x (smooth).
     16-slot boundary is architectural limit. Paged KV (PMAT-052) removes it.
     Extends PMAT-242 analysis from c=16 to full c=128 range.
+
+- id: PMAT-251
+  github_issue: null
+  item_type: task
+  title: 'PMAT-251: ITL crossover analysis c=1-128 — realizr beats vLLM at c>=64'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Full ITL P50 curve c=1-128 — DONE'
+  - 'AC2: ITL crossover at c=64 — DONE (realizr 17.3ms < vLLM 19.8ms)'
+  - 'AC3: ITL gap at c=128 — DONE (17.5ms vs 41.0ms = 2.3x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analytical
+  - itl
+  - scaling
+  - 4060L
+  notes: |
+    Analytical synthesis from PMAT-236-247 serial data.
+    ITL crossover at c=64: realizr 17.3ms < vLLM 19.8ms (r/v = 0.87x).
+    At c=128: 17.5ms vs 41.0ms (r/v = 0.43x, realizr 2.3x better).
+    realizr ITL stabilizes at 17.3-17.5ms for c>=32 (BATCH=16 floor).
+    vLLM ITL grows 6.3x from c=1 to c=128 (no floor).
+    Mirrors decode crossover (PMAT-249). ITL = 1/decode_rate.
+    Combined with PMAT-249/250: complete per-metric curve c=1-128.
