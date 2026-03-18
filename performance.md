@@ -392,6 +392,23 @@ PMAT-221 quality bug **eliminated** by iteration scheduler. Slot-level recycling
 
 **Asymptote raised from 885 to 1,515 tok/s** (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28× with B&S B16). B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). PMAT-221 was a scheduling bug, not a kernel bug.
 
+### Gap Decomposition Update (PMAT-264, Mar 18)
+
+The PMAT-179 2-factor model (gap = decode_rate × scheduling_utilization) recomputed with B32 iter sched:
+
+| c | r/v agg | decode_rate | sched_util | sched_util (B16 B&S) |
+|---|---------|------------|-----------|---------------------|
+| 4 | 0.49× | 0.52× | **0.96×** | 0.55× |
+| 8 | 0.44× | 0.46× | **0.96×** | 0.52× |
+| 16 | 0.44× | 0.46× | **0.96×** | 0.52× |
+| 32 | 0.53× | 0.56× | **0.94×** | 0.67× |
+| 64 | 0.49× | 1.04× | **0.47×** | — |
+| 128 | 0.50× | 2.08× | **0.24×** | — |
+
+**The iteration scheduler closes the scheduling gap.** At c≤32, scheduling utilization is **94-96%** (near-vLLM). The remaining 0.44-0.53× ratio is **almost purely decode kernel efficiency** — per-M CUDA graph capture is the primary fix. At c≥64, realizr's decode advantage (1.04-2.08×) is offset by queueing penalty (0.47-0.24×) from the BATCH=32 cap.
+
+**Phase 1 priority implications:** (1) Per-M graph capture → fixes decode_rate at c≤32 (0.46→~0.85× projected). (2) Paged KV → removes BATCH cap for c>32. CB confirmed as definitively higher-value.
+
 ### B32 Crossover Precision (PMAT-261, Mar 18)
 
 B32 iteration scheduler vs vLLM decode/ITL at high concurrency:

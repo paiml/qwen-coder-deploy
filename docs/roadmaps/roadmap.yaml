@@ -5536,3 +5536,81 @@ roadmap:
     B16 comparison: 1.14x (c=64), 1.46x (c=80), 2.35x (c=128).
     14% per-request decode trade-off buys 71% aggregate throughput.
     Quality crossover preserved — shifts minimally.
+
+- id: PMAT-262
+  github_issue: null
+  item_type: task
+  title: 'PMAT-262: Scaling efficiency update for B32 iter sched'
+  status: completed
+  priority: low
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Scaling efficiency at c=4/8/16/32 — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - scaling
+  notes: |
+    COMPLETED. B32 iter: 0.49/0.42/0.37/0.31 (was 0.37/0.30/0.24/0.18).
+    +33-69% vs B16 B&S. Now matches llama.cpp at c=8/16.
+
+- id: PMAT-263
+  github_issue: null
+  item_type: task
+  title: 'PMAT-263: Iso-quality gap + jitter update — score gap 5.3x to 2.1x (-60%)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Score-based iso-quality gap computed — DONE (5.3x -> 2.1x)'
+  - 'AC2: ITL-based gaps updated — DONE (mixed: strict worse, relaxed better)'
+  - 'AC3: B32 jitter documented — DONE (1.09-1.17x)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - iso-quality
+  - jitter
+  notes: |
+    COMPLETED. Score>=70 gap improved 60% (5.3x -> 2.1x).
+    ITL<=21ms gap improved 43% (3.5x -> 2.0x).
+    Strict ITL (<=12ms/15ms) unchanged or worse due to ITL trade-off.
+    Jitter improved: 1.09-1.17x (was 1.18-1.49x at B16).
+
+- id: PMAT-264
+  github_issue: null
+  item_type: task
+  title: 'PMAT-264: Gap decomposition — scheduling closed to 94-96%, decode rate is binding'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 2-factor model recomputed with B32 iter sched — DONE'
+  - 'AC2: Scheduling utilization quantified — DONE (0.94-0.96x at c<=32)'
+  - 'AC3: Phase 1 priority updated — DONE (per-M graphs > paged KV)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - analysis
+  - gap-decomposition
+  - phase-1
+  notes: |
+    COMPLETED. MAJOR FINDING: Iteration scheduler closes scheduling gap.
+    sched_util: 0.94-0.96x at c<=32 (was 0.52-0.67x B16 B&S).
+    Remaining gap almost purely decode_rate (0.46-0.56x).
+    At c>=64: decode advantage (1.04-2.08x) offset by queueing (0.47-0.24x).
+    Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
+    Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
