@@ -194,15 +194,32 @@ Per-request decode:
 | 8 | 145.5 | 140.5 | −3.4% |
 | 16 | 132.1 | 116.2 | −12.0% |
 | 32 | 99.9 | 91.4 | −8.5% |
+| 64 | 55.6 | 54.7 | −1.6% |
+| 128 | 28.7 | 29.0 | +1.0% |
 
-**Key finding: vLLM is NOT fully prompt-invariant at high concurrency.** At c≤8, prompt length is noise (±3%). At c=16, long penalty reaches −8.8% aggregate / −12.0% per-request decode. At c=32, the aggregate penalty reverses (+3.0%) but per-request decode still drops −8.5%. This falsifies PMAT-253's "±6% noise" claim at c≥16.
+### vLLM Full Prompt-Sensitivity Characterization (PMAT-270, Mar 18)
 
-**However, the magnitude difference vs realizr is dramatic:**
-- realizr long penalty: −17% (c=4) → −26% (c=32), monotonically increasing
-- vLLM long penalty: −3% (c=4) → −9%/+3% (c=16/32), non-monotonic
-- **realizr penalty is 2-3× larger at all c levels**
+Extended PMAT-269 to c=64/128. Same-session, vLLM isolated:
 
-PagedAttention amortizes prefill KV across paged blocks. At high c, more concurrent requests share CUTLASS GEMM kernel launches, partially hiding prefill overhead. realizr's per-slot FP8 2-step pipeline has no such amortization.
+| c | Short agg | Medium agg* | Long agg | Short boost | Long penalty |
+|---|-----------|------------|----------|------------|-------------|
+| 4 | 588.8 | 587.4 | 569.7 | +0.2% | −3.0% |
+| 8 | 1,133.0 | 1,115.2 | 1,095.6 | +1.6% | −1.8% |
+| 16 | 2,053.5 | 1,982.9 | 1,809.3 | +3.6% | **−8.8%** |
+| 32 | 3,095.4 | 2,757.6 | 2,839.7 | **+12.3%** | +3.0% |
+| 64 | **3,460.6** | 3,036.1 | **3,407.6** | **+14.0%** | **+12.2%** |
+| 128 | **3,605.9** | 3,049.4 | **3,609.8** | **+18.2%** | **+18.4%** |
+
+*Medium from PMAT-258 (same clock lock session).
+
+**Key finding: vLLM prompt-sensitivity is a CONCAVE function of concurrency.** Penalty peaks at c=16 (−8.8%) then reverses. At c≥32, long prompts are **FASTER** than medium (+3% to +18%). At c=128, short and long converge to identical throughput (3,606 vs 3,610 tok/s).
+
+**Root cause analysis:**
+1. **c≤8 (noise zone):** Prefill overhead small relative to decode. ±3%.
+2. **c=16 (peak penalty):** Enough concurrency to interrupt decode batching, not enough to amortize. −8.8%.
+3. **c≥32 (reversal):** Continuous batching + PagedAttention fully amortizes prefill. Long prompts produce larger KV caches that improve attention compute density at high c. +3→18%.
+
+**Contrast with realizr:** realizr penalty is monotonically increasing (−17→−26%) because per-slot fixed-width KV means each decode step scans more memory with longer sequences, with no amortization from continuous batching. vLLM's penalty is a scheduling artifact (prefill interrupts decode); realizr's penalty is a memory bandwidth fundamental (more KV to scan per decode step).
 
 ### Reproducibility (PMAT-216)
 

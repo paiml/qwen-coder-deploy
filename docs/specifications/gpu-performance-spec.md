@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.10.0
+**Version:** 5.11.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -1277,6 +1277,19 @@ Per-request decode: short 149.9→99.9 (c=4→32), long 146.0→91.4 (c=4→32).
 
 **Key finding: vLLM is NOT fully prompt-invariant at c≥16.** PMAT-253's "±6% noise" claim FALSIFIED at high concurrency — vLLM shows −8.8% aggregate / −12.0% decode penalty at c=16. However, the penalty is non-monotonic (reverses at c=32 aggregate) and 2-3× smaller than realizr's at all c levels. PagedAttention amortizes prefill KV across paged blocks, partially hiding overhead at high c.
 
+**PMAT-270: Extended to c=64/128 — COMPLETED.** ✅ Same-session extension of PMAT-269.
+
+| c | Short agg | Medium agg* | Long agg | Short boost | Long penalty |
+|---|-----------|------------|----------|------------|-------------|
+| 4 | 588.8 | 587.4 | 569.7 | +0.2% | −3.0% |
+| 8 | 1,133.0 | 1,115.2 | 1,095.6 | +1.6% | −1.8% |
+| 16 | 2,053.5 | 1,982.9 | 1,809.3 | +3.6% | **−8.8%** |
+| 32 | 3,095.4 | 2,757.6 | 2,839.7 | **+12.3%** | +3.0% |
+| 64 | **3,460.6** | 3,036.1 | **3,407.6** | **+14.0%** | **+12.2%** |
+| 128 | **3,605.9** | 3,049.4 | **3,609.8** | **+18.2%** | **+18.4%** |
+
+**Key finding: vLLM prompt-sensitivity is a CONCAVE function of concurrency.** Penalty peaks at c=16 (−8.8%) then REVERSES: at c≥32, long prompts are faster than medium. At c=128: short 3,606 ≈ long 3,610 tok/s (converge). Root cause: continuous batching + PagedAttention amortizes prefill cost; long KV caches improve attention compute density at high c.
+
 **Updated prompt-sensitivity comparison (realizr vs vLLM, long penalty):**
 
 | c | realizr | vLLM | realizr/vLLM penalty ratio |
@@ -1285,8 +1298,10 @@ Per-request decode: short 149.9→99.9 (c=4→32), long 146.0→91.4 (c=4→32).
 | 8 | −16.6% | −1.8% | 9.2× |
 | 16 | −21.5% | −8.8% | 2.4× |
 | 32 | −26.3% | +3.0% | ∞ (vLLM reverses) |
+| 64 | — | +12.2% | realizr data N/A (B32 long not measured at c=64) |
+| 128 | — | +18.4% | realizr data N/A |
 
-Fused Q4K GEMM (PMAT-054) urgency reinforced: realizr penalty is 2.4-9.2× larger than vLLM's across all c levels.
+**Structural divergence:** realizr penalty is monotonically increasing (−17→−26%) — per-slot fixed-width KV means more memory to scan per decode step. vLLM penalty is concave and reverses — scheduling artifact (prefill interrupts decode) amortized at high c. Fused Q4K GEMM (PMAT-054) urgency reinforced: realizr has no amortization mechanism.
 
 **PMAT-254: Output-length sensitivity sweep — COMPLETED.** ✅ realizr heterogeneity penalty (B16, batch-and-step): **31% (c=4), 36% (c=8), 42% (c=16), 14% (c=32)**. vLLM: **0.4% (c=4), 0.1% (c=8), 2.5% (c=16), 9.5% (c=32)** — PagedAttention eliminates heterogeneity cost. **⚠️ PMAT-260 UPDATE:** With B32 iteration scheduler, penalty reduced to **7-11%** (4× improvement). Paged KV marginal ROI at c=16: +100 tok/s (1.11×, was +423/1.72× with B16 B&S). Most of PMAT-254's penalty was scheduling waste, not memory fragmentation. CB (mid-batch joins) is now definitively higher-value than paged KV. See PMAT-260 for full comparison.
 
@@ -3476,7 +3491,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
-| **PMAT-269** | **vLLM prompt-length cross-validation — FALSIFIES "±6% noise" at c≥16** | **vLLM long penalty: −3% (c=4), −9% (c=16). NOT prompt-invariant at high c. But 2-3× smaller than realizr** | ✅ MEASURED. Same-session isolated vLLM (realizr stopped). Short/long × c=4/8/16/32. c≤8: ±3% (noise). c=16: −8.8% agg / −12.0% decode. c=32: reverses (+3.0% agg, −8.5% decode). Non-monotonic — PagedAttention amortizes at very high c. Penalty ratio: realizr is 2.4-9.2× larger at all c. PMAT-054 urgency reinforced. |
+| **PMAT-270** | **vLLM full prompt-sensitivity characterization (c=4→128)** | **Penalty is CONCAVE: peaks at c=16 (−8.8%) then reverses. c=128: short ≈ long (3,606 ≈ 3,610)** | ✅ MEASURED. Extension of PMAT-269 to c=64/128. Short boost: +14.0% (c=64), +18.2% (c=128). Long penalty reverses to +12.2%/+18.4%. Continuous batching + PagedAttention amortizes prefill at high c. Long KV caches improve attention compute density. Short/long converge at c=128. Structural contrast: realizr penalty monotonically increasing (no amortization), vLLM concave (scheduling artifact). |
+| **PMAT-269** | **vLLM prompt-length cross-validation — FALSIFIES "±6% noise" at c≥16** | **vLLM long penalty: −3% (c=4), −9% (c=16). NOT prompt-invariant at high c. But 2-3× smaller than realizr** | ✅ MEASURED. Same-session isolated vLLM (realizr stopped). Short/long × c=4/8/16/32. c≤8: ±3% (noise). c=16: −8.8% agg / −12.0% decode. c=32: reverses (+3.0% agg, −8.5% decode). Non-monotonic — PagedAttention amortizes at very high c. Penalty ratio: realizr is 2.4-9.2× larger at all c. PMAT-054 urgency reinforced. Extended by PMAT-270 to c=64/128. |
 | **PMAT-268** | **Iteration scheduler prompt-length sensitivity — penalty INCREASES** | **Long penalty −16.9% (c=4) → −26.3% (c=32). PMAT-253 decision gate reclassified: REQUIRED at c≥16** | ✅ MEASURED. B32 iter sched at c=4/8/16/32 with short/long vs medium baseline. Per-slot prefill concentrates FP8 overhead. Sensitivity GROWS with concurrency: −16.9/−16.6/−21.5/−26.3% at c=4/8/16/32 (was −12.3/−14.1/−14.1% B16 B&S). Short boost: +9.3/+11.5/+12.6/+16.5%. Decode drops 23-36% with long prompts (KV scan). TTFT flat with c (35-42ms short, 67-75ms long) — per-slot prefill avoids batch-wide blocking. **PMAT-253 reclassified: fused Q4K GEMM (PMAT-054) now REQUIRED at c≥16** (penalty exceeds 20% threshold). |
 | **PMAT-267** | **Per-step pipeline analysis — corrects PMAT-266's overcorrection** | **GPU kernels 7.4ms (not 10ms), serving 5.5ms (40% of step). Wall-time gap 2.0× (not 4.6×). Graph → 0.66-0.79× vLLM** | ✅ ANALYZED. Re-derived per-step budget from PMAT-266 nsys kernel totals / step count. GPU kernel time: 7.4ms per step (PMAT-266 stated 10ms — overstated by including partial overlap). Serving overhead: 5.5ms (HTTP, tokenizer, scheduling — not captured in nsys CUDA traces). Wall-time gap: 2.0× (13.8/6.8ms, directly from throughput). PMAT-266's "4.6× GPU kernel gap" compared realizr total GPU to a single vLLM GEMM call — misleading because vLLM has ~3 calls/step. Per-M graph + event sync enables CPU-GPU pipelining (serving overlaps GPU): projected 0.66-0.79× vLLM (50-80% overlap). PMAT-265's ~0.81× approximately correct at high overlap. **The binding question is achievable overlap %, not kernel fusion.** |
 | **PMAT-266** | **nsys CUDA API trace — iteration scheduler dispatch IDENTICAL to batch-and-step** | **cuStreamSync 80.5%/10.7ms (was 82.4%/10.4ms). GPU kernels 7.4ms/step. ⚠️ Initial 4.6× gap overstated — corrected to 2.0× by PMAT-267** | ✅ MEASURED. nsys trace of B32 iter sched at c=4 (90s, yoga RTX 4060L). cuStreamSync dominates identically to PMAT-217 B&S — iteration scheduler is CPU-only improvement, does NOT change CUDA dispatch. Per-step M=4: GPU kernels **7.4ms** (DP4A 2.8ms + attn 2.0ms + FP8 2.2ms + other 0.4ms), launch 0.9ms, H2D 0.4ms, serving 5.5ms. PMAT-267 correction: initial "10ms GPU, 4.6× gap" was overstated (included overlap and compared to single vLLM GEMM call). Actual wall-time gap: **2.0×**. Graph + event sync enables pipelining → 0.66-0.79× vLLM. |
@@ -4482,6 +4498,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.11.0 | 2026-03-18 | **PMAT-270: vLLM full prompt-sensitivity characterization (c=4→128).** Extended PMAT-269 to c=64/128. Penalty is CONCAVE: peaks at c=16 (−8.8%) then reverses. c=64: +12.2% (long faster than medium). c=128: short ≈ long (3,606 ≈ 3,610). Continuous batching + PagedAttention amortizes prefill. Structural contrast: realizr penalty monotonically increasing (no amortization), vLLM concave (scheduling artifact resolved at high c). |
 | 5.10.0 | 2026-03-18 | **PMAT-269: vLLM prompt-length cross-validation — FALSIFIES full prompt-invariance at c≥16.** Same-session isolated vLLM benchmarks (short/long × c=4/8/16/32). c≤8: ±3% (noise). c=16: −8.8% agg / −12.0% decode (NOT invariant). c=32: aggregate reverses (+3.0%) but decode still −8.5%. Penalty is non-monotonic (PagedAttention amortizes at very high c). realizr penalty 2.4-9.2× larger at all c levels. PMAT-054 urgency reinforced. Updated PMAT-253 claim and prompt-sensitivity comparisons. |
 | 5.9.0 | 2026-03-18 | **PMAT-268: Iteration scheduler prompt-length sensitivity.** B32 iter sched INCREASES long-prompt penalty vs B16 B&S: −16.9% (c=4), −16.6% (c=8), −21.5% (c=16), −26.3% (c=32). Was −12-14% with B&S. Penalty grows with concurrency — more active KV to scan. Short-prompt boost: +9-17%. PMAT-253 decision gate reclassified: fused Q4K GEMM (PMAT-054) now **REQUIRED** at c≥16 (exceeds 20% threshold). TTFT flat with concurrency (per-slot prefill, no batch-wide blocking). |
 | 5.8.0 | 2026-03-18 | **PMAT-267: Per-step pipeline analysis — corrects PMAT-266's overcorrection.** Re-derived per-step budget: GPU kernels **7.4ms** (not 10ms), serving overhead **5.5ms** (40% of step). Wall-time gap: **2.0×** (not 4.6×). The "4.6× GPU kernel gap" compared realizr total GPU to single vLLM GEMM call — misleading. Graph + event sync enables CPU-GPU pipelining → **0.66-0.79× vLLM** (50-80% overlap). PMAT-265's ~0.81× approximately correct at high overlap. **Binding question: achievable overlap %, not kernel architecture.** Investment priority: per-M graph + event sync > kernel fusion (conditional) > CB > paged KV. |

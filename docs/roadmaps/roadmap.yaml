@@ -5615,6 +5615,38 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-270
+  github_issue: null
+  item_type: task
+  title: 'PMAT-270: vLLM full prompt-sensitivity characterization — CONCAVE penalty function'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Short/long at c=64/128 — DONE (4 benchmarks, same-session isolated)'
+  - 'AC2: Full c=4-128 prompt-sensitivity table — DONE'
+  - 'AC3: Root cause analysis of concave penalty — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - prompt-length
+  - vllm
+  - characterization
+  notes: |
+    COMPLETED. Extension of PMAT-269 to c=64/128 (same-session isolated).
+    Penalty is CONCAVE: peaks at c=16 (-8.8%) then reverses.
+    c=32: +3.0%, c=64: +12.2%, c=128: +18.4% (long faster than medium).
+    Short boost: +14.0% (c=64), +18.2% (c=128).
+    At c=128, short and long converge (3,606 vs 3,610 tok/s).
+    Root cause: continuous batching + PagedAttention amortizes prefill at high c.
+    Long KV caches improve attention compute density.
+    Structural contrast: realizr penalty monotonically increasing (no amortization).
+
 - id: PMAT-269
   github_issue: null
   item_type: task
