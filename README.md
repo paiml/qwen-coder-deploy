@@ -55,19 +55,19 @@ make load                    # Load tests
 
 realizr uses CUDA_MAX_BATCH=32 + ITERATION_SCHEDULER=1 (PMAT-258). Iteration scheduler eliminates PMAT-221 quality bug — 0% errors, correct avg_tok at all c levels with BATCH=32. Asymptote **~1,515 tok/s** (+71% vs BATCH=16).
 
-### Scorecards (probador llm score, PMAT-258 — iteration scheduler + BATCH=32)
+### Scorecards (probador llm score, PMAT-259 — 4-runtime combined, B32 iter sched)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 95 A+ | 97 A+ | 97 A+ | 78 B |
-| 4 | 70 B | 73 B | 97 A+ | 58 C |
-| 8 | 75 B | 65 C+ | 96 A+ | 58 C |
-| 16 | 78 B | 72 B | 94 A | 58 C |
-| 32 | — | 51 C | 86 A- | 57 C |
-| 64 | — | — | 73 B | — |
-| 128 | — | — | 63 C+ | — |
+| 1 | 95 A+ | 97 A+ | 98 A+ | 74 B |
+| 4 | 70 B | 73 B | 98 A+ | 58 C |
+| 8 | **76 B** | 62 C+ | 97 A+ | 57 C |
+| 16 | **78 B** | 71 B | 94 A | 57 C |
+| 32 | **75 B** | 63 C+ | 89 A- | — |
+| 64 | 64 C+ | — | 75 B | — |
+| 128 | **66 C+** | — | 63 C+ | — |
 
-c=32-128 scores pending re-scoring with full 4-runtime data.
+realizr B32 overtakes llama.cpp at c=8 (76 vs 62) and holds through c=32 (75 vs 63). Quality crossover: realizr **beats** vLLM at c=128 (66 vs 63).
 
 ### Asymptotes (PMAT-192/195/197/258)
 
