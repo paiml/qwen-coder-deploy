@@ -5241,3 +5241,129 @@ roadmap:
     vLLM wins aggregate and TTFT throughout.
     Definitive competitive characterization.
     Spec version 4.5.0.
+
+# === Implementation Gate Items (PMAT-253→256) ===
+# Must complete before Phase 1 implementation begins.
+# These transition from analysis to implementation.
+
+- id: PMAT-253
+  github_issue: null
+  item_type: task
+  title: 'PMAT-253: Prompt-length sensitivity sweep — FP8 prefill cost quantification'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Short prompt (23 tok) at c=1/4/8/16 for realizr+vLLM'
+  - 'AC2: Long prompt (~500 tok) at c=1/4/8/16 for realizr+vLLM'
+  - 'AC3: Prompt-length penalty quantified per-runtime per-c'
+  - 'AC4: Decision gate: >15% penalty -> Phase 0 required; <=10% -> skip Phase 0'
+  phases: []
+  subtasks: []
+  estimated_effort: 45m
+  labels:
+  - benchmark
+  - implementation-gate
+  - prefill
+  - 4060L
+  notes: |
+    Quantifies FP8 2-step prefill cost (PMAT-227 claimed -13-16%).
+    Short: --prompt-profile short (23 tok). Long: --prompt-profile long (~500 tok).
+    Serial isolated deploy for each runtime at each c level.
+    Falsification: realizr long penalty >20% -> Phase 0 (fused Q4K GEMM) mandatory.
+    vLLM is prompt-invariant (claimed +/-6%, PMAT-183) -> controls for methodology.
+
+- id: PMAT-254
+  github_issue: null
+  item_type: task
+  title: 'PMAT-254: Output-length sensitivity sweep — paged KV ROI quantification'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: fixed:32 at c=4/8/16/32 for realizr+vLLM'
+  - 'AC2: fixed:128 at c=4/8/16/32 for realizr+vLLM'
+  - 'AC3: fixed:256 at c=4/8/16/32 for realizr+vLLM'
+  - 'AC4: Heterogeneity penalty quantified (fixed vs uniform:16,256)'
+  - 'AC5: Paged KV ROI estimated from penalty delta'
+  phases: []
+  subtasks: []
+  estimated_effort: 60m
+  labels:
+  - benchmark
+  - implementation-gate
+  - paged-kv
+  - 4060L
+  notes: |
+    Quantifies heterogeneity penalty (PMAT-171 claimed 37-43%).
+    Compare fixed:32/128/256 vs production uniform:16,256 baseline.
+    Paged KV (PMAT-052) ROI = heterogeneity_penalty * aggregate_throughput.
+    Falsification: penalty <20% -> paged KV ROI lower than estimated.
+    vLLM should show minimal penalty (PagedAttention handles heterogeneity).
+
+- id: PMAT-255
+  github_issue: null
+  item_type: task
+  title: 'PMAT-255: Crossover precision — pin exact quality crossover concurrency'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=80 benchmark for realizr+vLLM'
+  - 'AC2: c=96 benchmark for realizr+vLLM'
+  - 'AC3: c=112 benchmark for realizr+vLLM'
+  - 'AC4: Exact crossover concurrency identified (score tie point)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - crossover
+  - realizr
+  - vllm
+  - 4060L
+  notes: |
+    Pin exact crossover from interpolated c~96.
+    Crossover <c=80: stronger case for current architecture.
+    Crossover >c=112: advantage only at extreme concurrency.
+
+- id: PMAT-256
+  github_issue: null
+  item_type: task
+  title: 'PMAT-256: Phase 1 implementation readiness audit — CB architecture review'
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: KV cache allocation path — all fixed-slot assumptions identified'
+  - 'AC2: Batch scheduler — batch-and-step vs continuous dispatch points identified'
+  - 'AC3: CUDA graph capture — M=1 graph invalidation points identified'
+  - 'AC4: Memory allocator — contiguous vs paged allocation points identified'
+  - 'AC5: Implementation plan with LOC estimates, blocking deps, risk assessment'
+  phases: []
+  subtasks: []
+  estimated_effort: 120m
+  labels:
+  - implementation
+  - phase-1
+  - architecture
+  - paged-kv
+  - continuous-batching
+  notes: |
+    Transition from analysis to implementation. Review realizr codebase.
+    Identify all architectural changes needed for paged KV + CB.
+    Output: concrete implementation plan, not just analysis.
+    This gates Phase 1 implementation start.
+    Blocks: PMAT-052 (paged KV), PMAT-053 (continuous batching).
