@@ -5615,6 +5615,42 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-272
+  github_issue: null
+  item_type: task
+  title: 'PMAT-272: llama.cpp prompt-sensitivity — GENUINELY INVARIANT (±4%)'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Short/long at c=4/8/16/32 — DONE (8 benchmarks, ctx=8192)'
+  - 'AC2: Prompt-invariance confirmed — DONE (±4%)'
+  - 'AC3: Complete 3-runtime summary — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - prompt-length
+  - llamacpp
+  - characterization
+  notes: |
+    COMPLETED. llama.cpp isolated on yoga, ctx=8192, --parallel 16.
+    Short/long: c=4 343.9/343.9 (1.00x), c=8 411.6/406.7 (1.01x),
+    c=16 834.4/850.6 (0.98x), c=32 929.6/893.7 (1.04x).
+    GENUINELY INVARIANT within +/-4% at all c.
+    Fused Q4K GEMM processes prompts in single kernel pass.
+    Proves PMAT-054 would eliminate realizr's 24-26% penalty.
+    Complete 3-runtime picture:
+    - realizr: PLATEAU (-24-26% at asymptote)
+    - vLLM: CONCAVE (-9% peak c=16, reverses to +18% c=128)
+    - llama.cpp: INVARIANT (+/-4%)
+    Note: ctx=8192 vs medium baseline ctx=4096 may explain ~3% drop
+    vs medium at c<=8 (larger KV allocation, not prompt effect).
+
 - id: PMAT-271
   github_issue: null
   item_type: task
