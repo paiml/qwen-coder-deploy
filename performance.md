@@ -291,6 +291,17 @@ All 4 within 0.3% of PMAT-177 (tighter than c=1). Batching architecture divergen
 
 **Per-request decode crossover at c=8:** realizr 75.1 vs llama.cpp 51.9 = **1.45× realizr advantage** (FP8 tensor core at M≥5). Aggregate still 12.4% below llama.cpp (scheduling overhead).
 
+### Measurement Stability — Serial c=16 Same-Session (PMAT-240, Mar 18)
+
+| Runtime | PMAT-177 | Serial c=16 | Δ | Decode | r/lc dec |
+|---------|----------|------------|---|--------|----------|
+| vLLM | 1,982.9 | 1,980.1 | −0.1% | 127.4 | — |
+| llama.cpp | 896.6 | 853.5 | −4.8% | 56.3 | — |
+| realizr | 571.3 | 583.6 | +2.2% | 72.1 | 1.28× |
+| ollama | 161.0 | 156.8 | −2.6% | 157.9 | — |
+
+realizr decode still beats llama.cpp at c=16: 72.1 vs 56.3 = 1.28× (narrowing from 1.45× at c=8). llama.cpp variance grows with c (−4.8%). vLLM ≤0.1% at all c levels.
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).
