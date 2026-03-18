@@ -5087,3 +5087,36 @@ roadmap:
     TTFT gap: 125x at c=128 (16.6s vs 133ms).
     All deltas vs PMAT-177 within +/-4%. 0% errors both runtimes.
     Spec version 4.0.0 milestone: complete serial characterization.
+
+- id: PMAT-248
+  github_issue: null
+  item_type: task
+  title: 'PMAT-248: Definitive serial scoring curve c=1-128 — quality crossover confirmed'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Score all serial results c=1-128 with scale ratios — DONE (probador 1.0.3)'
+  - 'AC2: Quality crossover confirmed — DONE (realizr 68 > vLLM 63 at c=128)'
+  - 'AC3: Scores match PMAT-229 production — DONE (within ±2 at c=1-16)'
+  - 'AC4: realizr overtakes llama.cpp — DONE (c=8: 65 vs 62)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - scoring
+  - analytical
+  - realizr
+  - vllm
+  - 4060L
+  notes: |
+    probador 1.0.3 combined scoring with scale ratios from all serial data.
+    Full curve: realizr 95/58/65/71/66/68/68 vs vLLM 98/98/97/94/89/73/63.
+    Quality crossover at c=128: realizr 68 C+ > vLLM 63 C+.
+    realizr score stabilizes at 65-71 across c=8-128 (BATCH=16 caps degradation).
+    vLLM degrades monotonically 98->63 (per-request quality collapses).
+    Crossover point estimated at c~96.
+    Capstone for serial characterization (PMAT-236-248).

@@ -369,6 +369,20 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### Definitive Serial Scoring Curve (PMAT-248, Mar 18)
+
+| c | vLLM | realizr | llama.cpp | ollama |
+|---|------|---------|-----------|--------|
+| 1 | 98 A+ | 95 A+ | 97 A+ | 74 B |
+| 4 | 98 A+ | 58 C | 73 B | 58 C |
+| 8 | 97 A+ | 65 C+ | 62 C+ | 57 C |
+| 16 | 94 A | 71 B | 71 B | 57 C |
+| 32 | 89 A- | 66 C+ | 63 C+ | — |
+| 64 | 73 B | 68 C+ | — | — |
+| 128 | 63 C+ | **68 C+** | — | — |
+
+**Quality crossover at c=128**: realizr 68 > vLLM 63 (BATCH=16 caps decode at 57 tok/s; vLLM collapses to 24.4). **realizr overtakes llama.cpp at c=8** (65 vs 62). Scores match PMAT-229 production scoring within ±2 points at c=1-16. probador 1.0.3.
+
 ### Scaling Curve Synthesis (PMAT-239, Mar 18)
 
 **Per-request decode crossover at c=5-7** (at c=4: realizr 0.92× llama.cpp, at c=8: 1.45×).
