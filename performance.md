@@ -369,6 +369,21 @@ realizr profile: most predictable, error-free. Quality ≥ llama.cpp at c≥8 de
 
 **Both runtimes at asymptote.** realizr: 885-891 tok/s (BATCH=16 ceiling, decode 57.2-57.7 stable). vLLM: 3,050-3,150 tok/s (continuous batching saturated). Per-request decode: realizr 57.2 > vLLM 24.4 at c=128 — **realizr wins per-request decode 2.34×** at highest concurrency. vLLM per-request decode halves each doubling (50.4→24.4) while realizr holds constant (BATCH=16 cap prevents further decode degradation). 0% errors both runtimes. TTFT: realizr 16.6s vs vLLM 133ms at c=128 (125× gap). Completes serial isolated curve c=1→128 for realizr+vLLM.
 
+### BATCH=32 + Iteration Scheduler (PMAT-258, Mar 18)
+
+PMAT-221 quality bug **eliminated** by iteration scheduler. Slot-level recycling avoids KV corruption.
+
+| c | Iter B16 | Iter B32 | Δ | avg_tok | errors |
+|---|---------|---------|---|---------|--------|
+| 4 | 291.3 | 290.1 | −0.4% | 132 | 0% |
+| 8 | 494.8 | 494.4 | −0.1% | 129 | 0% |
+| 16 | 884.8 | 880.4 | −0.5% | 126 | 0% |
+| 32 | 873.7 | **1,463.8** | **+67.5%** | 126 | 0% |
+| 64 | 882.0 | **1,494.1** | **+69.4%** | 135 | 0% |
+| 128 | 885.6 | **1,514.7** | **+71.0%** | 134 | 0% |
+
+**Asymptote raised from 885 to 1,515 tok/s** (+71%). realizr now 1.55× llama.cpp at c=32 and 0.50× vLLM at c=128 (was 0.28× with B&S B16). B32 identical to B16 at c≤16 (only fills min(c,BATCH) slots). PMAT-221 was a scheduling bug, not a kernel bug.
+
 ### Iteration Scheduler Benchmark (PMAT-257, Mar 18)
 
 `ITERATION_SCHEDULER=1` (existing framework, zero code changes, BATCH=16):

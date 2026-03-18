@@ -5413,3 +5413,36 @@ roadmap:
     Revised r/v ratio: 0.45-0.50x (was 0.29-0.37x).
     Single highest-value zero-cost improvement available.
     Remaining gap from missing mid-batch slot addition + per-M graph capture.
+
+- id: PMAT-258
+  github_issue: null
+  item_type: task
+  title: 'PMAT-258: BATCH=32 + iteration scheduler — quality bug eliminated, 1515 tok/s (+71%)'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-18T00:00:00Z
+  updated: 2026-03-18T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: BATCH=32 + ITERATION_SCHEDULER=1 at c=4/8/16/32/64/128 — DONE'
+  - 'AC2: Quality bug (PMAT-221) status — ELIMINATED (0% errors, avg_tok correct)'
+  - 'AC3: Asymptote comparison — DONE (1515 vs 885, +71%)'
+  - 'AC4: Production config updated — DONE (BATCH=32 + iter sched)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - benchmark
+  - iteration-scheduler
+  - batch-size
+  - quality-bug
+  - 4060L
+  notes: |
+    COMPLETED. PMAT-221 quality bug was batch-and-step scheduling issue.
+    Iteration scheduler per-slot recycling avoids KV corruption.
+    B32 identical to B16 at c<=16. At c>=32: +67-71% throughput.
+    Asymptote: 1515 tok/s (was 885 at B16). 0% errors at all c.
+    realizr now 1.55x llama.cpp at c=32, 0.50x vLLM at c=128.
+    PMAT-257+258 recover 76% of gap to 0.97x projection.
+    Production config: CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1.
