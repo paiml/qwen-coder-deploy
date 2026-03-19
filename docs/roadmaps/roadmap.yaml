@@ -5615,6 +5615,42 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-282
+  github_issue: null
+  item_type: task
+  title: 'PMAT-282: vLLM graph benefit — multi-M graphs +18-27%, realizr beats vLLM-eager at c=1'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: vLLM enforce-eager at c=1/4/8/16/32 — DONE'
+  - 'AC2: Graph benefit quantification — DONE (+18-27% at c<=16)'
+  - 'AC3: realizr vs vLLM-eager comparison — DONE (1.19x at c=1)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - vllm
+  - cuda-graph
+  - critical
+  notes: |
+    COMPLETED. vLLM --enforce-eager vs default (graph-enabled).
+    Graph benefit: +22.9% (c=1), +26.4% (c=4), +25.1% (c=8),
+    +18.3% (c=16), +5.5% (c=32). Multi-M pre-capture effective at all c.
+    c=32 benefit drops because batch size is stable (always ~32 active).
+    realizr BEATS vLLM-eager at c=1: 147.2 vs 123.9 = 1.19x.
+    Without graphs, realizr kernel pipeline is actually faster.
+    Gap at c>=4 (0.52-0.63x vs eager) is scheduling + batching.
+    Graph explains ~25% of realizr/vLLM gap at c=4-16:
+    0.44x (vs graph) -> 0.56x (vs eager) at c=8.
+    CONFIRMS: per-M graph capture is the differentiator.
+    realizr M=1 graph = 0% at c>=4 (PMAT-279).
+    vLLM multi-M graphs = +18-27% at c<=16.
+
 - id: PMAT-281
   github_issue: null
   item_type: task

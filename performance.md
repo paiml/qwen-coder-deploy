@@ -423,6 +423,26 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **Implementation must start with event sync** (`cuStreamSynchronize` → event-based), THEN add per-M graph. Graph capture alone provides **zero benefit at c≥4** (PMAT-279).
 
+### vLLM Graph Benefit (PMAT-282, Mar 19)
+
+vLLM with `--enforce-eager` (no CUDA graphs) vs default:
+
+| c | vLLM graph | vLLM eager | Graph benefit | realizr | r/v-eager |
+|---|-----------|-----------|--------------|---------|-----------|
+| 1 | 152.3 | 123.9 | **+22.9%** | 147.2 | **1.19×** |
+| 4 | 586.8 | 464.4 | **+26.4%** | 291.2 | 0.63× |
+| 8 | 1,114.4 | 890.8 | **+25.1%** | 494.6 | 0.56× |
+| 16 | 1,983.2 | 1,676.5 | **+18.3%** | 868.8 | 0.52× |
+| 32 | 2,898.5 | 2,747.7 | +5.5% | 1,469.4 | 0.53× |
+
+**Key findings:**
+1. **vLLM graphs provide +18-27% at c≤16.** Multi-M graph capture (pre-captured at M=1,2,4,8,16,32) is effective because each step dispatches the graph matching the current batch size.
+2. **realizr BEATS vLLM-eager at c=1** (1.19×). Without graphs, realizr's kernel pipeline is faster. The c≥4 gap (0.52-0.63×) is purely scheduling + batching architecture.
+3. **Graph accounts for ~25% of the realizr/vLLM gap** at c=4-16. realizr/vLLM improves from 0.44× to 0.56× when vLLM graphs are disabled.
+4. **vLLM c=32 graph benefit drops to +5.5%** — at saturation, batch size is stable (always ~32) so graph recapture is rare.
+
+**Contrast with PMAT-279:** realizr's M=1 graph provides 0% at c≥4 because it replays the same single-token graph M times. vLLM's multi-M graphs process M tokens in one launch. **Per-M graph capture is the key differentiator** — not just "having CUDA graphs".
+
 ### Stability and Correctness (PMAT-281, Mar 19)
 
 **5-minute sustained load (c=16):** 873.6 tok/s (baseline 868.8 = +0.6%), 2,012 requests, **0 errors**. ITL P50 17.5ms (identical to 60s). GPU memory 7,456 MB (stable). 6/6 correctness tests pass before and after.
