@@ -5615,6 +5615,40 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-278
+  github_issue: null
+  item_type: task
+  title: 'PMAT-278: Jetson production refresh — realizr 25.2 tok/s decode (+51%)'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Jetson c=1 production methodology — DONE (24.9 agg, 25.2 dec)'
+  - 'AC2: Jetson prompt-sensitivity — DONE (TTFT 3.8x, decode -2.4%)'
+  - 'AC3: Cross-platform table update — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - jetson
+  - cross-platform
+  notes: |
+    COMPLETED. realizr v0.4.10 on Jetson Orin (sm_87, 8 SMs, MAXN_SUPER).
+    Production methodology (medium prompt, uniform:16,256, streaming, 60s).
+    c=1: 24.9 agg, 25.2 decode, TTFT 119ms, ITL 39.6ms.
+    Decode +51% vs prior (16.7 from Mar 5 -> 25.2).
+    Prompt-sensitivity at c=1:
+    - Short: 24.9 agg, 25.3 dec, TTFT 76ms
+    - Medium: 24.9 agg, 25.2 dec, TTFT 119ms
+    - Long: 23.7 agg, 24.6 dec, TTFT 289ms
+    TTFT ratio 3.8x (similar to yoga 3.0x). Decode -2.4% (smaller than yoga
+    -4.2%, no FP8 on sm_87 — uses DP4A only, more prompt-invariant).
+    llama.cpp failed to load model on Jetson (compatibility issue).
+
 - id: PMAT-277
   github_issue: null
   item_type: task

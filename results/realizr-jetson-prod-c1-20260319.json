@@ -1,0 +1,145 @@
+{
+  "total_requests": 10,
+  "successful": 10,
+  "failed": 0,
+  "throughput_rps": 0.1530756058789264,
+  "latency_p50_ms": 7149.333244,
+  "latency_p95_ms": 9789.698693999999,
+  "latency_p99_ms": 9803.194856399998,
+  "ttft_p50_ms": 119.25005100000001,
+  "tokens_per_sec": 24.920708637089216,
+  "avg_tok_per_req": 162.8,
+  "itl_p50_ms": 39.60863678275511,
+  "decode_tok_per_sec": 25.247018863203643,
+  "prefill_tok_per_sec": 855.3457080019809,
+  "timestamp": "2026-03-19T14:00:46.819540507+00:00",
+  "runtime_name": "realizr",
+  "elapsed_secs": 65.327195294,
+  "concurrency": 1,
+  "ttft_p90_ms": 120.05231440000001,
+  "ttft_p95_ms": 121.4527927,
+  "ttft_p99_ms": 122.57317534,
+  "tpot_p50_ms": 39.60863678275511,
+  "tpot_p90_ms": 39.701239405876,
+  "tpot_p95_ms": 39.70641837166228,
+  "tpot_p99_ms": 39.7105615442913,
+  "latency_min_ms": 1388.583978,
+  "latency_max_ms": 9806.568897,
+  "latency_stddev_ms": 3069.6184524043624,
+  "error_rate": 0.0,
+  "prompt_tokens_total": 1020,
+  "completion_tokens_total": 1628,
+  "truncated_pct": 0.0,
+  "sse_batch_ratio": 1.0,
+  "goodput_pct": 0.0,
+  "output_tokens_dist": [
+    33.0,
+    178.5,
+    244.1,
+    245.0
+  ],
+  "request_details": [
+    {
+      "latency_ms": 4751.577832999999,
+      "ttft_ms": 122.853271,
+      "completion_tokens": 118,
+      "prompt_tokens": 102,
+      "itl_ms": 39.56170276923077,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 9806.568897,
+      "ttft_ms": 119.74109700000001,
+      "completion_tokens": 245,
+      "prompt_tokens": 102,
+      "itl_ms": 39.700088524590164,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 9769.079557,
+      "ttft_ms": 119.153772,
+      "completion_tokens": 244,
+      "prompt_tokens": 102,
+      "itl_ms": 39.71159733744856,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 5895.006641,
+      "ttft_ms": 119.30192600000001,
+      "completion_tokens": 147,
+      "prompt_tokens": 102,
+      "itl_ms": 39.559573041095895,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 9160.160479,
+      "ttft_ms": 119.161301,
+      "completion_tokens": 229,
+      "prompt_tokens": 102,
+      "itl_ms": 39.65347700877193,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 7368.928791,
+      "ttft_ms": 119.346102,
+      "completion_tokens": 184,
+      "prompt_tokens": 102,
+      "itl_ms": 39.61516961202186,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 1822.094815,
+      "ttft_ms": 119.198176,
+      "completion_tokens": 44,
+      "prompt_tokens": 102,
+      "itl_ms": 39.602103953488374,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 1388.583978,
+      "ttft_ms": 119.15811599999999,
+      "completion_tokens": 33,
+      "prompt_tokens": 102,
+      "itl_ms": 39.669284,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 6929.7376970000005,
+      "ttft_ms": 119.14459099999999,
+      "completion_tokens": 173,
+      "prompt_tokens": 102,
+      "itl_ms": 39.59643637790698,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 8435.172301,
+      "ttft_ms": 119.44539999999999,
+      "completion_tokens": 211,
+      "prompt_tokens": 102,
+      "itl_ms": 39.598670385714286,
+      "finish_reason": "stop"
+    }
+  ],
+  "tail_analysis": {
+    "itl_p999_ms": 39.71149375813283,
+    "itl_p9999_ms": 39.71158697951699,
+    "ttft_p999_ms": 122.82526143400001,
+    "ttft_p9999_ms": 122.85047004340001,
+    "latency_p999_ms": 9806.231492939998,
+    "latency_p9999_ms": 9806.535156594,
+    "tail_ratio_itl": 1.0025732963771317,
+    "tail_ratio_ttft": 1.0278668588577793,
+    "tail_ratio_latency": 1.371204072019894,
+    "jitter": {
+      "itl_cv": 0.0013640073045126464,
+      "itl_iqr_ms": 0.06833737233417025,
+      "spike_count": 0,
+      "spike_threshold_ms": 198.04318391377558
+    },
+    "drift": {
+      "itl_slope_ms_per_min": 0.17446318744613493,
+      "ttft_slope_ms_per_min": 2.3990283636363765,
+      "degradation_detected": false
+    }
+  }
+}

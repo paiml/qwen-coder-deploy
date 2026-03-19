@@ -1,0 +1,145 @@
+{
+  "total_requests": 10,
+  "successful": 10,
+  "failed": 0,
+  "throughput_rps": 0.14557597753233215,
+  "latency_p50_ms": 7504.9041915,
+  "latency_p95_ms": 10234.21065805,
+  "latency_p99_ms": 10250.53624441,
+  "ttft_p50_ms": 289.210115,
+  "tokens_per_sec": 23.699769142263673,
+  "avg_tok_per_req": 162.8,
+  "itl_p50_ms": 40.65509568993837,
+  "decode_tok_per_sec": 24.597162619579997,
+  "prefill_tok_per_sec": 968.1543613782931,
+  "timestamp": "2026-03-19T14:03:22.639472171+00:00",
+  "runtime_name": "realizr",
+  "elapsed_secs": 68.692652246,
+  "concurrency": 1,
+  "ttft_p90_ms": 290.1324979,
+  "ttft_p95_ms": 290.23849045,
+  "ttft_p99_ms": 290.32328449,
+  "tpot_p50_ms": 40.65509568993837,
+  "tpot_p90_ms": 40.82577805182149,
+  "tpot_p95_ms": 40.83430806279599,
+  "tpot_p99_ms": 40.84113207157559,
+  "latency_min_ms": 1565.5342779999999,
+  "latency_max_ms": 10254.617640999999,
+  "latency_stddev_ms": 3172.432193620131,
+  "error_rate": 0.0,
+  "prompt_tokens_total": 2800,
+  "completion_tokens_total": 1628,
+  "truncated_pct": 0.0,
+  "sse_batch_ratio": 1.0,
+  "goodput_pct": 0.0,
+  "output_tokens_dist": [
+    33.0,
+    178.5,
+    244.1,
+    245.0
+  ],
+  "request_details": [
+    {
+      "latency_ms": 5010.383539,
+      "ttft_ms": 289.311179,
+      "completion_tokens": 118,
+      "prompt_tokens": 280,
+      "itl_ms": 40.35099924786324,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 10254.617640999999,
+      "ttft_ms": 288.958912,
+      "completion_tokens": 245,
+      "prompt_tokens": 280,
+      "itl_ms": 40.842838073770494,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 10209.26879,
+      "ttft_ms": 289.060326,
+      "completion_tokens": 244,
+      "prompt_tokens": 280,
+      "itl_ms": 40.823882493827156,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 6205.1114959999995,
+      "ttft_ms": 290.10894399999995,
+      "completion_tokens": 147,
+      "prompt_tokens": 280,
+      "itl_ms": 40.51367865753425,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 9591.734775,
+      "ttft_ms": 289.697201,
+      "completion_tokens": 229,
+      "prompt_tokens": 280,
+      "itl_ms": 40.798380631578944,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 7732.69845,
+      "ttft_ms": 288.54831399999995,
+      "completion_tokens": 184,
+      "prompt_tokens": 280,
+      "itl_ms": 40.678367060109295,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 2000.3022910000002,
+      "ttft_ms": 289.50400199999996,
+      "completion_tokens": 44,
+      "prompt_tokens": 280,
+      "itl_ms": 39.78589748837209,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 1565.5342779999999,
+      "ttft_ms": 289.109051,
+      "completion_tokens": 33,
+      "prompt_tokens": 280,
+      "itl_ms": 39.88808178125,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 7277.109933000001,
+      "ttft_ms": 288.430181,
+      "completion_tokens": 173,
+      "prompt_tokens": 280,
+      "itl_ms": 40.631824319767446,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 8845.651174,
+      "ttft_ms": 290.34448299999997,
+      "completion_tokens": 211,
+      "prompt_tokens": 280,
+      "itl_ms": 40.739526390476186,
+      "finish_reason": "stop"
+    }
+  ],
+  "tail_analysis": {
+    "itl_p999_ms": 40.842667473551,
+    "itl_p9999_ms": 40.84282101374855,
+    "ttft_p999_ms": 290.34236314899994,
+    "ttft_p9999_ms": 290.34427101489996,
+    "latency_p999_ms": 10254.209501340998,
+    "latency_p9999_ms": 10254.576827034098,
+    "tail_ratio_itl": 1.004575967132289,
+    "tail_ratio_ttft": 1.0038489991610426,
+    "tail_ratio_latency": 1.365845050496405,
+    "jitter": {
+      "itl_cv": 0.009471005873825798,
+      "itl_iqr_ms": 0.3919979710222634,
+      "spike_count": 0,
+      "spike_threshold_ms": 203.27547844969186
+    },
+    "drift": {
+      "itl_slope_ms_per_min": 1.1529735220831427,
+      "ttft_slope_ms_per_min": 2.022892666666645,
+      "degradation_detected": false
+    }
+  }
+}

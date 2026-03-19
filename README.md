@@ -84,9 +84,11 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 
 | Platform | vLLM | realizr | llama.cpp | ollama |
 |----------|------|---------|-----------|--------|
-| **RTX 4060L** (24 SMs, 1900MHz) | **168.3** | 154.8 | 160.7 | 163.5 |
+| **RTX 4060L** (24 SMs, 1900MHz) | 153.6 | 149.2 | 159.1 | 160.8 |
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
-| Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
+| Jetson Orin (8 SMs, MAXN_SUPER) | — | **25.2** | — | — |
+
+*RTX 4060L: PMAT-276 same-session (Mar 19). Jetson: PMAT-278 (Mar 19). Production methodology (medium, uniform:16,256, streaming).*
 
 ### Key Findings (PMAT-209→277)
 
@@ -120,7 +122,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.17.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.18.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness
