@@ -3,7 +3,7 @@
 **Document ID:** REALIZAR-GPU-PERF-001
 **Version:** 5.18.0
 **Status:** ACTIVE
-**Date:** 2026-03-18
+**Date:** 2026-03-19
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
