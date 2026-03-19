@@ -421,13 +421,16 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **Key insight:** At c=4, pipelining alone (no graph changes, no kernel fusion) would reach **0.89× vLLM** — nearly closing the gap. The serving overhead (6.3ms) almost fully overlaps the GPU time (7.4ms). This is achievable by replacing `cuStreamSynchronize` with `cuEventRecord`/`cuEventQuery` in the decode loop.
 
-**Implementation status (PMAT-283):**
-- trueno: `CudaEvent` API committed (`db94138` — `new()`, `is_complete()`, `synchronize()`, `record_event()`)
-- realizr: decode event infrastructure committed (`408922ef` — field, init, record, query)
-- realizr: iteration scheduler timing instrumentation committed (`aede2824` — `PMAT_283_TIMING=1` env var)
-- **Next:** build + deploy updated binary on yoga, run timing to decompose the 6.3ms overhead, then restructure scheduler for pipelining
+**PMAT-283 timing decomposition (measured Mar 19, PhaseTimer on yoga):**
 
-**Implementation must start with event sync** (`cuStreamSynchronize` → event-based), THEN add per-M graph. Graph capture alone provides **zero benefit at c≥4** (PMAT-279).
+| Phase | c=4 | c=16 | % of step |
+|-------|-----|------|-----------|
+| lock | 0µs | 0µs | 0.0% |
+| sched | 0µs | 0µs | 0.0% |
+| **decode** | **13,000µs** | **15,000µs** | **99.99%** |
+| dist | 1µs | 2µs | 0.0% |
+
+**⚠️ PMAT-280 FALSIFIED:** The "6.3ms serving overhead" is NOT serving overhead — it is GPU sync time INSIDE `batched_decode_step()`. Lock contention = 0µs. Token distribution = 1µs. Scheduling = 0µs. **99.99% of step time is GPU compute + sync.** Pipelining serving with GPU will NOT yield 0.89× vLLM because there is no serving to pipeline. The remaining optimization path is per-M graph capture (multi-token CUTLASS-style dispatch) and kernel fusion, not event-based sync.
 
 ### vLLM Graph Benefit (PMAT-282, Mar 19)
 

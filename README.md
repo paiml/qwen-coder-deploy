@@ -109,9 +109,9 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 - **Jetson Orin** (PMAT-278): 25.2 tok/s decode (+51% from v0.4.10). Prompt-sensitivity lower (−2.4% vs −4.2% yoga, no FP8)
 
 **Implementation readiness:**
-- **Event sync + uniform tracing** (PMAT-283/284): CudaEvent in trueno, decode event in realizr, `renacer-core` extracted (breaks circular dep) for uniform instrumentation
-- Investment priority (PMAT-279/283): **event sync** (`cuStreamSync` → `cuEvent`) > per-M graph > fused Q4K GEMM > CB > paged KV
-- Projected: event sync alone → **0.89× vLLM at c=4** (285→520 tok/s)
+- **PMAT-280 FALSIFIED** (PMAT-283 timing): 99.99% of step = GPU decode. lock=0µs, sched=0µs, dist=1µs. "Serving overhead" is GPU sync, not serving. Pipelining has 0% ROI. Per-M graph is binding
+- Investment priority (PMAT-283 revised): **per-M graph** (multi-token dispatch, +18-27% from PMAT-282) > fused Q4K GEMM > CB > paged KV
+- ~~Event sync → 0.89× vLLM~~ **FALSIFIED** — no serving overhead to overlap
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
@@ -129,7 +129,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.24.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.25.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness
