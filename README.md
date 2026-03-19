@@ -109,7 +109,8 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 
 **Implementation readiness:**
 - Phase 1 audit (PMAT-256): ~1,000-1,400 LOC. Paged KV ready, CB is blocker
-- Investment priority: per-M graph + event sync > kernel fusion > CB > paged KV
+- Investment priority (PMAT-279 revised): **event sync first** (pipelining) > per-M graph > fused Q4K GEMM > CB > paged KV
+- c=1 decomposition: GPU 6.29ms + serving 0.54ms + graph 0.83ms. Serving grows to 6.3ms at c=4
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
@@ -127,7 +128,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.19.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.20.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

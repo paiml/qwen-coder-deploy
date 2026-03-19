@@ -396,7 +396,32 @@ Same-session A/B: SKIP_CUDA_GRAPH=1 vs default (graph enabled), B32 iter sched:
 
 **Key finding: The current M=1 CUDA graph is ONLY beneficial at c=1 (+12.2%).** At c≥4, it provides zero benefit (−0.8% at c=16 from graph state overhead). This validates PMAT-267: the value of per-M graph is **100% CPU-GPU pipelining enablement**, not launch overhead savings. At production concurrency (c≥4), kernel launches are already amortized across M tokens within the graph — the 771-kernel graph replays fast enough. The bottleneck is the synchronous `cuStreamSynchronize` blocking (5.5ms serving overhead) that prevents CPU-GPU overlap.
 
-**Implication for Phase 1:** Per-M graph capture must be paired with event-based sync to achieve the 0.66-0.79× projection. Graph capture alone (without pipelining) would provide zero throughput improvement at c≥4.
+**c=1 per-token time decomposition** (cross-validated with `apr profile`):
+- GPU forward pass: 6.29ms (82% of step — from `apr profile` 159.1 tok/s)
+- Serving overhead: 0.54ms (7% — HTTP, tokenizer, scheduling)
+- Graph launch savings: 0.83ms (11% — 771 kernels → 1 graph replay)
+- Graph-enabled total: 6.83ms (146.5 tok/s)
+- No-graph total: 7.66ms (130.6 tok/s)
+
+**Serving overhead scaling:** 0.54ms (c=1) → 6.3ms (c=4) → ~8.4ms (c=16). At c=4, serving is **46% of step time** (6.3/13.7ms). This is the target for event-based pipelining — overlap serving with GPU execution.
+
+**Pipelining projection (PMAT-280, Mar 19):**
+
+Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces sequential GPU+serving):
+
+| c | Current | GPU | Serving | Pipelined step | Projected | vs vLLM |
+|---|---------|-----|---------|---------------|-----------|---------|
+| 1 | 146.5 | 6.3ms | 0.5ms | 6.6ms | 151.7 | **1.00×** |
+| 4 | 285.5 | 7.4ms | 6.3ms | 7.7ms | **519.5** | **0.89×** |
+| 8 | 482.4 | ~7.4ms | ~9.4ms | ~9.7ms | 824.7 | 0.74× |
+| 16 | 856.3 | ~10ms | ~8.4ms | ~10.3ms | **1,553** | **0.78×** |
+| 32 | 1,440.9 | ~10ms | ~12.2ms | ~12.5ms | **2,560** | **0.88×** |
+
+*c=4 GPU/serving from nsys (PMAT-267). c=8-32 estimated from aggregate throughput minus nsys GPU.*
+
+**Key insight:** At c=4, pipelining alone (no graph changes, no kernel fusion) would reach **0.89× vLLM** — nearly closing the gap. The serving overhead (6.3ms) almost fully overlaps the GPU time (7.4ms). This is achievable by replacing `cuStreamSynchronize` with `cuEventRecord`/`cuEventQuery` in the decode loop.
+
+**Implementation must start with event sync** (`cuStreamSynchronize` → event-based), THEN add per-M graph. Graph capture alone provides **zero benefit at c≥4** (PMAT-279).
 
 ### Reproducibility (PMAT-216)
 

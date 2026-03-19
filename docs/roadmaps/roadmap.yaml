@@ -5615,6 +5615,42 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-280
+  github_issue: null
+  item_type: task
+  title: 'PMAT-280: Pipelining projection — event sync alone reaches 0.89x vLLM at c=4'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: c=1 overhead decomposition from profile + PMAT-279 — DONE'
+  - 'AC2: Pipelining projection at c=1/4/8/16/32 — DONE'
+  - 'AC3: Falsification condition defined — DONE (<450 tok/s = non-overlappable)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - pipelining
+  - projection
+  - critical
+  notes: |
+    COMPLETED. Analytical projection from PMAT-267+279 data.
+    c=1 decomposition: GPU 6.29ms (profile) + serving 0.54ms + graph 0.83ms.
+    Serving scales: 0.54ms (c=1) -> 6.3ms (c=4) -> ~8.4ms (c=16).
+    Pipelining: step = max(GPU, serving) + 0.3ms sync overhead.
+    c=4: 285->520 tok/s (0.89x vLLM). c=16: 856->1553 (0.78x).
+    c=32: 1441->2560 (0.88x).
+    REVISED IMPLEMENTATION PRIORITY:
+    1. Event sync (cuStreamSync -> cuEventRecord/Query) — THE binding change
+    2. Per-M graph capture — enables multi-token graph dispatch
+    3. Fused Q4K GEMM — prompt-length invariance
+    4. Continuous batching — mid-batch slot addition
+    Graph alone is 0% at c>=4 (PMAT-279). Event sync alone is ~1.85x.
+
 - id: PMAT-279
   github_issue: null
   item_type: task
