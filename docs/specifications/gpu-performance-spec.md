@@ -41,35 +41,35 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 **Key Result (Internal):** From 0.9 tok/s (GPU) to 740.5 tok/s at M=8 — a **823x improvement** in internal microbenchmarks.
 
-**Competition Reality (Mar 18, 2026 — yoga RTX 4060L @ 1900MHz):**
+**Competition Reality (Mar 19, 2026 — yoga RTX 4060L @ 1900MHz, same-session serial isolated):**
 
-**Production-realistic benchmark (PMAT-258/259, medium prompt + uniform:16,256 output, 60s, streaming, B32 iter sched):**
+**Production-realistic benchmark (PMAT-276, medium prompt + uniform:16,256 output, 60s, streaming, B32 iter sched):**
 
 | c | realizr | llama.cpp | vLLM | ollama | realizr/vLLM |
 |---|---------|-----------|------|--------|-------------|
-| 1 | 147.2 | 158.1 | 152.4 | 151.8 | 0.97× |
-| 4 | 290.1 | 354.4 | 587.4 | 160.1 | 0.49× |
-| 8 | 494.4 | 420.1 | 1,115.2 | 159.4 | 0.44× |
-| 16 | 880.4 | 896.6 | 1,982.9 | 161.0 | 0.44× |
-| 32 | **1,463.8** | 943.2 | 2,757.6 | 159.0 | 0.53× |
-| 64 | **1,494.1** | — | 3,036.1 | — | 0.49× |
-| 128 | **1,514.7** | — | 3,049.4 | — | 0.50× |
+| 1 | 147.2 | 158.0 | 152.3 | 148.6 | 0.97× |
+| 4 | 291.2 | 352.2 | 586.8 | 157.0 | 0.50× |
+| 8 | 494.6 | 416.5 | 1,114.4 | 156.6 | 0.44× |
+| 16 | 868.8 | 894.4 | 1,983.2 | 156.0 | 0.44× |
+| 32 | **1,469.4** | 922.9 | 2,898.5 | 153.0 | 0.51× |
+| 64 | **1,484.9** | — | 3,145.8 | — | 0.47× |
+| 128 | **1,510.5** | — | 3,162.6 | — | 0.48× |
 
-realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,515 tok/s** (+71% vs B16 885). PMAT-221 quality bug eliminated by iteration scheduler. Gap decomposition (PMAT-264): scheduling near-optimal (0.94-0.96×), remaining gap is purely decode_rate (0.46-0.56×).
+realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,511 tok/s** (+71% vs B16 885). PMAT-221 quality bug eliminated by iteration scheduler. Gap decomposition (PMAT-264): scheduling near-optimal (0.94-0.96×), remaining gap is purely decode_rate (0.46-0.56×).
 
-**Scorecards (probador llm score, PMAT-276 refresh — B32 iter sched, Mar 19):**
+**Scorecards (probador llm score, PMAT-276 — definitive same-session, Mar 19, B32 iter sched):**
 
 | c | vLLM | realizr | llama.cpp | ollama |
 |---|------|---------|-----------|--------|
-| 1 | 98 A+ | 95 A+ | 92 A | 78 B |
-| 4 | **98 A+** | 69 C+ | 69 C+ | 58 C |
-| 8 | **96 A+** | **75 B** | 59 C | 58 C |
-| 16 | **94 A** | **78 B** | 67 C+ | 58 C |
-| 32 | **86 A-** | **75 B** | 66 C+ | 57 C |
+| 1 | 98 A+ | 94 A | 93 A | 77 B |
+| 4 | **98 A+** | 70 B | 70 B | 57 C |
+| 8 | **97 A+** | **76 B** | 66 C+ | 57 C |
+| 16 | **94 A** | **78 B** | 71 B | 57 C |
+| 32 | **87 A-** | **75 B** | 63 C+ | 57 C |
 | 64 | 75 B | 64 C+ | — | — |
-| 128 | 63 C+ | **66 C+** | — | — |
+| 128 | 64 C+ | **66 C+** | — | — |
 
-**realizr B32 iter sched overtakes llama.cpp at c=8** (75 vs 59) and holds through c=32 (75 vs 66). Quality crossover at c=128: realizr 66 > vLLM 63. *(PMAT-276 refresh: realizr ±1 of PMAT-259 at all c. llama.cpp c=1/8 lower due to 2% errors in 20260316b session. vLLM c=32 lower (86 vs 89) — session variance.)* vLLM degrades: 98 A+ → 89 A- → 75 B → 63 C+ at c=4/32/64/128. Remaining structural deficit (PMAT-264 updated decomposition):
+**realizr B32 iter sched overtakes llama.cpp at c=8** (76 vs 66) and holds through c=32 (75 vs 63). Quality crossover at c=128: realizr 66 > vLLM 64. *(PMAT-276: same-session serial isolated, all 4 runtimes, Mar 19. realizr ±1 of PMAT-258/259 at all c. vLLM c=32: 87 vs 89 PMAT-259 — normal session variance.)* vLLM degrades: 98 A+ → 89 A- → 75 B → 63 C+ at c=4/32/64/128. Remaining structural deficit (PMAT-264 updated decomposition):
 1. **Per-request decode rate** (0.46-0.56× — binding factor, batch-GEMV KV scan scales with M) → per-M CUDA graph capture + continuous batching
 2. **Scheduling utilization** (**0.94-0.96× — near-optimal** with iteration scheduler, PMAT-264) → already close to vLLM's ~98%
    - *Sub-factor: output heterogeneity* (reduced to 7-11% by iter sched, PMAT-260; was 31-42% with B&S)

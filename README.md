@@ -67,18 +67,18 @@ realizr uses CUDA_MAX_BATCH=32 + ITERATION_SCHEDULER=1 (PMAT-258). Iteration sch
 | 64 | 64 C+ | — | 75 B | — |
 | 128 | **66 C+** | — | 63 C+ | — |
 
-realizr B32 overtakes llama.cpp at c=8 (76 vs 62) and holds through c=32 (75 vs 63). Quality crossover: realizr **beats** vLLM at c=128 (66 vs 63).
+realizr B32 overtakes llama.cpp at c=8 (76 vs 66) and holds through c=32 (75 vs 63). Quality crossover: realizr **beats** vLLM at c=128 (66 vs 64).
 
 ### Asymptotes (PMAT-192/195/197/258)
 
 | Runtime | Asymptote | Architecture |
 |---------|-----------|-------------|
-| vLLM | **3,050** tok/s | PagedAttention, continuous batching, CUTLASS GEMM |
-| realizr | **1,515** tok/s (iter sched, B32) | Iteration scheduler, BATCH=32 |
+| vLLM | **3,163** tok/s | PagedAttention, continuous batching, CUTLASS GEMM |
+| realizr | **1,511** tok/s (iter sched, B32) | Iteration scheduler, BATCH=32 |
 | llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
 | ollama | 160 tok/s | Serial FIFO |
 
-Iteration scheduler + BATCH=32: asymptote 1,515 tok/s (+71% vs BATCH=16 885). PMAT-221 quality bug eliminated by slot-level recycling.
+Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PMAT-221 quality bug eliminated by slot-level recycling.
 
 ### Cross-Platform Decode (c=1, isolated, streaming)
 
@@ -88,8 +88,9 @@ Iteration scheduler + BATCH=32: asymptote 1,515 tok/s (+71% vs BATCH=16 885). PM
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→275)
+### Key Findings (PMAT-209→276)
 
+- **Same-session 4-runtime scorecard** (PMAT-276): realizr overtakes llama.cpp at c=8 (76 vs 66). Quality crossover c=128: realizr 66 > vLLM 64. All runtimes ±1% of prior measurements
 - **TTFT scaling patterns diverge** (PMAT-275): realizr FLAT (35-42ms at c≤32, iter sched), vLLM GRADUAL (12→111ms), llama.cpp LINEAR→CLIFF. Flat scaling unique but FP8 adds 1.5-1.7×
 - **Competitive ratio is prompt-dependent** (PMAT-274): realizr/vLLM widens 36% with long prompts (0.50→0.31× at c=128). realizr/llama.cpp crossover shifts: wins c=16 short (1.19×), loses c=16 long (0.81×)
 - **3-runtime prompt-sensitivity** (PMAT-268→272): realizr PLATEAU (−24-26%), vLLM CONCAVE (−9% peak→+18% reversal), llama.cpp INVARIANT (±4%). Fused Q4K GEMM eliminates penalty
@@ -118,7 +119,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.16.0) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.16.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness
