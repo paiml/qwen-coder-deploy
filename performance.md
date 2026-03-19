@@ -382,6 +382,22 @@ Same-session serial isolated (PMAT-276 data). Per-request decode rate:
 
 ITL degrades with prompt length because longer sequences have more KV entries to scan during attention. The long/short ratio grows from 1.01× (c=1, single KV) to 1.56× (c=32, 32 KV slots × longer sequences). Plateaus at c≥32 (BATCH ceiling). **Interactive quality impact:** long-prompt users see 56% slower token delivery at c=32, affecting perceived typing speed.
 
+### CUDA Graph Overhead Isolation (PMAT-279, Mar 19)
+
+Same-session A/B: SKIP_CUDA_GRAPH=1 vs default (graph enabled), B32 iter sched:
+
+| c | Graph | No-graph | Delta |
+|---|-------|----------|-------|
+| 1 | 146.5 | 130.6 | **+12.2%** |
+| 4 | 285.5 | 285.1 | +0.1% |
+| 8 | 482.4 | 482.5 | −0.0% |
+| 16 | 856.3 | 862.8 | −0.8% |
+| 32 | 1,440.9 | 1,450.3 | −0.6% |
+
+**Key finding: The current M=1 CUDA graph is ONLY beneficial at c=1 (+12.2%).** At c≥4, it provides zero benefit (−0.8% at c=16 from graph state overhead). This validates PMAT-267: the value of per-M graph is **100% CPU-GPU pipelining enablement**, not launch overhead savings. At production concurrency (c≥4), kernel launches are already amortized across M tokens within the graph — the 771-kernel graph replays fast enough. The bottleneck is the synchronous `cuStreamSynchronize` blocking (5.5ms serving overhead) that prevents CPU-GPU overlap.
+
+**Implication for Phase 1:** Per-M graph capture must be paired with event-based sync to achieve the 0.66-0.79× projection. Graph capture alone (without pipelining) would provide zero throughput improvement at c≥4.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.

@@ -5615,6 +5615,43 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-279
+  github_issue: null
+  item_type: task
+  title: 'PMAT-279: CUDA graph overhead isolation — graph ONLY beneficial at c=1 (+12.2%)'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Same-session A/B graph vs no-graph at c=1/4/8/16/32 — DONE'
+  - 'AC2: Quantify graph overhead at each c — DONE (+12.2% c=1, 0% c>=4)'
+  - 'AC3: Validate PMAT-267 pipelining hypothesis — DONE'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - cuda-graph
+  - gap-decomposition
+  - critical
+  notes: |
+    COMPLETED. Same-session A/B with SKIP_CUDA_GRAPH=1 on yoga RTX 4060L.
+    c=1: 130.6 (no-graph) vs 146.5 (graph) = +12.2% from graph.
+    c=4: 285.1 vs 285.5 = +0.1% (noise).
+    c=8: 482.5 vs 482.4 = -0.0%.
+    c=16: 862.8 vs 856.3 = -0.8% (graph HURTS).
+    c=32: 1450.3 vs 1440.9 = -0.6% (graph HURTS).
+    CRITICAL FINDING: Current M=1 graph is only beneficial at c=1.
+    At c>=4, kernel launch overhead is already amortized across M tokens
+    within the graph — the 771-kernel replay is fast relative to M*kernel_time.
+    Graph state overhead (memory, capture cost) slightly exceeds savings.
+    VALIDATES PMAT-267: per-M graph value is 100% CPU-GPU pipelining
+    (event-based sync enabling serving to overlap GPU execution),
+    NOT launch overhead savings. cuStreamSynchronize (5.5ms) is bottleneck.
+
 - id: PMAT-278
   github_issue: null
   item_type: task

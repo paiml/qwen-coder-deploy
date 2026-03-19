@@ -90,9 +90,10 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 
 *RTX 4060L: PMAT-276 same-session (Mar 19). Jetson: PMAT-278 (Mar 19). Production methodology (medium, uniform:16,256, streaming).*
 
-### Key Findings (PMAT-209→278)
+### Key Findings (PMAT-209→279)
 
 **Architecture characterization (complete):**
+- **CUDA graph is only beneficial at c=1** (PMAT-279): +12.2% at c=1, **0% at c≥4** (−0.8% at c=16). Per-M graph value is 100% CPU-GPU pipelining, not launch savings
 - **2-factor gap model** (PMAT-277): gap = decode_rate × sched_util, validated within 1%. Decode crossover at c≈64 (realizr 1.98× vLLM at c=128)
 - **Per-step pipeline** (PMAT-267): GPU 7.4ms + serving 5.5ms. Graph + event sync → **0.66-0.79× vLLM** (50-80% overlap)
 - **TTFT scaling** (PMAT-275): realizr FLAT (35-42ms c≤32), vLLM GRADUAL (12→111ms), llama.cpp LINEAR→CLIFF
@@ -126,7 +127,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.18.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.19.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

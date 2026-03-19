@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.18.0
+**Version:** 5.19.0
 **Status:** ACTIVE
 **Date:** 2026-03-19
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3501,6 +3501,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-279** | **CUDA graph overhead isolation — graph ONLY beneficial at c=1 (+12.2%)** | **At c≥4: graph provides 0% benefit (−0.8% at c=16). Per-M graph value is 100% pipelining, not launch savings** | ✅ MEASURED. Same-session A/B: SKIP_CUDA_GRAPH=1 vs default. c=1: 130.6 vs 146.5 (+12.2%). c=4: 285.1 vs 285.5 (+0.1%). c=16: 862.8 vs 856.3 (−0.8%). c=32: 1450.3 vs 1440.9 (−0.6%). Graph is slightly negative at c≥4 — capture overhead exceeds launch savings when M tokens amortize. Validates PMAT-267: serving overhead (5.5ms cuStreamSync) is bottleneck, not kernel launches. Per-M graph must be paired with event-based sync for pipelining. |
 | **PMAT-278** | **Jetson production refresh — realizr 25.2 tok/s decode (51% improvement from v0.4.10)** | **Jetson c=1: 24.9 agg, 25.2 dec, TTFT 119ms. Prompt-sensitivity: 3.8× TTFT ratio, −2.4% decode** | ✅ MEASURED. realizr v0.4.10 on Jetson Orin (sm_87, 8 SMs). Production methodology (medium, uniform:16,256, streaming). Decode 25.2 vs prior 16.7 = +51%. Prompt-sensitivity: short 76ms/25.3, long 289ms/24.6. TTFT ratio 3.8× (similar to yoga 3.0×). Decode penalty −2.4% (smaller than yoga −4.2%, no FP8 on sm_87). |
 | **PMAT-277** | **Same-session per-request decode gap decomposition** | **2-factor model validated within 1%. Decode crossover at c≈64. BATCH=32 ceiling: 48.8-49.4 tok/s constant** | ✅ ANALYZED from PMAT-276 same-session data. Per-request decode: realizr constant at 48.8-49.4 (c≥32), vLLM halves each doubling (93.6→50.3→25.0). Crossover at c≈64 (0.98×), widening to 1.98× at c=128. 2-factor gap = decode_rate × sched_util matches measured r/v within 1% at all c. At c≤32: decode_rate binding (0.45-0.52×). At c≥64: queueing collapses sched_util (0.24-0.48×) despite decode advantage. |
 | **PMAT-276** | **Definitive same-session 4-runtime production benchmark** | **realizr 147→1511, llama.cpp 158→923, vLLM 152→3163, ollama 149→153. Scores ±1 of PMAT-259** | ✅ MEASURED + SCORED. Serial isolated, all 4 runtimes, Mar 19. realizr overtakes llama.cpp at c=8 (76 vs 66), quality crossover at c=128 (66 > 64 vLLM). All runtimes within 1% of PMAT-258. Same-session eliminates cross-session variance. |
@@ -4515,6 +4516,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.19.0 | 2026-03-19 | **PMAT-279: CUDA graph overhead isolation.** Same-session A/B with SKIP_CUDA_GRAPH=1. Graph provides +12.2% at c=1 but **0% benefit at c≥4** (−0.8% at c=16). Launch overhead already amortized across M tokens. Validates PMAT-267: per-M graph value is 100% CPU-GPU pipelining (event-based sync), not launch savings. cuStreamSynchronize (5.5ms serving) is the bottleneck. Per-M graph must be paired with event sync. |
 | 5.18.0 | 2026-03-19 | **PMAT-278: Jetson production refresh.** realizr v0.4.10 on Jetson Orin (sm_87): 24.9 agg, 25.2 decode at c=1. Decode +51% vs prior (16.7 → 25.2). Prompt-sensitivity: TTFT 76→289ms (3.8× ratio), decode −2.4% (smaller than yoga −4.2%, no FP8 on sm_87). Cross-platform table updated with production methodology numbers. |
 | 5.17.0 | 2026-03-19 | **PMAT-277: Same-session per-request decode gap decomposition.** 2-factor model validated within 1%: gap = decode_rate × sched_util. Per-request decode: realizr constant 48.8-49.4 (c≥32 BATCH ceiling), vLLM halves each doubling (93.6→50.3→25.0). Crossover at c≈64 (0.98×), 1.98× at c=128. At c≤32: decode_rate binding (0.45-0.52×). At c≥64: queueing collapses sched_util (0.24-0.48×) despite decode advantage. |
 | 5.16.0 | 2026-03-19 | **PMAT-276: Production scorecard refresh.** Filled realizr B32 iter sched gaps (c=4/8/16). Scores: realizr ±1 of PMAT-259 at all c levels — confirming reproducibility. realizr overtakes llama.cpp at c=8 (75 vs 59), holds through c=32 (75 vs 66). Quality crossover at c=128: realizr 66 > vLLM 63. Minor session variance in llama.cpp (2% errors in 20260316b) and vLLM c=32 (86 vs 89). |
