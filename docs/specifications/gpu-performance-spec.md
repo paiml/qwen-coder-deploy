@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.20.0
+**Version:** 5.21.0
 **Status:** ACTIVE
 **Date:** 2026-03-19
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -3501,6 +3501,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-281** | **Stability and correctness — 10-min c=32 sustained, 0 errors, no leak** | **6,843 requests, 1531 tok/s (+4.2% vs 60s), ITL drift 3.16ms/min. 6/6 correctness pass. Production-ready.** | ✅ MEASURED. 5-min c=16 (2,012 req, 873.6 tok/s, 0 errors, GPU 7456MB stable). 10-min c=32 (6,843 req, 1531.1 tok/s, 0 errors, GPU 7478MB stable, no leak). 6/6 correctness pass before and after both runs. ITL drift 3.16ms/min at c=32 (31.6ms over 10 min — within tolerance for production). Iteration scheduler + B32 is production-stable. |
 | **PMAT-280** | **Pipelining projection — event sync alone reaches 0.89× vLLM at c=4** | **step = max(GPU, serve) + 0.3ms. c=4: 285→520 (0.89×). c=16: 856→1553 (0.78×). c=32: 1441→2560 (0.88×)** | ✅ PROJECTED from PMAT-267+279 data. c=1 decomposition: GPU 6.29ms + serving 0.54ms. c=4: GPU 7.4ms (nsys) + serving 6.3ms (step−GPU). Pipelining overlaps serving with GPU: step = max(7.4, 6.3) + 0.3ms = 7.7ms → 520 tok/s (0.89× vLLM). c=8/16/32 serving estimated from aggregate. Falsification: if c=4 pipelined throughput < 450 tok/s, serving overhead has non-overlappable component. |
 | **PMAT-279** | **CUDA graph overhead isolation — graph ONLY beneficial at c=1 (+12.2%)** | **At c≥4: graph provides 0% benefit (−0.8% at c=16). Per-M graph value is 100% pipelining, not launch savings** | ✅ MEASURED. Same-session A/B: SKIP_CUDA_GRAPH=1 vs default. c=1: 130.6 vs 146.5 (+12.2%). c=4: 285.1 vs 285.5 (+0.1%). c=16: 862.8 vs 856.3 (−0.8%). c=32: 1450.3 vs 1440.9 (−0.6%). Graph is slightly negative at c≥4 — capture overhead exceeds launch savings when M tokens amortize. Validates PMAT-267: serving overhead (5.5ms cuStreamSync) is bottleneck, not kernel launches. Per-M graph must be paired with event-based sync for pipelining. |
 | **PMAT-278** | **Jetson production refresh — realizr 25.2 tok/s decode (51% improvement from v0.4.10)** | **Jetson c=1: 24.9 agg, 25.2 dec, TTFT 119ms. Prompt-sensitivity: 3.8× TTFT ratio, −2.4% decode** | ✅ MEASURED. realizr v0.4.10 on Jetson Orin (sm_87, 8 SMs). Production methodology (medium, uniform:16,256, streaming). Decode 25.2 vs prior 16.7 = +51%. Prompt-sensitivity: short 76ms/25.3, long 289ms/24.6. TTFT ratio 3.8× (similar to yoga 3.0×). Decode penalty −2.4% (smaller than yoga −4.2%, no FP8 on sm_87). |
@@ -4517,6 +4518,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.21.0 | 2026-03-19 | **PMAT-281: Stability and correctness.** 5-min c=16 (873.6 tok/s, 2,012 req, 0 errors) + 10-min c=32 (1,531 tok/s, 6,843 req, 0 errors). No memory leak (GPU 7.5GB stable). 6/6 correctness pass before and after. ITL drift 3.16ms/min at c=32 (within tolerance). Iteration scheduler + B32 is production-stable. |
 | 5.20.0 | 2026-03-19 | **PMAT-280: Pipelining projection from PMAT-279 data.** Event sync alone (cuStreamSync → cuEvent) reaches **0.89× vLLM at c=4** (285→520 tok/s). c=1 decomposition: GPU 6.29ms + serving 0.54ms + graph 0.83ms. Serving grows to 6.3ms at c=4 (46% of step). Pipelining overlaps serving with GPU: step = max(7.4, 6.3) = 7.7ms. Falsification: if pipelined c=4 < 450 tok/s, serving has non-overlappable component. Implementation priority revised: event sync first, then graph, then Q4K GEMM. |
 | 5.19.0 | 2026-03-19 | **PMAT-279: CUDA graph overhead isolation.** Same-session A/B with SKIP_CUDA_GRAPH=1. Graph provides +12.2% at c=1 but **0% benefit at c≥4** (−0.8% at c=16). Launch overhead already amortized across M tokens. Validates PMAT-267: per-M graph value is 100% CPU-GPU pipelining (event-based sync), not launch savings. cuStreamSynchronize (5.5ms serving) is the bottleneck. Per-M graph must be paired with event sync. |
 | 5.18.0 | 2026-03-19 | **PMAT-278: Jetson production refresh.** realizr v0.4.10 on Jetson Orin (sm_87): 24.9 agg, 25.2 decode at c=1. Decode +51% vs prior (16.7 → 25.2). Prompt-sensitivity: TTFT 76→289ms (3.8× ratio), decode −2.4% (smaller than yoga −4.2%, no FP8 on sm_87). Cross-platform table updated with production methodology numbers. |

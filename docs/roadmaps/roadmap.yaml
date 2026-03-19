@@ -5615,6 +5615,41 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-281
+  github_issue: null
+  item_type: task
+  title: 'PMAT-281: Stability and correctness — 10-min c=32, 0 errors, production-ready'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: 5-min sustained c=16 — DONE (873.6 tok/s, 0 errors, no leak)'
+  - 'AC2: 10-min sustained c=32 — DONE (1531 tok/s, 6843 req, 0 errors)'
+  - 'AC3: Post-load correctness — DONE (6/6 pass before and after)'
+  - 'AC4: Memory leak check — DONE (GPU 7.5GB stable, no growth)'
+  phases: []
+  subtasks: []
+  estimated_effort: 20m
+  labels:
+  - benchmark
+  - stability
+  - correctness
+  - production-readiness
+  notes: |
+    COMPLETED. Stability + correctness verification.
+    5-min c=16: 873.6 tok/s (baseline 868.8 = +0.6%), 2,012 req, 0 errors.
+    GPU 7,456 MB stable. 6/6 correctness pass before and after.
+    10-min c=32: 1,531.1 tok/s (baseline 1,469.4 = +4.2%), 6,843 req, 0 errors.
+    GPU 7,478 MB stable (no memory leak). ITL drift 3.16 ms/min (31.6ms
+    over 10 min, within production tolerance).
+    6/6 correctness pass after sustained load.
+    CONCLUSION: Iteration scheduler + BATCH=32 is PRODUCTION-STABLE.
+    No memory leaks, no error accumulation, no throughput degradation,
+    no state corruption after sustained high-concurrency load.
+
 - id: PMAT-280
   github_issue: null
   item_type: task

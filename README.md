@@ -105,6 +105,7 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 
 **Production baselines (PMAT-276, same-session serial isolated):**
 - **Iteration scheduler + BATCH=32**: asymptote 1,511 tok/s (+71% vs B16). 0% errors. Quality crossover c=128 (66 > 64 vLLM)
+- **Stability verified** (PMAT-281): 10-min c=32 sustained — 6,843 requests, 0 errors, no memory leak, 6/6 correctness pass
 - **Jetson Orin** (PMAT-278): 25.2 tok/s decode (+51% from v0.4.10). Prompt-sensitivity lower (−2.4% vs −4.2% yoga, no FP8)
 
 **Implementation readiness:**
@@ -128,7 +129,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.20.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.21.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

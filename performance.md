@@ -423,6 +423,14 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **Implementation must start with event sync** (`cuStreamSynchronize` → event-based), THEN add per-M graph. Graph capture alone provides **zero benefit at c≥4** (PMAT-279).
 
+### Stability and Correctness (PMAT-281, Mar 19)
+
+**5-minute sustained load (c=16):** 873.6 tok/s (baseline 868.8 = +0.6%), 2,012 requests, **0 errors**. ITL P50 17.5ms (identical to 60s). GPU memory 7,456 MB (stable). 6/6 correctness tests pass before and after.
+
+**10-minute sustained load (c=32):** 1,531.1 tok/s (baseline 1,469.4 = +4.2%), 6,843 requests, **0 errors**. ITL P50 20.4ms, ITL drift 3.16 ms/min (31.6ms over 10 min — within tolerance). GPU memory 7,478 MB (no leak). 6/6 correctness tests pass after.
+
+**Conclusion:** Iteration scheduler + BATCH=32 is production-stable over sustained load. No memory leaks, no error accumulation, no throughput degradation, no state corruption. Ready for production deployment.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
