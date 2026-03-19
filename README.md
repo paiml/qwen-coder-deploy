@@ -88,8 +88,9 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 | RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
 | Jetson Orin (8 SMs, MAXN_SUPER) | — | **40.8** | 36.1 | — |
 
-### Key Findings (PMAT-209→276)
+### Key Findings (PMAT-209→277)
 
+- **2-factor gap model validated** (PMAT-277): gap = decode_rate × sched_util within 1%. Per-request decode crossover at c≈64 (realizr 1.98× vLLM at c=128). BATCH=32 ceiling: 48.8-49.4 tok/s constant
 - **Same-session 4-runtime scorecard** (PMAT-276): realizr overtakes llama.cpp at c=8 (76 vs 66). Quality crossover c=128: realizr 66 > vLLM 64. All runtimes ±1% of prior measurements
 - **TTFT scaling patterns diverge** (PMAT-275): realizr FLAT (35-42ms at c≤32, iter sched), vLLM GRADUAL (12→111ms), llama.cpp LINEAR→CLIFF. Flat scaling unique but FP8 adds 1.5-1.7×
 - **Competitive ratio is prompt-dependent** (PMAT-274): realizr/vLLM widens 36% with long prompts (0.50→0.31× at c=128). realizr/llama.cpp crossover shifts: wins c=16 short (1.19×), loses c=16 long (0.81×)
@@ -119,7 +120,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.16.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.17.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

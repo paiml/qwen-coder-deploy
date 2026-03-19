@@ -341,6 +341,35 @@ Three distinct TTFT scaling patterns:
 
 **Key insight:** realizr TTFT is flat at c≤32 (Δ<8ms from c=4→32) — the iteration scheduler's per-slot prefill makes TTFT **independent of concurrency** below the batch cap. However, absolute TTFT is 1.5-1.7× higher than vLLM due to FP8 2-step overhead. PMAT-054 (fused Q4K GEMM) would reduce realizr TTFT to ~10-15ms (matching llama.cpp), maintaining the flat scaling while closing the absolute gap.
 
+### Per-Request Decode Gap Decomposition (PMAT-277, Mar 19)
+
+Same-session serial isolated (PMAT-276 data). Per-request decode rate:
+
+| c | realizr | vLLM | llama.cpp | realizr/vLLM |
+|---|---------|------|-----------|-------------|
+| 1 | 149.2 | 153.6 | 159.1 | 0.97× |
+| 4 | 75.7 | 149.6 | 89.1 | 0.51× |
+| 8 | 64.4 | 142.8 | 53.3 | 0.45× |
+| 16 | 57.2 | 127.4 | 57.8 | 0.45× |
+| 32 | 48.8 | 93.6 | 60.0 | 0.52× |
+| 64 | 49.4 | 50.3 | — | 0.98× |
+| 128 | 49.4 | 25.0 | — | **1.98×** |
+
+**realizr decode is CONSTANT at c≥32** (48.8-49.4 tok/s) — BATCH=32 ceiling. vLLM decode HALVES each doubling above c=32 (93.6→50.3→25.0). **Per-request decode crossover at c≈64** (0.98× ≈ parity), widening to **1.98× at c=128**.
+
+**Gap decomposition update (PMAT-264→277):**
+
+| c | decode_rate | sched_util | product | measured r/v |
+|---|------------|-----------|---------|-------------|
+| 4 | 0.51× | 0.98× | 0.50× | 0.50× |
+| 8 | 0.45× | 0.98× | 0.44× | 0.44× |
+| 16 | 0.45× | 0.98× | 0.44× | 0.44× |
+| 32 | 0.52× | 0.98× | 0.51× | 0.51× |
+| 64 | 0.98× | 0.48× | 0.47× | 0.47× |
+| 128 | 1.98× | 0.24× | 0.48× | 0.48× |
+
+**2-factor model validated:** gap = decode_rate × sched_util matches measured r/v within 1%. At c≤32: decode_rate is binding (0.45-0.52×), scheduling near-optimal (0.94-0.98×). At c≥64: decode_rate EXCEEDS 1.0× (realizr wins per-token) but sched_util collapses (0.24-0.48×) from BATCH=32 queue saturation.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.

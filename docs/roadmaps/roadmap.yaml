@@ -5615,6 +5615,38 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-277
+  github_issue: null
+  item_type: task
+  title: 'PMAT-277: Same-session per-request decode gap decomposition — 2-factor model validated'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Per-request decode extraction from PMAT-276 data — DONE'
+  - 'AC2: 2-factor model validation — DONE (within 1% at all c)'
+  - 'AC3: Crossover analysis — DONE (c~64, 1.98x at c=128)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - gap-decomposition
+  - decode-rate
+  notes: |
+    COMPLETED. Analytical derivation from PMAT-276 same-session data.
+    Per-request decode: realizr constant 48.8-49.4 (c>=32 BATCH ceiling).
+    vLLM halves each doubling: 93.6->50.3->25.0 (c=32->64->128).
+    Crossover at c~64 (0.98x), widening to 1.98x at c=128.
+    2-factor model gap = decode_rate x sched_util validated within 1%:
+    - c<=32: decode_rate binding (0.45-0.52x), sched near-optimal (0.94-0.98x)
+    - c>=64: decode advantage (0.98-1.98x) but sched collapses (0.24-0.48x)
+    B32 realizr decode ceiling (48.8) is lower than B16 (57.2) because
+    32 active KV slots = 2x more attention scan per decode step.
+
 - id: PMAT-276
   github_issue: null
   item_type: task
