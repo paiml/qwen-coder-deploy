@@ -109,7 +109,7 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 - **Jetson Orin** (PMAT-278): 25.2 tok/s decode (+51% from v0.4.10). Prompt-sensitivity lower (−2.4% vs −4.2% yoga, no FP8)
 
 **Implementation readiness:**
-- **Event sync implemented** (PMAT-283): CudaEvent in trueno (`db94138`) + decode event infrastructure in realizr (`408922ef`). Next: iteration scheduler pipelining
+- **Event sync + uniform tracing** (PMAT-283/284): CudaEvent in trueno, decode event in realizr, `renacer-core` extracted (breaks circular dep) for uniform instrumentation
 - Investment priority (PMAT-279/283): **event sync** (`cuStreamSync` → `cuEvent`) > per-M graph > fused Q4K GEMM > CB > paged KV
 - Projected: event sync alone → **0.89× vLLM at c=4** (285→520 tok/s)
 
@@ -129,7 +129,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.23.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.24.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

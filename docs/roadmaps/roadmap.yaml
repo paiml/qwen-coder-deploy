@@ -5615,6 +5615,41 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-284
+  github_issue: null
+  item_type: task
+  title: 'PMAT-284: Extract renacer-core — uniform tracing for CPU-GPU pipelining (P0)'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Extract SpanRecord/LazySpan/SpanPool/TraceContext — DONE'
+  - 'AC2: Zero deps on aprender/realizr/trueno — DONE'
+  - 'AC3: renacer workspace compiles — DONE'
+  - 'AC4: realizr can depend on renacer-core — ENABLED (no circular dep)'
+  phases: []
+  subtasks: []
+  estimated_effort: 30m
+  labels:
+  - infrastructure
+  - tracing
+  - circular-dep
+  - p0
+  notes: |
+    COMPLETED. Five-whys analysis:
+    1. Why can't realizr use renacer tracing? → Not a runtime dep.
+    2. Why? → Circular: renacer→aprender→realizr→renacer.
+    3. Why does renacer dep aprender? → ML analysis only (KMeans, DBSCAN, LOF).
+    4. Why can't tracing primitives be separated? → They CAN (zero aprender deps).
+    5. Why not done? → Now done.
+    Extracted: SpanRecord, LazySpan, SpanPool, TraceContext/LamportClock.
+    renacer-core has zero deps on aprender/realizr/trueno.
+    Next: realizr adds renacer-core dep, replaces ad-hoc eprintln with LazySpan.
+    P0: instrumentation must be uniform and world-class across the stack.
+
 - id: PMAT-283
   github_issue: null
   item_type: task
