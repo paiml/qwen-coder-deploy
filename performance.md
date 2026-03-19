@@ -430,7 +430,23 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 | **decode** | **13,000µs** | **15,000µs** | **99.99%** |
 | dist | 1µs | 2µs | 0.0% |
 
-**⚠️ PMAT-280 FALSIFIED:** The "6.3ms serving overhead" is NOT serving overhead — it is GPU sync time INSIDE `batched_decode_step()`. Lock contention = 0µs. Token distribution = 1µs. Scheduling = 0µs. **99.99% of step time is GPU compute + sync.** Pipelining serving with GPU will NOT yield 0.89× vLLM because there is no serving to pipeline. The remaining optimization path is per-M graph capture (multi-token CUTLASS-style dispatch) and kernel fusion, not event-based sync.
+**⚠️ PMAT-280 FALSIFIED:** The "6.3ms serving overhead" is NOT serving overhead — it is GPU sync time INSIDE `batched_decode_step()`. Lock contention = 0µs. Token distribution = 1µs. Scheduling = 0µs. **99.99% of step time is GPU compute + sync.** Pipelining serving with GPU will NOT yield 0.89× vLLM because there is no serving to pipeline.
+
+**Five-Whys: Why is per-M graph the binding change? (PMAT-283→285)**
+
+1. **Why** is realizr 0.44× vLLM at c=4? → Step time 13ms vs vLLM ~6.8ms
+2. **Why** 2× longer? → realizr dispatches 771 kernels per M=1 × M replays. vLLM dispatches 1 CUTLASS GEMM for M tokens
+3. **Why** no per-M dispatch? → `decode_graph` is `Option<CudaGraphExec>` (single M=1 graph), not `HashMap<usize, CudaGraphExec>`
+4. **Why** was batched graph disabled? → H-CB11 FALSIFIED: graph replay 3ms slower — attention grid dims frozen at capture, seq_len grows each step
+5. **Why** can't grid dims be dynamic? → CUDA graphs freeze `gridDim` at capture. Fix: position-independent kernels with max-grid capture + seq_len-based early-exit (vLLM's approach)
+
+**Existing infrastructure in realizr:**
+- `batched_decode_graphs: HashMap<usize, CudaGraphExec>` — exists but graphs are stale (H-CB11)
+- `forward_batched_graphed_replay()` — exists in `par-121.rs`
+- `try_batched_graph_capture()` — exists with pre-upload support
+- `BATCHED_GRAPH=1` env var — enables graphed path (disabled by default, 25% slower)
+
+**Required fix:** Position-independent attention kernels that use `seq_len` buffer for work range, not grid dimensions. Multi-week effort in realizr.
 
 ### vLLM Graph Benefit (PMAT-282, Mar 19)
 

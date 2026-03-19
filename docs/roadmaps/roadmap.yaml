@@ -5615,6 +5615,40 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-285
+  github_issue: null
+  item_type: task
+  title: 'PMAT-285: Five-whys per-M graph blocker — H-CB11 attention grid freeze'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Five-whys root cause — DONE (attention gridDim frozen at capture)'
+  - 'AC2: Existing infra audit via pmat query — DONE (HashMap, replay, capture exist)'
+  - 'AC3: Fix identified — position-independent kernels (max-grid + seq_len early-exit)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - five-whys
+  - per-m-graph
+  - critical
+  notes: |
+    COMPLETED. Five-whys via pmat query on realizr codebase.
+    1. Why 0.44x vLLM? -> 13ms vs 6.8ms step time
+    2. Why 2x longer? -> 771 kernels x M replays vs 1 CUTLASS GEMM for M tokens
+    3. Why no per-M dispatch? -> decode_graph is Option (M=1), not HashMap
+    4. Why was batched graph disabled? -> H-CB11: replay 3ms slower (grid freeze)
+    5. Why grid freeze? -> Attention gridDim=f(seq_len), frozen at capture
+    Existing infra: batched_decode_graphs HashMap, forward_batched_graphed_replay(),
+    try_batched_graph_capture(), BATCHED_GRAPH=1 env var.
+    Fix: position-independent attention kernels — max_seq_len grids with
+    seq_len buffer for thread early-exit (vLLM approach). Multi-week effort.
+
 - id: PMAT-284
   github_issue: null
   item_type: task
