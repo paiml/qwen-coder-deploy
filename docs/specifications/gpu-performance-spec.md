@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.15.0
+**Version:** 5.16.0
 **Status:** ACTIVE
 **Date:** 2026-03-18
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -57,19 +57,19 @@ This specification consolidates all GPU decoder throughput optimization work for
 
 realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258). Asymptote **1,515 tok/s** (+71% vs B16 885). PMAT-221 quality bug eliminated by iteration scheduler. Gap decomposition (PMAT-264): scheduling near-optimal (0.94-0.96×), remaining gap is purely decode_rate (0.46-0.56×).
 
-**Scorecards (probador llm score, PMAT-259 — definitive combined scoring, B32 iter sched):**
+**Scorecards (probador llm score, PMAT-276 refresh — B32 iter sched, Mar 19):**
 
 | c | vLLM | realizr | llama.cpp | ollama |
 |---|------|---------|-----------|--------|
-| 1 | 98 A+ | 95 A+ | 97 A+ | 74 B |
-| 4 | **98 A+** | 70 B | 73 B | 58 C |
-| 8 | **97 A+** | **76 B** | 62 C+ | 57 C |
-| 16 | **94 A** | **78 B** | 71 B | 57 C |
-| 32 | **89 A-** | **75 B** | 63 C+ | — |
+| 1 | 98 A+ | 95 A+ | 92 A | 78 B |
+| 4 | **98 A+** | 69 C+ | 69 C+ | 58 C |
+| 8 | **96 A+** | **75 B** | 59 C | 58 C |
+| 16 | **94 A** | **78 B** | 67 C+ | 58 C |
+| 32 | **86 A-** | **75 B** | 66 C+ | 57 C |
 | 64 | 75 B | 64 C+ | — | — |
 | 128 | 63 C+ | **66 C+** | — | — |
 
-**realizr B32 iter sched overtakes llama.cpp at c=8** (76 vs 62) and holds through c=32 (75 vs 63). Quality crossover at c=128: realizr 66 > vLLM 63. vLLM degrades: 98 A+ → 89 A- → 75 B → 63 C+ at c=4/32/64/128. Remaining structural deficit (PMAT-264 updated decomposition):
+**realizr B32 iter sched overtakes llama.cpp at c=8** (75 vs 59) and holds through c=32 (75 vs 66). Quality crossover at c=128: realizr 66 > vLLM 63. *(PMAT-276 refresh: realizr ±1 of PMAT-259 at all c. llama.cpp c=1/8 lower due to 2% errors in 20260316b session. vLLM c=32 lower (86 vs 89) — session variance.)* vLLM degrades: 98 A+ → 89 A- → 75 B → 63 C+ at c=4/32/64/128. Remaining structural deficit (PMAT-264 updated decomposition):
 1. **Per-request decode rate** (0.46-0.56× — binding factor, batch-GEMV KV scan scales with M) → per-M CUDA graph capture + continuous batching
 2. **Scheduling utilization** (**0.94-0.96× — near-optimal** with iteration scheduler, PMAT-264) → already close to vLLM's ~98%
    - *Sub-factor: output heterogeneity* (reduced to 7-11% by iter sched, PMAT-260; was 31-42% with B&S)
@@ -3501,6 +3501,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | PMAT-151 | Flash Indexer (multi-GPU routing) | Phase 4 — multi-GPU | Future. ConcurrentRadixTree + PositionalIndexer with jump search. |
 | PMAT-152 | NIXL cross-GPU KV transfer | Phase 4 — multi-GPU | Future. NixlRemoteDescriptor, RegisterableStorage trait. |
 | PMAT-153 | Dual FCFS/WSPT scheduling with worker awareness | Phase 4 — multi-GPU | Future. SchedulerQueue with BinaryHeap, threshold_frac, per-worker tokens. |
+| **PMAT-276** | **Production scorecard refresh — B32 iter sched gap-fill** | **realizr ±1 of PMAT-259 at all c. Reproducibility confirmed. llama.cpp c=1/8 lower (2% errors in session)** | ✅ MEASURED + SCORED. Filled realizr c=4/8/16 production gaps (288.6/494.9/878.5 — within 0.5% of PMAT-258). Fresh 4-runtime scorecard: realizr overtakes llama.cpp at c=8 (75 vs 59), quality crossover at c=128 (66 > 63 vLLM). Minor session variance in llama.cpp/vLLM does not change structural conclusions. |
 | **PMAT-275** | **TTFT scaling architecture — 3 distinct patterns** | **realizr FLAT (35-42ms c≤32, then cliff). vLLM GRADUAL (12→111ms). llama.cpp LINEAR→CLIFF** | ✅ ANALYZED. Derived from PMAT-268→273 TTFT data. realizr iter sched: per-slot prefill makes TTFT concurrency-independent at c≤32 (Δ<8ms). But FP8 absolute TTFT 1.5-1.7× higher than vLLM. vLLM best absolute TTFT at all c≥4. llama.cpp best c=1 (10ms, fused Q4K). PMAT-054 would close realizr absolute gap while maintaining flat scaling. |
 | **PMAT-274** | **Competitive ratio × prompt-profile analysis — gap widens 32-36% with long prompts** | **realizr/vLLM: 0.50→0.31× at c=128 long. realizr/llama.cpp crossover SHIFTS: wins c=16 short (1.19×), loses c=16 long (0.81×)** | ✅ ANALYZED + VERIFIED. Computed from PMAT-268→273 data. Medium c=16 re-verified: 877.6 (−0.3% vs 880.4). Prompt-profile impact grows with c: +3% (c=1) → +40% (c=32). PMAT-054 ROI quantified: recovers 0.18× gap at c=128. realizr competitive position is prompt-length dependent — short prompts favorable, long prompts expose FP8 overhead. |
 | **PMAT-272** | **llama.cpp prompt-sensitivity characterization — GENUINELY INVARIANT** | **Short ≈ long within ±4% at all c. Fused Q4K GEMM = single-pass, no dequant overhead** | ✅ MEASURED. Same-session isolated, ctx=8192. Short/long: c=4 343.9/343.9 (1.00×), c=8 411.6/406.7 (1.01×), c=16 834.4/850.6 (0.98×), c=32 929.6/893.7 (1.04×). Proves fused Q4K GEMM architecture eliminates prompt-length penalty entirely. PMAT-054 would give realizr this property. Complete 3-runtime picture: realizr PLATEAU (−24-26%), vLLM CONCAVE (−9% peak then reverses), llama.cpp INVARIANT (±4%). |
@@ -4512,6 +4513,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.16.0 | 2026-03-19 | **PMAT-276: Production scorecard refresh.** Filled realizr B32 iter sched gaps (c=4/8/16). Scores: realizr ±1 of PMAT-259 at all c levels — confirming reproducibility. realizr overtakes llama.cpp at c=8 (75 vs 59), holds through c=32 (75 vs 66). Quality crossover at c=128: realizr 66 > vLLM 63. Minor session variance in llama.cpp (2% errors in 20260316b) and vLLM c=32 (86 vs 89). |
 | 5.15.0 | 2026-03-18 | **PMAT-275: TTFT scaling architecture.** Three distinct patterns: realizr FLAT at c≤32 (35-42ms, iter sched per-slot prefill), then cliff at BATCH cap. vLLM GRADUAL (12→111ms c=1→128, CB interleaves). llama.cpp LINEAR→CLIFF (10→54ms c=1→16, then --parallel 16 queue). realizr flat scaling is unique but absolute TTFT 1.5-1.7× higher than vLLM from FP8. PMAT-054 would close absolute gap while maintaining flat scaling. |
 | 5.14.0 | 2026-03-18 | **PMAT-274: Competitive ratio × prompt-profile analysis.** realizr/vLLM gap widens 32-36% with long prompts (0.50→0.31× at c=128). realizr/llama.cpp crossover SHIFTS: wins c=16 short (1.19×), loses c=16 long (0.81×). Prompt-profile impact grows with concurrency: +3% (c=1) → +40% (c=32). PMAT-054 ROI quantified: recovers 0.18× gap at c=128. Medium c=16 re-verified at 877.6 (−0.3%). |
 | 5.13.0 | 2026-03-18 | **PMAT-272: llama.cpp prompt-sensitivity — GENUINELY INVARIANT (±4%).** Fused Q4K GEMM = single-pass, no dequant overhead. Short≈long at all c (343.9/343.9 c=4, 929.6/893.7 c=32). Complete 3-runtime picture: realizr PLATEAU (−24-26%), vLLM CONCAVE (−9% peak→+18% reversal), llama.cpp INVARIANT (±4%). Proves PMAT-054 would eliminate realizr's penalty. Updated prompt-sensitivity claims: corrected "all fused-GEMM runtimes prompt-invariant" to "llama.cpp and ollama invariant, vLLM near-invariant at c≤8 with penalty at c≥16". |

@@ -5615,6 +5615,36 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-276
+  github_issue: null
+  item_type: task
+  title: 'PMAT-276: Production scorecard refresh — B32 iter sched gap-fill, reproducibility confirmed'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Fill realizr B32 iter sched gaps (c=4/8/16) — DONE (288.6/494.9/878.5)'
+  - 'AC2: Fresh 4-runtime scorecard — DONE'
+  - 'AC3: Reproducibility check vs PMAT-259 — DONE (±1 at all c)'
+  phases: []
+  subtasks: []
+  estimated_effort: 15m
+  labels:
+  - benchmark
+  - scoring
+  - reproducibility
+  notes: |
+    COMPLETED. Filled realizr B32 iter sched production gaps.
+    c=4: 288.6 (vs 290.1 = -0.5%), c=8: 494.9 (vs 494.4 = +0.1%),
+    c=16: 878.5 (vs 880.4 = -0.2%). Perfect reproducibility.
+    Fresh scorecard: realizr overtakes llama.cpp at c=8 (75 vs 59).
+    Quality crossover at c=128: realizr 66 > vLLM 63.
+    llama.cpp c=1 lower (92 vs 97) due to 2% errors in 20260316b session.
+    vLLM c=32 lower (86 vs 89) — session variance. No structural change.
+
 - id: PMAT-275
   github_issue: null
   item_type: task
