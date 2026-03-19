@@ -109,7 +109,7 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 - **Jetson Orin** (PMAT-278): 25.2 tok/s decode (+51% from v0.4.10). Prompt-sensitivity lower (−2.4% vs −4.2% yoga, no FP8)
 
 **Implementation readiness:**
-- **Bottleneck identified** (PMAT-283): `reduces.rs:92` `stream.synchronize()` blocks CPU 6.3ms at c=4. Zero event-based sync exists. 4 files, ~100 LOC to implement pipelining
+- **Bottleneck identified** (PMAT-283): `reduces.rs:92` `stream.synchronize()` blocks CPU 6.3ms at c=4. **CudaEvent API implemented in trueno** (`db94138`). realizr integration next
 - Investment priority (PMAT-279/283): **event sync** (`cuStreamSync` → `cuEvent`) > per-M graph > fused Q4K GEMM > CB > paged KV
 - Projected: event sync alone → **0.89× vLLM at c=4** (285→520 tok/s)
 
