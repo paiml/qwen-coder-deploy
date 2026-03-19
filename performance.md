@@ -421,6 +421,12 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **Key insight:** At c=4, pipelining alone (no graph changes, no kernel fusion) would reach **0.89× vLLM** — nearly closing the gap. The serving overhead (6.3ms) almost fully overlaps the GPU time (7.4ms). This is achievable by replacing `cuStreamSynchronize` with `cuEventRecord`/`cuEventQuery` in the decode loop.
 
+**Implementation status (PMAT-283):**
+- trueno: `CudaEvent` API committed (`db94138` — `new()`, `is_complete()`, `synchronize()`, `record_event()`)
+- realizr: decode event infrastructure committed (`408922ef` — field, init, record, query)
+- realizr: iteration scheduler timing instrumentation committed (`aede2824` — `PMAT_283_TIMING=1` env var)
+- **Next:** build + deploy updated binary on yoga, run timing to decompose the 6.3ms overhead, then restructure scheduler for pipelining
+
 **Implementation must start with event sync** (`cuStreamSynchronize` → event-based), THEN add per-M graph. Graph capture alone provides **zero benefit at c≥4** (PMAT-279).
 
 ### vLLM Graph Benefit (PMAT-282, Mar 19)
