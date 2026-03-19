@@ -5615,6 +5615,43 @@ roadmap:
     Phase 1 priority: per-M graph capture (decode_rate fix) > paged KV (batch cap).
     Per-M graphs projected to bring decode_rate to ~0.85x at c<=32.
 
+- id: PMAT-283
+  github_issue: null
+  item_type: task
+  title: 'PMAT-283: Event sync implementation target — reduces.rs:92 is THE bottleneck'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-19T00:00:00Z
+  updated: 2026-03-19T00:00:00Z
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - 'AC1: Identify exact sync bottleneck — DONE (reduces.rs:92)'
+  - 'AC2: Verify no event-based sync exists — DONE (zero cuEvent calls)'
+  - 'AC3: Define implementation plan — DONE (4 files, ~100 LOC)'
+  - 'AC4: Define falsification condition — DONE (<450 tok/s = non-overlappable)'
+  phases: []
+  subtasks: []
+  estimated_effort: 10m
+  labels:
+  - analysis
+  - implementation-plan
+  - event-sync
+  - critical
+  notes: |
+    COMPLETED. Source analysis of realizr decode path.
+    Critical sync: reduces.rs:92 stream.synchronize() after graph launch.
+    Blocks CPU thread ~6.3ms at c=4 while GPU executes.
+    Zero event-based sync in entire codebase.
+    Implementation plan (4 files, ~100 LOC):
+    1. streams.rs — Add record_event() and query_event() wrappers
+    2. reduces.rs:92 — Replace synchronize() with record_event()
+    3. iteration_scheduler.rs:406 — Query prev event before decode_step()
+    4. iteration_scheduler.rs:422 — Move token dist BEFORE next decode
+    Projected: c=4 285->520 tok/s (0.89x vLLM, PMAT-280).
+    Falsification: if pipelined <450 tok/s, non-overlappable component.
+    NEXT STEP: Implement in realizr repo.
+
 - id: PMAT-282
   github_issue: null
   item_type: task

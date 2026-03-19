@@ -109,9 +109,9 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 - **Jetson Orin** (PMAT-278): 25.2 tok/s decode (+51% from v0.4.10). Prompt-sensitivity lower (−2.4% vs −4.2% yoga, no FP8)
 
 **Implementation readiness:**
-- Phase 1 audit (PMAT-256): ~1,000-1,400 LOC. Paged KV ready, CB is blocker
-- Investment priority (PMAT-279 revised): **event sync first** (pipelining) > per-M graph > fused Q4K GEMM > CB > paged KV
-- c=1 decomposition: GPU 6.29ms + serving 0.54ms + graph 0.83ms. Serving grows to 6.3ms at c=4
+- **Bottleneck identified** (PMAT-283): `reduces.rs:92` `stream.synchronize()` blocks CPU 6.3ms at c=4. Zero event-based sync exists. 4 files, ~100 LOC to implement pipelining
+- Investment priority (PMAT-279/283): **event sync** (`cuStreamSync` → `cuEvent`) > per-M graph > fused Q4K GEMM > CB > paged KV
+- Projected: event sync alone → **0.89× vLLM at c=4** (285→520 tok/s)
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
@@ -129,7 +129,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.22.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.23.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness

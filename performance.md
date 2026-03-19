@@ -451,6 +451,28 @@ vLLM with `--enforce-eager` (no CUDA graphs) vs default:
 
 **Conclusion:** Iteration scheduler + BATCH=32 is production-stable over sustained load. No memory leaks, no error accumulation, no throughput degradation, no state corruption. Ready for production deployment.
 
+### Event Sync Implementation Target (PMAT-283, Mar 19)
+
+Source analysis of realizr decode path identifies the exact sync bottleneck:
+
+**Critical sync point:** `src/cuda/executor/layers/reduces.rs:92`
+```
+self.stream.synchronize()  // BLOCKS CPU until GPU graph completes
+```
+
+This is called after every M=1 graph replay (line 86: `self.stream.launch_graph(graph_exec)`). The CPU thread is idle for ~6.3ms (at c=4) waiting for GPU decode to finish. During this time, the serving layer could be:
+- Distributing previous step's tokens via SSE
+- Accepting new HTTP connections
+- Running the iteration scheduler logic
+
+**Implementation plan (4 files, ~100 LOC):**
+1. `src/cuda/executor/streams.rs` — Add `record_event()` and `query_event()` wrappers
+2. `src/cuda/executor/layers/reduces.rs:92` — Replace `synchronize()` with `record_event()`
+3. `src/api/iteration_scheduler.rs:406` — Before `batched_decode_step()`, query previous event
+4. `src/api/iteration_scheduler.rs:422-423` — Move token distribution BEFORE next decode launch
+
+**Projected impact (PMAT-280):** At c=4, step time drops from 13.7ms (7.4ms GPU + 6.3ms serving, sequential) to ~7.7ms (max(7.4, 6.3) + 0.3ms sync) → **520 tok/s (0.89× vLLM)**
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
