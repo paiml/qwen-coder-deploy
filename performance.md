@@ -446,7 +446,9 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 - `try_batched_graph_capture()` — exists with pre-upload support
 - `BATCHED_GRAPH=1` env var — enables graphed path (disabled by default, 25% slower)
 
-**Required fix:** Position-independent attention kernels that use `seq_len` buffer for work range, not grid dimensions. Multi-week effort in realizr.
+**PMAT-285 re-verification (Mar 19, v0.8.3):** `BATCHED_GRAPH=1` confirmed still −32% at c=4 (194.5 vs 285.9) and −46% at c=8 (267.9 vs 494.6). H-CB11 is NOT fixed in current binary. Root cause confirmed: graph captured with dummy `seq_lens=1`, replays with `seq_lens=128+`. The batched attention grid `(num_heads, M, 1)` is M-dependent but NOT seq_len-dependent — however the kernel READS seq_lens from a buffer and the capture may corrupt internal state. Full nsys profiling of graph overhead needed to identify exact graph nodes causing regression.
+
+**Required fix:** Position-independent kernel parameters + realistic seq_len at capture time. Multi-week effort in realizr.
 
 ### vLLM Graph Benefit (PMAT-282, Mar 19)
 
