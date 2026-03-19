@@ -370,6 +370,18 @@ Same-session serial isolated (PMAT-276 data). Per-request decode rate:
 
 **2-factor model validated:** gap = decode_rate × sched_util matches measured r/v within 1%. At c≤32: decode_rate is binding (0.45-0.52×), scheduling near-optimal (0.94-0.98×). At c≥64: decode_rate EXCEEDS 1.0× (realizr wins per-token) but sched_util collapses (0.24-0.48×) from BATCH=32 queue saturation.
 
+**ITL prompt-profile dependency (PMAT-277 addendum):**
+
+| c | Short ITL | Medium ITL | Long ITL | Long/Short |
+|---|-----------|-----------|----------|------------|
+| 1 | 6.7ms | 6.7ms | 6.8ms | 1.01× |
+| 4 | 12.1ms | 13.2ms | 15.8ms | 1.31× |
+| 16 | 15.3ms | 17.5ms | 21.8ms | 1.42× |
+| 32 | 17.5ms | 20.5ms | 27.3ms | 1.56× |
+| 128 | 17.3ms | 20.2ms | 26.7ms | 1.54× |
+
+ITL degrades with prompt length because longer sequences have more KV entries to scan during attention. The long/short ratio grows from 1.01× (c=1, single KV) to 1.56× (c=32, 32 KV slots × longer sequences). Plateaus at c≥32 (BATCH ceiling). **Interactive quality impact:** long-prompt users see 56% slower token delivery at c=32, affecting perceived typing speed.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
