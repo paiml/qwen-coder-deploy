@@ -476,12 +476,14 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - DP4A M>8: CUDA crash (illegal address)
 - Megakernel PAR-039: 1-block = 1/24 SM utilization. Wrong approach
 
-**PMAT-288: Revised architecture — fused non-GEMM layer kernel.**
-- 430 launches = 224 non-GEMM + 196 GEMM + 10 final
-- GEMM (Q/K/V/O/gate+up/down): cuBLASLt handles optimally. Keep separate
-- Non-GEMM (rmsnorm, rope, scatter, attention, residual): fuse 8→1 per layer
-- Saves 196 launches × 17.5µs = **3.4ms**. Step: 13→9.6ms → **417 tok/s (+46%)**
-- Megakernel ABANDONED (1 SM). Fused non-GEMM uses multi-SM for attention, single-block for element-wise
+**PMAT-288: Fused non-GEMM layer kernel — FALSIFIED by PMAT-092.**
+- PMAT-092 (already in codebase) tried residual+rmsnorm fusion: **-5% regression**
+- Root cause: RMSNorm forces grid (1,M) for cooperative reduction → 17% SM occupancy
+- Residual uses (6×M) grid → full occupancy. Fusion loses 6x parallelism
+- Pattern applies to ALL non-GEMM fusions involving RMSNorm
+- Megakernel ABANDONED (1 SM). Non-GEMM fusion ABANDONED (occupancy loss)
+- **All optimization paths from this benchmarking repo are exhausted**
+- Remaining path: cuBLAS grouped GEMM (batch multiple projections per call) — CUDA 12.x feature, requires cuBLASLt API changes in trueno
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
