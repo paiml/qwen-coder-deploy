@@ -483,7 +483,11 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - Pattern applies to ALL non-GEMM fusions involving RMSNorm
 - Megakernel ABANDONED (1 SM). Non-GEMM fusion ABANDONED (occupancy loss)
 - **All optimization paths from this benchmarking repo are exhausted**
-- Remaining path: cuBLAS grouped GEMM (batch multiple projections per call) — CUDA 12.x feature, requires cuBLASLt API changes in trueno
+- Per-launch overhead: ~11.9µs average (from M=1 vs M=4 step time delta / launch count delta)
+- cuBLASLt launches are ~3µs (fast), raw PTX launches are ~25µs (slow)
+- Non-GEMM (224 × 25µs = 5.6ms) dominates over GEMM (196 × 3µs = 0.6ms)
+- But non-GEMM fusion loses SM occupancy (PMAT-092: -5% from grid restriction)
+- **Remaining path: continuous batching (PMAT-256)** — the 0.44× gap at c=4 is primarily scheduling/architecture, not kernel speed. CB enables mid-batch joins and per-M graph capture at STABLE batch sizes
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
