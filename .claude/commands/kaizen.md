@@ -46,8 +46,11 @@ Continue implementing the next best step with PMAT work items from our spec. Thi
 
 ## Current State
 
-- Spec: `docs/specifications/gpu-performance-spec.md` (check version in header)
+- Spec: `docs/specifications/gpu-performance-spec.md` v5.28.0 (289 PMAT items)
 - Production config: `CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1`
 - Yoga IP: `192.168.50.38`, ports: realizr 8081, ollama 8082, llama.cpp 8083, vLLM 8084
-- Key finding: CPU dispatch of 514 kernel launches (~9ms) is the bottleneck (PMAT-286)
-- All incremental fusions FALSIFIED — megakernel (PAR-039) is THE remaining path
+- Asymptote: 1,511 tok/s (+71% from iter sched). GPU within 8% of vLLM (7.4 vs 6.8ms)
+- Binding bottleneck: 430 CPU dispatch calls (~5ms non-GEMM at ~25us, ~0.6ms GEMM at ~3us)
+- All kernel optimizations exhausted (PMAT-279-289): event sync, per-M graph, fused scatter, fused DP4A, non-GEMM fusion, megakernel, prefill chunking — ALL falsified or low ROI
+- CB mostly complete (PMAT-088c/d). Graph safety resolved (CORRECTNESS-014)
+- Remaining: cuBLAS grouped GEMM (CUDA 12.x), or accept current 0.44-0.51x vLLM at c=4-32
