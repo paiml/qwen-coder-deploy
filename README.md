@@ -90,28 +90,30 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 
 *RTX 4060L: PMAT-276 same-session (Mar 19). Jetson: PMAT-278 (Mar 19). Production methodology (medium, uniform:16,256, streaming).*
 
-### Key Findings (PMAT-209→279)
+### Key Findings (PMAT-209→289)
 
-**Architecture characterization (complete):**
-- **CUDA graph architecture gap** (PMAT-279/282): realizr M=1 graph is 0% at c≥4. vLLM multi-M graphs provide +18-27%. realizr BEATS vLLM-eager at c=1 (1.19×). Graph explains ~25% of gap
-- **2-factor gap model** (PMAT-277): gap = decode_rate × sched_util, validated within 1%. Decode crossover at c≈64 (realizr 1.98× vLLM at c=128)
-- **Per-step pipeline** (PMAT-267): GPU 7.4ms + serving 5.5ms. Graph + event sync → **0.66-0.79× vLLM** (50-80% overlap)
+**Architecture (complete):**
+- **GPU kernels within 8% of vLLM** (PMAT-286): 7.4ms vs 6.8ms per step. The 2× gap is CPU dispatch overhead (430 launches × ~12µs)
+- **2-factor gap model** (PMAT-277): gap = decode_rate × sched_util, validated within 1%. Decode crossover c≈64 (realizr 1.98× vLLM at c=128)
 - **TTFT scaling** (PMAT-275): realizr FLAT (35-42ms c≤32), vLLM GRADUAL (12→111ms), llama.cpp LINEAR→CLIFF
 
 **Prompt-sensitivity (3-runtime × 3-profile × c=1→128):**
 - **3 structural patterns** (PMAT-268→272): realizr PLATEAU (−24-26%), vLLM CONCAVE (−9%→+18% reversal), llama.cpp INVARIANT (±4%)
-- **Competitive ratio shifts** (PMAT-274): realizr/vLLM widens 36% with long prompts. realizr/llama.cpp crossover shifts: wins c=16 short (1.19×), loses c=16 long (0.81×)
-- **Fused Q4K GEMM now REQUIRED** (PMAT-268): iter sched increases penalty to −21-26% at c≥16
+- **Competitive ratio shifts** (PMAT-274): realizr/vLLM widens 36% with long prompts
 
 **Production baselines (PMAT-276, same-session serial isolated):**
 - **Iteration scheduler + BATCH=32**: asymptote 1,511 tok/s (+71% vs B16). 0% errors. Quality crossover c=128 (66 > 64 vLLM)
-- **Stability verified** (PMAT-281): 10-min c=32 sustained — 6,843 requests, 0 errors, no memory leak, 6/6 correctness pass
-- **Jetson Orin** (PMAT-278): 25.2 tok/s decode (+51% from v0.4.10). Prompt-sensitivity lower (−2.4% vs −4.2% yoga, no FP8)
+- **Stability verified** (PMAT-281): 10-min c=32, 6,843 req, 0 errors, no leak
+- **CB mostly complete**: mid-batch joins (PMAT-088c/d), graph safety (CORRECTNESS-014). Only gap: prefill chunking (low ROI)
 
-**Implementation readiness:**
-- **PMAT-280 FALSIFIED** (PMAT-283 timing): 99.99% of step = GPU decode. lock=0µs, sched=0µs, dist=1µs. "Serving overhead" is GPU sync, not serving. Pipelining has 0% ROI. Per-M graph is binding
-- **Binding bottleneck: 654 kernels/step** (PMAT-285). Graph capture −32% (node overhead > launch savings). Fix: **kernel fusion** (PMAT-054) — fewer, larger kernels
-- ~~Event sync → 0.89× vLLM~~ **FALSIFIED** (PMAT-283) — ~~per-M graph~~ also **FALSIFIED** (PMAT-285, −32%)
+**All kernel optimizations exhausted (PMAT-279→289):**
+- ~~Event sync pipelining~~ **FALSIFIED** (PMAT-283): 0% ROI, no serving overhead
+- ~~Per-M CUDA graph~~ **FALSIFIED** (PMAT-285): −32%, 654 node overhead
+- ~~Fused KV scatter~~ **FALSIFIED** (PMAT-286): −12%, extra params
+- ~~Fused Q+K DP4A~~ **FALSIFIED** (PMAT-287): −12%, FP8 cuBLASLt faster
+- ~~Non-GEMM fusion~~ **FALSIFIED** (PMAT-288/092): −5%, RMSNorm occupancy loss
+- ~~Megakernel~~ **ABANDONED** (PMAT-288): 1/24 SM utilization
+- ~~Prefill chunking~~ **LOW ROI** (PMAT-289): medium prompts fit one chunk
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
