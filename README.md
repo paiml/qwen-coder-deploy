@@ -110,8 +110,8 @@ Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PM
 
 **Implementation readiness:**
 - **PMAT-280 FALSIFIED** (PMAT-283 timing): 99.99% of step = GPU decode. lock=0µs, sched=0µs, dist=1µs. "Serving overhead" is GPU sync, not serving. Pipelining has 0% ROI. Per-M graph is binding
-- Investment priority (PMAT-285): **per-M graph** (+18-27%, PMAT-282). Blocker: H-CB11 attention grid freeze. Fix: position-independent kernels (multi-week)
-- ~~Event sync → 0.89× vLLM~~ **FALSIFIED** (PMAT-283) — 99.99% of step is GPU, no serving to overlap
+- **Binding bottleneck: 654 kernels/step** (PMAT-285). Graph capture −32% (node overhead > launch savings). Fix: **kernel fusion** (PMAT-054) — fewer, larger kernels
+- ~~Event sync → 0.89× vLLM~~ **FALSIFIED** (PMAT-283) — ~~per-M graph~~ also **FALSIFIED** (PMAT-285, −32%)
 
 See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
 <!-- PERFORMANCE_END -->
@@ -129,7 +129,7 @@ See [performance.md](performance.md) for full history. See [gpu-performance-spec
 | `forjar.yaml` | CPU deployment (intel host, SSH) |
 | `prompts/correctness.yaml` | 6-prompt correctness test suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.26.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.27.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Correctness
