@@ -466,7 +466,14 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - **Root cause:** `batched_gemv_or_gemm` auto-selects FP8 cuBLASLt at M≥4 which is faster than DP4A GEMV for the Q4K projections. The fused QKV DP4A was designed for M≤8 when DP4A was faster
 - **Conclusion:** The existing `batched_gemv_or_gemm` dispatch is already optimal. Fused QKV DP4A is never active for Qwen2.5-Coder (V is Q6K) and extending it is net negative
 
-**Remaining path: CUTLASS-style fused GEMM** — all projections in one kernel per layer. 514→50 launches. Multi-week PTX.
+**Remaining path: TransformerBlockMegakernel (PAR-039)** — exists in trueno as a stub (Phase 1 RMSNorm complete, Phase 3 QKV/attention/FFN is TODO). Also PersistentDecoderKernel (PAR-036). Both need full Phase 3 implementation: Q4K GEMV for all projections + attention + SwiGLU in one launch. 514→28 launches. Multi-week PTX kernel development in trueno-gpu.
+
+**All incremental optimizations have been tested and FALSIFIED:**
+- Fused KV scatter (PMAT-286): −12% from extra params
+- Fused Q+K DP4A (PMAT-287): −12% (FP8 cuBLASLt faster than DP4A at M≥4)
+- Batched graph (PMAT-285): −32% (654 node overhead)
+- Event sync pipelining (PMAT-283): 0% (no serving overhead)
+- DP4A M>8: CUDA crash (illegal address)
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
