@@ -476,7 +476,7 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 | **fwd+sync+argmax** | **11,400-13,900µs** | **100%** |
 
 **Definitive root cause: CPU kernel dispatch time.**
-- 654 kernel launches × ~17.5µs/launch = **~11.4ms CPU dispatch time**
+- ~402 kernel launches × ~17.5µs/launch = **~7.0ms CPU dispatch time** (corrected: fused_gate_up_swiglu already active, 14 kernels/layer not 23)
 - GPU execution: 7.4ms (from nsys) — GPU finishes BEFORE CPU is done dispatching
 - cuStreamSync: ~0ms (GPU already idle by the time last kernel is dispatched + executed)
 - Total: ~11.4ms dispatch + ~1.5ms (argmax + D2H + misc) ≈ 13ms ✓
@@ -484,10 +484,22 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 **The GPU is NOT the bottleneck — the CPU is.** The CPU spends 11.4ms dispatching 654 `cuLaunchKernel` calls. The GPU finishes each kernel before the next arrives. vLLM dispatches ~3 CUTLASS GEMM calls total (95.7% of GPU time in 1 kernel) — ~0.05ms CPU dispatch.
 
 **Fix: kernel fusion reduces CPU dispatch time.**
-- Current: 654 launches → ~11.4ms CPU dispatch
-- Fused (50 launches): ~0.9ms CPU dispatch → step time ≈ 7.4ms GPU + 0.9ms dispatch ≈ 8.3ms
-- Projected: c=4 at 8.3ms/step → 482 tok/s (0.82× vLLM)
-- With CUDA graph on fused kernels (50 nodes ≪ 654): step ≈ 7.5ms → 533 tok/s (0.91× vLLM)
+- Current: ~402 launches → ~7.0ms CPU dispatch (fused_gate_up_swiglu already active)
+- Next fusions (QKV + KV scatter + rmsnorm+gemv + residual+rmsnorm): 402→262 → ~4.6ms dispatch
+- Step time: 13ms → ~12ms (GPU 7.4ms + dispatch 4.6ms, overlapped) → ~10.6ms → **378 tok/s at c=4**
+- With CUDA graph on 262-node fused kernel set: step ≈ 7.5ms → **533 tok/s (0.91× vLLM)**
+
+**Existing fusions already active (GpuProfile `fused_gate_up=true`):**
+- `FusedGateUpSwigluHwDp4aQ4KGemvKernel` (PMAT-034): gate + up + SwiGLU → 1 kernel/layer (saves 2)
+
+**Next fusion targets (by ROI):**
+
+| Fusion | Saves | New total | CPU dispatch |
+|--------|-------|-----------|-------------|
+| Fused QKV (q+k+v → 1) | 56 | 346 | 6.1ms |
+| + Fused KV scatter | 28 | 318 | 5.6ms |
+| + Fused rmsnorm+gemv | 28 | 290 | 5.1ms |
+| + Fused residual+rmsnorm | 28 | 262 | 4.6ms |
 
 **Expected ROI (revised):**
 - **Pipelining inside decode**: 13ms → ~7.7ms at c=4 (overlap 5.6ms sync with next H2D). 285→520 tok/s (0.89× vLLM) — PMAT-280 projection REVIVED
