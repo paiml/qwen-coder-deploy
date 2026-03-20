@@ -474,6 +474,14 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - Batched graph (PMAT-285): −32% (654 node overhead)
 - Event sync pipelining (PMAT-283): 0% (no serving overhead)
 - DP4A M>8: CUDA crash (illegal address)
+- Megakernel PAR-039: 1-block = 1/24 SM utilization. Wrong approach
+
+**PMAT-288: Revised architecture — fused non-GEMM layer kernel.**
+- 430 launches = 224 non-GEMM + 196 GEMM + 10 final
+- GEMM (Q/K/V/O/gate+up/down): cuBLASLt handles optimally. Keep separate
+- Non-GEMM (rmsnorm, rope, scatter, attention, residual): fuse 8→1 per layer
+- Saves 196 launches × 17.5µs = **3.4ms**. Step: 13→9.6ms → **417 tok/s (+46%)**
+- Megakernel ABANDONED (1 SM). Fused non-GEMM uses multi-SM for attention, single-block for element-wise
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
