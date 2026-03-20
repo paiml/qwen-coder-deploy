@@ -448,7 +448,7 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **PMAT-285 re-verification (Mar 19, v0.8.3):** `BATCHED_GRAPH=1` confirmed still −32% at c=4 (194.5 vs 285.9) and −46% at c=8 (267.9 vs 494.6). H-CB11 is NOT fixed in current binary. Root cause confirmed: graph captured with dummy `seq_lens=1`, replays with `seq_lens=128+`. The batched attention grid `(num_heads, M, 1)` is M-dependent but NOT seq_len-dependent — however the kernel READS seq_lens from a buffer and the capture may corrupt internal state. Full nsys profiling of graph overhead needed to identify exact graph nodes causing regression.
 
-**PMAT-285 fix attempt (realistic seq_lens): NO IMPROVEMENT.** Passed real positions to `pre_upload_batched_state_for_capture` → 194.3 tok/s (same as 194.5 with dummies). Root cause is NOT dummy seq_lens during capture. **Revised root cause:** 654 CUDA graph nodes create graph management overhead that exceeds kernel launch savings.
+**PMAT-285 fix attempt (realistic seq_lens): NO IMPROVEMENT.** Passed real positions → 194.3 tok/s (same as 194.5 with dummies). **PMAT-286 fused KV scatter: CUDA_ERROR_ILLEGAL_ADDRESS.** Two attempts: (1) inline PTX with selp.b64 — parameter alignment crash, (2) trueno FusedKvScatterKernel with emit_ptx() — same crash. 6/6 correctness pass at c=1 but batched prefill (m>1) crashes. Root cause: the selp.b64 for pointer selection produces invalid addresses when the scatter is called during prefill. Needs focused PTX debugging with cuobjdump/compute-sanitizer. Reverted in realizr (9c7d68fd).
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
