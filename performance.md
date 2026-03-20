@@ -454,17 +454,19 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 - **Root cause of regression:** 7 params (4×u64 + 1×u64 + 2×u32) vs 5 params — extra `ld.param.u64` instructions for loading unused K/V pointers. The 28 saved launches (0.49ms) are offset by ~1.5ms of extra param loading across all blocks/layers.
 - **Conclusion:** Fusing kernels that ADD parameters is not profitable. Fusion must REDUCE total instruction count, not just launch count.
 
-**PMAT-287: Fused Q+K — revised after discovering existing fusions.**
+**PMAT-287: Fused Q+K DP4A — FALSIFIED (net negative).**
 
 Existing fusions already active:
 1. `fused_gate_up_swiglu` (HW DP4A): gate+up+SwiGLU → 1 kernel/layer
-2. `batched_qkv_dp4a` (M=2-8): shared Q8 input for 3 GEMV (saves 2 Q8 quantize/layer)
+2. `batched_qkv_dp4a` (M=2-8, all Q4K only): shared Q8 input for 3 GEMV
 
-Remaining per-layer: ~18 kernels × 28 layers + 10 final = ~514 launches.
-Incremental fusions (Q+K concat + bias fusion) save ~84 launches = ~1.5ms.
-Step: 13ms → 11.5ms → ~310 tok/s at c=4 (+8%).
+Attempted: relax Q6K V condition + extend M<=32. Results:
+- Q6K V relaxation at M<=8: −12% regression (257 vs 291 at c=4). DP4A GEMV for Q+K is SLOWER than `batched_gemv_or_gemm` which selects FP8 cuBLASLt at M≥4
+- M>8 extension: CUDA_ERROR_ILLEGAL_ADDRESS (code 700). DP4A Q8 launch crashes at M>8
+- **Root cause:** `batched_gemv_or_gemm` auto-selects FP8 cuBLASLt at M≥4 which is faster than DP4A GEMV for the Q4K projections. The fused QKV DP4A was designed for M≤8 when DP4A was faster
+- **Conclusion:** The existing `batched_gemv_or_gemm` dispatch is already optimal. Fused QKV DP4A is never active for Qwen2.5-Coder (V is Q6K) and extending it is net negative
 
-**Transformative fix (multi-week): CUTLASS-style fused GEMM** — all projections in one kernel per layer. 514 launches → ~50. Step: 13ms → ~8ms → ~500 tok/s at c=4 (+75%).
+**Remaining path: CUTLASS-style fused GEMM** — all projections in one kernel per layer. 514→50 launches. Multi-week PTX.
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
