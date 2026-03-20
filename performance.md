@@ -467,15 +467,27 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 - realizr dispatches ~16 kernels/layer × 28 layers = 448+ kernels/step
 - PMAT-054 targets: fused Q4K dequant→GEMM (reads Q4K weights once, dequants in registers)
 
-**PMAT-286: GPU time reconciliation (Mar 20).**
-- realizr GPU kernel time (nsys): **7.4ms** at M=4
-- vLLM step time: **~6.8ms**
-- Gap: **0.6ms (8%)** — realizr's GPU kernels are nearly as fast as vLLM's
-- Total step: 13.0ms = GPU(7.4ms) + sync_overhead(5.6ms)
-- The 5.6ms is cuStreamSync + H2D copies + argmax D2H — **all INSIDE batched_decode_step()**
-- vLLM doesn't block — event-based sync overlaps next batch's H2D with current GPU
+**PMAT-286: Decode sub-phase timing (Mar 20, PhaseTimer inside batched_decode_step).**
 
-**PMAT-280 was right about the mechanism (overlap) but wrong about the location (inside decode, not scheduler).** Fix: restructure `batched_decode_step()` to pipeline launch+wait, overlapping next step's H2D with current GPU execution. This is a smaller change than full kernel fusion.
+| Phase | M=4 steady | % |
+|-------|-----------|---|
+| embed | 0-2µs | 0.0% |
+| prep | 0-5µs | 0.0% |
+| **fwd+sync+argmax** | **11,400-13,900µs** | **100%** |
+
+**Definitive root cause: CPU kernel dispatch time.**
+- 654 kernel launches × ~17.5µs/launch = **~11.4ms CPU dispatch time**
+- GPU execution: 7.4ms (from nsys) — GPU finishes BEFORE CPU is done dispatching
+- cuStreamSync: ~0ms (GPU already idle by the time last kernel is dispatched + executed)
+- Total: ~11.4ms dispatch + ~1.5ms (argmax + D2H + misc) ≈ 13ms ✓
+
+**The GPU is NOT the bottleneck — the CPU is.** The CPU spends 11.4ms dispatching 654 `cuLaunchKernel` calls. The GPU finishes each kernel before the next arrives. vLLM dispatches ~3 CUTLASS GEMM calls total (95.7% of GPU time in 1 kernel) — ~0.05ms CPU dispatch.
+
+**Fix: kernel fusion reduces CPU dispatch time.**
+- Current: 654 launches → ~11.4ms CPU dispatch
+- Fused (50 launches): ~0.9ms CPU dispatch → step time ≈ 7.4ms GPU + 0.9ms dispatch ≈ 8.3ms
+- Projected: c=4 at 8.3ms/step → 482 tok/s (0.82× vLLM)
+- With CUDA graph on fused kernels (50 nodes ≪ 654): step ≈ 7.5ms → 533 tok/s (0.91× vLLM)
 
 **Expected ROI (revised):**
 - **Pipelining inside decode**: 13ms → ~7.7ms at c=4 (overlap 5.6ms sync with next H2D). 285→520 tok/s (0.89× vLLM) — PMAT-280 projection REVIVED
