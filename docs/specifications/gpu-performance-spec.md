@@ -1344,7 +1344,7 @@ Per-request decode: short 149.9→99.9 (c=4→32), long 146.0→91.4 (c=4→32).
 
 2. **Batch scheduler: ~~BLOCKER~~ MOSTLY RESOLVED.** ⚠️ PMAT-256 audit stale — PMAT-088c/d implemented mid-batch joins and batch recycle AFTER this audit. Current state: `iteration_scheduler.rs` has async iteration loop, `add_slot_to_batch()` (PMAT-088c), `recycle_slots_batch()` (PMAT-088d), channel-based request intake. **Remaining gaps (~250 LOC): prefill chunking (long prompts block entire batch), graph version tracking (PMAT-042 stale pointer risk).**
 
-3. **CUDA graphs: RISK.** Single decode graph (`decode_graph: Option<CudaGraphExec>`) for M=1, plus `batched_decode_graphs: HashMap<usize, CudaGraphExec>` keyed by batch size. **Invalidation strategy unclear** — `batched_decode_graphs.clear()` on KV reset but no per-graph invalidation. PMAT-042 workspace reallocation risk: graph pointers stale after realloc → silent data corruption possible. **Fix: ~200-300 LOC** for version tracking + guards.
+3. **CUDA graphs: ~~RISK~~ RESOLVED.** CORRECTNESS-014 + PMAT-075 clear ALL graphs (M=1 + batched) before workspace reallocation in `init_prefill_workspace`. Lines 55-66 of `prefill.rs`. **No changes needed.**
 
 4. **Memory allocator: READY.** Per-layer HashMap (`batched_kv_k_caches`, `batched_kv_v_caches`) allows adding/removing sequences without global realloc. Pointer arrays pre-computed for kernel launches. **No changes needed.**
 
