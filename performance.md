@@ -454,14 +454,17 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 - **Root cause of regression:** 7 params (4×u64 + 1×u64 + 2×u32) vs 5 params — extra `ld.param.u64` instructions for loading unused K/V pointers. The 28 saved launches (0.49ms) are offset by ~1.5ms of extra param loading across all blocks/layers.
 - **Conclusion:** Fusing kernels that ADD parameters is not profitable. Fusion must REDUCE total instruction count, not just launch count.
 
-**PMAT-287: Fused Q+K projection — next target (analysis complete, implementation ready).**
-- Q = Q4K (1536x1536), K = Q4K (1536x256), V = Q6K (1536x256)
-- Q+K fusion feasible (both Q4K, same format). V is Q6K — cannot concatenate
-- Approach: concatenate Q+K weights on GPU at model init → single `batched_gemv_or_gemm` with n_dim=1792
-- Same 5-param kernel (no param overhead), input read ONCE instead of twice
-- Saves: 28 launches (0.49ms) + 28 input reads (0.003ms) = ~0.5ms/step
-- No new PTX needed — reuses existing BatchedQ4KGemvKernel
-- Requires: ValidatedLayerWeights update, weight concatenation at init, output split by pointer arithmetic
+**PMAT-287: Fused Q+K — revised after discovering existing fusions.**
+
+Existing fusions already active:
+1. `fused_gate_up_swiglu` (HW DP4A): gate+up+SwiGLU → 1 kernel/layer
+2. `batched_qkv_dp4a` (M=2-8): shared Q8 input for 3 GEMV (saves 2 Q8 quantize/layer)
+
+Remaining per-layer: ~18 kernels × 28 layers + 10 final = ~514 launches.
+Incremental fusions (Q+K concat + bias fusion) save ~84 launches = ~1.5ms.
+Step: 13ms → 11.5ms → ~310 tok/s at c=4 (+8%).
+
+**Transformative fix (multi-week): CUTLASS-style fused GEMM** — all projections in one kernel per layer. 514 launches → ~50. Step: 13ms → ~8ms → ~500 tok/s at c=4 (+75%).
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
