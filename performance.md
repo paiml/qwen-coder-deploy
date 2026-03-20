@@ -467,11 +467,21 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 - realizr dispatches ~16 kernels/layer × 28 layers = 448+ kernels/step
 - PMAT-054 targets: fused Q4K dequant→GEMM (reads Q4K weights once, dequants in registers)
 
-**Expected ROI:**
-- Prompt-length invariance: eliminates −24-26% long penalty (PMAT-271)
+**PMAT-286: GPU time reconciliation (Mar 20).**
+- realizr GPU kernel time (nsys): **7.4ms** at M=4
+- vLLM step time: **~6.8ms**
+- Gap: **0.6ms (8%)** — realizr's GPU kernels are nearly as fast as vLLM's
+- Total step: 13.0ms = GPU(7.4ms) + sync_overhead(5.6ms)
+- The 5.6ms is cuStreamSync + H2D copies + argmax D2H — **all INSIDE batched_decode_step()**
+- vLLM doesn't block — event-based sync overlaps next batch's H2D with current GPU
+
+**PMAT-280 was right about the mechanism (overlap) but wrong about the location (inside decode, not scheduler).** Fix: restructure `batched_decode_step()` to pipeline launch+wait, overlapping next step's H2D with current GPU execution. This is a smaller change than full kernel fusion.
+
+**Expected ROI (revised):**
+- **Pipelining inside decode**: 13ms → ~7.7ms at c=4 (overlap 5.6ms sync with next H2D). 285→520 tok/s (0.89× vLLM) — PMAT-280 projection REVIVED
+- Prompt-length invariance: eliminates −24-26% long penalty (requires PMAT-054 fused prefill)
 - Competitive ratio: recovers 0.18× gap at c=128 (PMAT-274: 0.31→~0.49×)
-- TTFT: 3× improvement (39.7→~13ms long prompt at c=1, PMAT-273)
-- Kernel count: ~448 → ~100 (per-layer fused QKV, fused gate+up+swiglu+down)
+- TTFT: 3× improvement (39.7→~13ms long prompt, requires PMAT-054 fused prefill)
 
 ### vLLM Graph Benefit (PMAT-282, Mar 19)
 
