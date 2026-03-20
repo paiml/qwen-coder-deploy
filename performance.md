@@ -452,7 +452,16 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 - Attempts 1-3: CUDA_ERROR_ILLEGAL_ADDRESS — root cause was **em dash (U+2014) in PTX comment** (non-ASCII), NOT selp.b64 or parameter alignment. PTX requires pure ASCII.
 - Attempt 4 (selp.b64, ASCII-clean): **Works correctly (6/6 correctness)** but −12% regression at c=4-16 (258/427/758 vs baseline 291/495/869). Near-neutral at c=32 (1458 vs 1469).
 - **Root cause of regression:** 7 params (4×u64 + 1×u64 + 2×u32) vs 5 params — extra `ld.param.u64` instructions for loading unused K/V pointers. The 28 saved launches (0.49ms) are offset by ~1.5ms of extra param loading across all blocks/layers.
-- **Conclusion:** Fusing kernels that ADD parameters is not profitable. Fusion must REDUCE total instruction count, not just launch count. The productive fusion targets are QKV (same params, shared weight read) and rmsnorm+gemv (eliminates intermediate buffer).
+- **Conclusion:** Fusing kernels that ADD parameters is not profitable. Fusion must REDUCE total instruction count, not just launch count.
+
+**PMAT-287: Fused Q+K projection — next target (analysis complete, implementation ready).**
+- Q = Q4K (1536x1536), K = Q4K (1536x256), V = Q6K (1536x256)
+- Q+K fusion feasible (both Q4K, same format). V is Q6K — cannot concatenate
+- Approach: concatenate Q+K weights on GPU at model init → single `batched_gemv_or_gemm` with n_dim=1792
+- Same 5-param kernel (no param overhead), input read ONCE instead of twice
+- Saves: 28 launches (0.49ms) + 28 input reads (0.003ms) = ~0.5ms/step
+- No new PTX needed — reuses existing BatchedQ4KGemvKernel
+- Requires: ValidatedLayerWeights update, weight concatenation at init, output split by pointer arithmetic
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
