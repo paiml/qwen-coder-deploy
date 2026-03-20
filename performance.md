@@ -448,7 +448,11 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **PMAT-285 re-verification (Mar 19, v0.8.3):** `BATCHED_GRAPH=1` confirmed still −32% at c=4 (194.5 vs 285.9) and −46% at c=8 (267.9 vs 494.6). H-CB11 is NOT fixed in current binary. Root cause confirmed: graph captured with dummy `seq_lens=1`, replays with `seq_lens=128+`. The batched attention grid `(num_heads, M, 1)` is M-dependent but NOT seq_len-dependent — however the kernel READS seq_lens from a buffer and the capture may corrupt internal state. Full nsys profiling of graph overhead needed to identify exact graph nodes causing regression.
 
-**PMAT-285 fix attempt (realistic seq_lens): NO IMPROVEMENT.** Passed real positions → 194.3 tok/s (same as 194.5 with dummies). **PMAT-286 fused KV scatter: CUDA_ERROR_ILLEGAL_ADDRESS.** Two attempts: (1) inline PTX with selp.b64 — parameter alignment crash, (2) trueno FusedKvScatterKernel with emit_ptx() — same crash. 6/6 correctness pass at c=1 but batched prefill (m>1) crashes. Root cause: the selp.b64 for pointer selection produces invalid addresses when the scatter is called during prefill. Needs focused PTX debugging with cuobjdump/compute-sanitizer. Reverted in realizr (9c7d68fd).
+**PMAT-285 fix attempt (realistic seq_lens): NO IMPROVEMENT.** Passed real positions → 194.3 tok/s (same as 194.5 with dummies). **PMAT-286 fused KV scatter: 4 attempts, root cause identified, NET NEGATIVE.**
+- Attempts 1-3: CUDA_ERROR_ILLEGAL_ADDRESS — root cause was **em dash (U+2014) in PTX comment** (non-ASCII), NOT selp.b64 or parameter alignment. PTX requires pure ASCII.
+- Attempt 4 (selp.b64, ASCII-clean): **Works correctly (6/6 correctness)** but −12% regression at c=4-16 (258/427/758 vs baseline 291/495/869). Near-neutral at c=32 (1458 vs 1469).
+- **Root cause of regression:** 7 params (4×u64 + 1×u64 + 2×u32) vs 5 params — extra `ld.param.u64` instructions for loading unused K/V pointers. The 28 saved launches (0.49ms) are offset by ~1.5ms of extra param loading across all blocks/layers.
+- **Conclusion:** Fusing kernels that ADD parameters is not profitable. Fusion must REDUCE total instruction count, not just launch count. The productive fusion targets are QKV (same params, shared weight read) and rmsnorm+gemv (eliminates intermediate buffer).
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
