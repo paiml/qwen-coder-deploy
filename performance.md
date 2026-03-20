@@ -448,7 +448,30 @@ Event-based sync: step time = max(GPU, serving) + ~0.3ms sync overhead (replaces
 
 **PMAT-285 re-verification (Mar 19, v0.8.3):** `BATCHED_GRAPH=1` confirmed still −32% at c=4 (194.5 vs 285.9) and −46% at c=8 (267.9 vs 494.6). H-CB11 is NOT fixed in current binary. Root cause confirmed: graph captured with dummy `seq_lens=1`, replays with `seq_lens=128+`. The batched attention grid `(num_heads, M, 1)` is M-dependent but NOT seq_len-dependent — however the kernel READS seq_lens from a buffer and the capture may corrupt internal state. Full nsys profiling of graph overhead needed to identify exact graph nodes causing regression.
 
-**PMAT-285 fix attempt (realistic seq_lens): NO IMPROVEMENT.** Passed real positions to `pre_upload_batched_state_for_capture` → 194.3 tok/s (same as 194.5 with dummies). Root cause is NOT dummy seq_lens during capture. **Revised root cause:** 654 CUDA graph nodes create graph management overhead that exceeds kernel launch savings. The batched path dispatches ~654 small kernels (23/layer × 28 layers + 10 final). At ~17.5µs/launch, eager overhead is ~11.4ms — graph eliminates this but adds ~14ms of graph dispatch+sync overhead, for a net loss. The fix requires reducing kernel count via kernel fusion (fewer, larger kernels), not just fixing graph parameters.
+**PMAT-285 fix attempt (realistic seq_lens): NO IMPROVEMENT.** Passed real positions to `pre_upload_batched_state_for_capture` → 194.3 tok/s (same as 194.5 with dummies). Root cause is NOT dummy seq_lens during capture. **Revised root cause:** 654 CUDA graph nodes create graph management overhead that exceeds kernel launch savings.
+
+### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
+
+**All alternative optimizations have been falsified.** The investigation chain (PMAT-279→280→283→285) proves:
+
+| Approach | Status | Evidence |
+|----------|--------|----------|
+| Event sync pipelining | **FALSIFIED** | PMAT-283: 99.99% of step = decode, no serving to overlap |
+| Per-M CUDA graph | **FALSIFIED** | PMAT-285: −32% regression, 654 node overhead |
+| M=1 graph at c≥4 | **FALSIFIED** | PMAT-279: 0% benefit at c≥4 |
+| Realistic seq_lens capture | **FALSIFIED** | PMAT-285: no improvement (194.3 vs 194.5) |
+
+**Kernel fusion (PMAT-054) is the ONLY remaining path to close the gap.** Evidence:
+- vLLM uses 1 CUTLASS GEMM kernel for 95.7% of GPU time (PMAT-214)
+- llama.cpp uses fused Q4K GEMM — prompt-invariant ±4% (PMAT-272)
+- realizr dispatches ~16 kernels/layer × 28 layers = 448+ kernels/step
+- PMAT-054 targets: fused Q4K dequant→GEMM (reads Q4K weights once, dequants in registers)
+
+**Expected ROI:**
+- Prompt-length invariance: eliminates −24-26% long penalty (PMAT-271)
+- Competitive ratio: recovers 0.18× gap at c=128 (PMAT-274: 0.31→~0.49×)
+- TTFT: 3× improvement (39.7→~13ms long prompt at c=1, PMAT-273)
+- Kernel count: ~448 → ~100 (per-layer fused QKV, fused gate+up+swiglu+down)
 
 ### vLLM Graph Benefit (PMAT-282, Mar 19)
 
