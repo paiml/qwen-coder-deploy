@@ -487,7 +487,7 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - cuBLASLt launches are ~3µs (fast), raw PTX launches are ~25µs (slow)
 - Non-GEMM (224 × 25µs = 5.6ms) dominates over GEMM (196 × 3µs = 0.6ms)
 - But non-GEMM fusion loses SM occupancy (PMAT-092: -5% from grid restriction)
-- **Remaining path: prefill chunking (PMAT-289)** — last CB gap. `ChunkedPrefillState` struct exists (dead code) but not wired into iteration scheduler. Current prefill blocks ALL decode slots for 40-130ms. Chunked prefill interleaves prefill chunks with decode steps. ~150 LOC in `iteration_scheduler.rs`
+- **Prefill chunking (PMAT-289): LOW ROI for production workloads.** Medium prompts (102 tokens) fit in one chunk (256). Chunking only helps >256-token prompts. TTFT already flat at 35-42ms via decode-maximal scheduling. `ChunkedPrefillState` struct exists (dead code), `prefill_chunk_size=256` configured but not wired. ~150 LOC to integrate but zero benefit on standard benchmarks
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
