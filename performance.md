@@ -495,7 +495,7 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - NF4 tiling was reverted (9fdf2a4) but PTX disk caching code REMAINED
 - The linker API produces different cubins than `cuModuleLoadData` — ~12% slower kernels
 - Clearing `~/.cache/trueno/ptx/` does NOT fix (cache is rebuilt, still uses linker API)
-- **Fix: revert PTX disk caching in trueno, or investigate cuLinker code quality**
+- **FIXED (trueno 4bb8a1e):** Pass `CU_JIT_TARGET` to `cuLinkCreate` for sm < 120. Without it, the linker skips target-specific optimizations. Blackwell (sm_121+) still uses auto-detect. Results: 285.1/482.8/867.0/1440.3 at c=4/8/16/32 — within ±2.5% of PMAT-276 baseline. Regression eliminated.
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
