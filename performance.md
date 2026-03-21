@@ -693,10 +693,11 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 |--------|-------------|------------------|
 | realizr (default 32 threads) | 17.1 | 3.45x |
 | realizr (PMAT-297: 16 physical cores) | 25.4 | 2.32x |
-| realizr (PMAT-298: + adaptive parallelism) | **26.4** | **2.23x** |
+| realizr (PMAT-298: + adaptive parallelism) | 26.4 | 2.23x |
+| realizr (PMAT-299: + deep prefetch) | **29.9** | **1.97x** |
 | llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
 
-**Cumulative CPU improvement: +54%** (17.1 → 26.4). Remaining 2.23x gap is SIMD kernel quality.
+**Cumulative CPU improvement: +75%** (17.1 → 29.9). Gap vs llama.cpp: **1.97x** (below 2x).
 
 **Root cause identified (PMAT-298):** True AVX-512 dot product written and **correctness verified (6/6)** but **FALSIFIED on performance (-16%)**. Cascade Lake Xeon downclocks from 3.2GHz to ~2.5GHz when 512-bit instructions execute, canceling the 2x throughput.
 
