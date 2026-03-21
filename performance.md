@@ -708,7 +708,18 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 
 **PMAT-301: ggml-style scale-shuffle-accumulate kernel.** Transpiled ggml's architectural pattern via decy analysis: scale applied as i16 in integer path (madd_epi16), single hsum at end (was 8 per SB), pre-computed bsums. **6/6 correct, 29.6 tok/s — same as PMAT-299 (30.0).**
 
-**Definitive finding: CPU workload is 100% DRAM-bandwidth bound.** Reducing inner loop from 80 to 20 instructions per SB has ZERO throughput impact. The CPU waits for weight reads, not computing. The 1.97x gap vs llama.cpp is from DRAM BW utilization (44% vs 86%) — likely llama.cpp's OpenMP thread pinning + NUMA-aware allocation + hardware prefetch tuning.
+**PMAT-304: perf stat root cause analysis.** System-wide profiling during inference:
+
+| Metric | realizr | llama.cpp | Ratio |
+|--------|---------|-----------|-------|
+| IPC | **1.60** | 1.01 | 0.63x |
+| Cache misses/s | 572M | **1,003M** | 1.75x |
+| DRAM traffic | 36.6 GB/s | **64.2 GB/s** | 1.75x |
+| Decode tok/s | 30.8 | 63.9 | 2.07x |
+
+**Root cause: realizr spends too many cycles on NON-memory work** (IPC 1.60 = doing computation). llama.cpp has IPC 1.01 = nearly ALL cycles are memory stalls = maximum bandwidth utilization. realizr's Q8K quantize + rayon dispatch + scale extraction burn cycles that could be spent issuing memory loads.
+
+Added MAP_POPULATE + MADV_RANDOM (matching llama.cpp's llama-mmap.cpp).
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
