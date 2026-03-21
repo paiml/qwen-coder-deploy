@@ -502,7 +502,10 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - vLLM uses ~80 nodes with CUTLASS GEMM, captured per batch size, replayed via CUDA graphs
 - PyTorch/inductor: two-stage (IR fusion → CUDA graph replay)
 - `cuGraphExecUpdate` API added to trueno (c047e5c) but **will NOT fix -32% batched graph** — the bottleneck is 654-node REPLAY overhead, not instantiation. llama.cpp graphs work because they have 8-15 nodes. The fix is reducing kernel count, not improving the graph API.
-- **Concrete reference implementation found:** `ggml-cuda/mmvq.cu` `mul_mat_vec_q` with `ncols_dst` compile-time switch. THIS is the PMAT-054 target kernel.
+- **Concrete reference implementation found:** `ggml-cuda/mmvq.cu` `mul_mat_vec_q` with `ncols_dst` compile-time switch.
+- **Deeper analysis (Mar 21):** llama.cpp's 8-15 nodes comes from ggml's TENSOR-LEVEL graph (1 node per tensor op). realizr dispatches at KERNEL level (multiple kernels per tensor op: Q8 quantize + DP4A GEMV, or FP8 dequant + cuBLASLt). The existing `BatchedHwDp4aQ4KGemvKernel` is ALREADY a fused 1-step kernel (like llama.cpp's mul_mat_vec_q). The extra launches are from the non-GEMM pipeline (rmsnorm, rope, scatter, attention, residual) which can't be fused (PMAT-092).
+- **Paradox:** FP8 cuBLASLt is 2 launches per projection but ~3us each (6us total). DP4A is 1 launch at ~25us. FP8 has LESS dispatch overhead despite more launches.
+- **Conclusion: realizr already uses fused GEMV (DP4A path) and fast GEMM (cuBLASLt path). The 430 launches include ~224 non-GEMM ops that can't be fused. Reducing to llama.cpp's 8-15 requires a ggml-style tensor graph architecture -- a complete rewrite, not an incremental change.**
 
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
