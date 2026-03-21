@@ -652,7 +652,17 @@ New PTX kernel in trueno: `FusedFp32Q4KGemvKernel`. Reads FP32 activations direc
 
 **Trade-off:** FP32 MAD (128 ops/cycle) vs DP4A (256 ops/cycle). But GEMV is bandwidth-bound (weight reads from DRAM dominate), so compute throughput is irrelevant. The activation reads hit L2 cache regardless.
 
-**Status:** Kernel committed to trueno, PTX verified pure ASCII. Wiring into realizr dispatch next.
+**Measurement (FUSED_FP32_GEMV=1):**
+
+| c | Graph dispatch (baseline) | Fused FP32 GEMV | Delta |
+|---|--------------------------|-----------------|-------|
+| 1 | 148.6 | 148.6 | 0.0% |
+| 4 | 78.9 | 26.4 | **-66.5%** |
+| 8 | 65.8 | 14.3 | **-78.3%** |
+
+**FALSIFIED.** FP32 dequant+multiply is 2x slower compute than DP4A (128 vs 256 ops/cycle on sm_89). At M=1, kernel is bandwidth-bound so parity. At M>1, compute becomes binding and DP4A's 2x throughput advantage dominates. The Q8 quantize launch overhead (~12us) is trivial vs the compute penalty.
+
+**Lesson:** Kernel fusion that changes the compute datatype (FP32 vs INT8 DP4A) is only viable when bandwidth-bound (M=1). For batched decode (M>1), DP4A is essential. The correct fusion path would be: **fuse Q8 quantize INTO the DP4A kernel** (keep INT8 compute, just inline the quantization). This requires cooperative warp-level absmax reduction within the GEMV inner loop.
 
 ### Reproducibility (PMAT-216)
 
