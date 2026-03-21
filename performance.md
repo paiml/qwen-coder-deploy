@@ -630,7 +630,19 @@ Pure Rust tensor compute graph replacing per-kernel dispatch. 14-node graph per 
 
 **Falsification:** BATCHED_DP4A=0 (disable fused DP4A, same individual projections) gives 68.3 tok/s at c=4 — WORSE than both baseline (73.9) and graph (79.7). The graph benefit is not just from bypassing fused DP4A; the simplified dispatch loop and graph-directed execution also reduce CPU overhead.
 
-Activated by `GRAPH_DISPATCH=1` env var. Implementation: trueno `ComputeGraph` + realizr `KernelDispatch` impl + `graph_builder` + `graph_decode`.
+Now ON by default (opt-out: `GRAPH_DISPATCH=0`). Implementation: trueno `ComputeGraph` + realizr `KernelDispatch` impl + `graph_builder` + `graph_decode`.
+
+### CUDA Graph Capture on Tensor Graph (PMAT-292, Mar 21)
+
+Wired tensor graph dispatch into CUDA graph capture path (`BATCHED_GRAPH=1`). Reduces captured graph nodes from 654 to 392 (14×28 layers).
+
+| Config | c=4 decode tok/s | vs baseline |
+|--------|-----------------|-------------|
+| Tensor graph only (default) | 78.9 | +6.8% |
+| Tensor graph + CUDA graph | 61.1 | **-22.6%** |
+| Old CUDA graph (654 nodes) | ~50 | -32% (PMAT-285) |
+
+**FALSIFIED:** CUDA graph overhead scales with node count. Improved from -32% (654 nodes) to -22.6% (392 nodes) but still net negative. Linear extrapolation: need <~150 nodes for breakeven, requiring kernel fusion to reduce from 14 to ~5 ops/layer.
 
 ### Reproducibility (PMAT-216)
 

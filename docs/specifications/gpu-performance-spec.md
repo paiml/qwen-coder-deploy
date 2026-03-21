@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.29.0
+**Version:** 5.30.0
 **Last Updated:** 2026-03-21
 **Status:** ACTIVE
 **Date:** 2026-03-21
@@ -68,6 +68,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 | Prefill chunking (PMAT-289) | 0% | Medium prompts already fit one chunk |
 | Realistic graph capture (PMAT-285) | 0% | em dash was the crash cause, not seq_lens |
 | **Tensor graph dispatch (PMAT-291)** | **+2-8%** | **CONFIRMED. 14-node graph per layer, auto-selects FP8 at M>=5** |
+| CUDA graph on tensor graph (PMAT-292) | -22.6% | 392 nodes (was 654). Better but still net negative. Need <150 nodes |
 
 **Step 4: What DO we know works?**
 
@@ -4615,6 +4616,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.30.0 | 2026-03-21 | **PMAT-292: CUDA graph capture on tensor graph — FALSIFIED (-22.6%).** Wired tensor graph dispatch into CUDA graph capture path. 392 nodes (was 654). Improved from -32% to -22.6% but still net negative. Linear extrapolation: need <~150 nodes for breakeven. This requires kernel fusion (PMAT-054) to reduce launches from 14/layer to ~5/layer. CUDA graph overhead scales with node count — the path to viable CUDA graphs IS kernel fusion. |
 | 5.29.0 | 2026-03-21 | **PMAT-291: Tensor graph dispatch — FIRST POSITIVE RESULT after exhaustive falsification.** Pure Rust tensor compute graph in trueno (ComputeGraph, TensorNode, KernelDispatch trait) + realizr graph builder (14 nodes/layer) + graph executor wiring. GRAPH_DISPATCH=1: +7.8% at c=4, +2.0-2.5% at c=8-32, parity at c=1. Key finding: graph path bypasses fused DP4A QKV (suboptimal at M>=5), routes through auto-selecting batched_gemv_or_gemm (FP8 cuBLASLt at M>=5). Aggregate at c=32: 1,603 tok/s (was 1,565 baseline). |
 | 5.28.0 | 2026-03-20 | **PMAT-286→289: Exhaustive kernel optimization falsification.** Fused KV scatter (−12%, extra params), fused Q+K DP4A (−12%, FP8 faster), non-GEMM fusion (−5%, PMAT-092 occupancy loss), megakernel (1 SM), prefill chunking (0% for medium prompts). All paths exhausted. GPU kernels within 8% of vLLM (7.4 vs 6.8ms). Binding bottleneck: 430 CPU dispatch calls. PMAT-256 audit corrected: CB scheduler MOSTLY RESOLVED (PMAT-088c/d), graph safety RESOLVED (CORRECTNESS-014). Only gap: prefill chunking (low ROI). |
 | 5.27.0 | 2026-03-20 | **Doc consistency: PMAT-280/283/285 falsification chain.** Updated exec summary, falsification table entries, and revision history to reflect complete chain: PMAT-280 projected 0.89× → PMAT-283 falsified (99.99% decode) → PMAT-285 batched graph also falsified (−32%, 654 nodes). Binding fix: kernel fusion (PMAT-054), not pipelining or graph capture. All stale "6.3ms serving" and "0.89× vLLM" claims annotated. |
