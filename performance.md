@@ -702,9 +702,11 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 
 **Cumulative CPU improvement: +75%** (17.1 → 30.0). Gap vs llama.cpp: **1.97x** (below 2x).
 
-**Root cause identified (PMAT-298):** True AVX-512 dot product written and **correctness verified (6/6)** but **FALSIFIED on performance (-16%)**. Cascade Lake Xeon downclocks from 3.2GHz to ~2.5GHz when 512-bit instructions execute, canceling the 2x throughput.
+**PMAT-298:** AVX-512 VNNI (6/6 correct) FALSIFIED on perf (-16%, Cascade Lake freq penalty).
 
-The CPU gap is **memory-bandwidth bound**: realizr at 38% DRAM BW utilization (26.4 tok/s) vs llama.cpp at 86% (59.0 tok/s). The remaining gap requires memory-level optimizations (prefetch depth, NUMA pinning, thread-to-core affinity), not SIMD instruction changes.
+**PMAT-301: ggml-style scale-shuffle-accumulate kernel.** Transpiled ggml's architectural pattern via decy analysis: scale applied as i16 in integer path (madd_epi16), single hsum at end (was 8 per SB), pre-computed bsums. **6/6 correct, 29.6 tok/s — same as PMAT-299 (30.0).**
+
+**Definitive finding: CPU workload is 100% DRAM-bandwidth bound.** Reducing inner loop from 80 to 20 instructions per SB has ZERO throughput impact. The CPU waits for weight reads, not computing. The 1.97x gap vs llama.cpp is from DRAM BW utilization (44% vs 86%) — likely llama.cpp's OpenMP thread pinning + NUMA-aware allocation + hardware prefetch tuning.
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
