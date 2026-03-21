@@ -644,6 +644,16 @@ Wired tensor graph dispatch into CUDA graph capture path (`BATCHED_GRAPH=1`). Re
 
 **FALSIFIED:** CUDA graph overhead scales with node count. Improved from -32% (654 nodes) to -22.6% (392 nodes) but still net negative. Linear extrapolation: need <~150 nodes for breakeven, requiring kernel fusion to reduce from 14 to ~5 ops/layer.
 
+### Fused FP32 Q4K GEMV Kernel (PMAT-293, Mar 21)
+
+New PTX kernel in trueno: `FusedFp32Q4KGemvKernel`. Reads FP32 activations directly (no Q8_1 pre-quantization), dequants Q4K weights to FP32 in-thread, accumulates via FP32 FMA. Same half-warp structure as `BatchedHwDp4aQ4KGemvKernel`.
+
+**Design rationale:** Each DP4A projection currently requires 2 kernel launches (Q8 quantize + GEMV). The fused kernel eliminates the Q8 launch, reducing from 2 to 1 launch per projection. At 7 projections x 28 layers = 196 saved launches per decode step (~2.4ms at 12us/launch).
+
+**Trade-off:** FP32 MAD (128 ops/cycle) vs DP4A (256 ops/cycle). But GEMV is bandwidth-bound (weight reads from DRAM dominate), so compute throughput is irrelevant. The activation reads hit L2 cache regardless.
+
+**Status:** Kernel committed to trueno, PTX verified pure ASCII. Wiring into realizr dispatch next.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
