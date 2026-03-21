@@ -678,6 +678,17 @@ Correct fusion approach: keep DP4A compute, inline Q8 quantize using per-thread 
 
 **Definitive conclusion: the 2-kernel pattern (Q8 quantize + DP4A GEMV) is optimal at M>1.** The separate Q8 kernel exploits full GPU parallelism for a trivially small operation, while the GEMV kernel reads from a perfectly coalesced Q8 buffer. Neither FP32 fusion (PMAT-293) nor inline Q8 DP4A (PMAT-295) can beat this. The 430-launch bottleneck is an architectural ceiling that cannot be addressed by GEMV kernel fusion.
 
+### CPU Format Parity (PMAT-297, Mar 21)
+
+Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
+
+| Runtime | Decode tok/s | ITL P50 (ms) | Prefill tok/s |
+|---------|-------------|-------------|--------------|
+| llama.cpp | 59.0 | 16.9 | 4,269 |
+| realizr (GGUF) | 17.1 | 58.4 | 16.8 |
+
+**Gap: 3.45x** (corrected from prior 10-23x which was from different test conditions). The CPU decode gap is from: (1) per-matmul Q8K allocation overhead (~7KB × 196 calls), (2) rayon thread dispatch overhead, (3) different SIMD kernel quality (trueno AVX2 vs ggml AVX2+AVX-512). Prefill gap is 254x — realizr CPU prefill is not optimized.
+
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
 **Root cause found:** `batched_hw_dp4a_q4k_gemv_into` always re-quantized input to Q8_1, even when the same buffer was already quantized (K/V share input with Q, up shares with gate). The Q8 activation cache (`q8_activation_valid`) existed for M=1 but was never used in the batched (M>1) path.
