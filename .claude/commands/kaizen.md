@@ -46,12 +46,11 @@ Continue implementing the next best step with PMAT work items from our spec. Thi
 
 ## Current State
 
-- Spec: `docs/specifications/gpu-performance-spec.md` v5.28.0 (291 PMAT items)
+- Spec: `docs/specifications/gpu-performance-spec.md` v5.34.0 (296 PMAT items)
 - Production config: `CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1`
 - Yoga IP: `192.168.50.38`, ports: realizr 8081, ollama 8082, llama.cpp 8083, vLLM 8084
-- Baseline: 285/483/867/1440 tok/s at c=4/8/16/32. Asymptote 1,511 tok/s
-- GPU within 8% of vLLM (7.4 vs 6.8ms). Gap is 430 CPU kernel dispatches (~5ms)
-- All incremental optimizations exhausted and falsified (PMAT-279-291)
-- Cross-project analysis (PMAT-291): llama.cpp 8-15 nodes (ggml tensor graph) vs realizr 430 (kernel-level dispatch). BatchedHwDp4aQ4KGemvKernel IS the fused equivalent. Gap is architecture, not kernels
-- PMAT-290: PTX cache regression FIXED (CU_JIT_TARGET)
-- Architecture ceiling reached. Next: ggml-style tensor graph rewrite (~10K LOC) or accept 0.44-0.51x vLLM
+- **Production: 149/325/525/931/1600 tok/s at c=1/4/8/16/32** (PMAT-296)
+- Graph dispatch ON by default + Q8 cache = +8.5% at c=4
+- realizr beats llama.cpp at c=8 (+25%). vLLM ~2x at c=4-16
+- **16 kernel fusion approaches falsified** (PMAT-279-295). 2-kernel Q8+DP4A is optimal. Architecture ceiling reached
+- Remaining paths: cuBLAS grouped GEMM, persistent kernel, or accept ceiling and pivot to features/quality
