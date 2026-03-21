@@ -614,6 +614,24 @@ This is called after every M=1 graph replay (line 86: `self.stream.launch_graph(
 
 **Projected impact (PMAT-280):** At c=4, step time drops from 13.7ms (7.4ms GPU + 6.3ms serving, sequential) to ~7.7ms (max(7.4, 6.3) + 0.3ms sync) → **520 tok/s (0.89× vLLM)**
 
+### Tensor Graph Dispatch (PMAT-291, Mar 21)
+
+Pure Rust tensor compute graph replacing per-kernel dispatch. 14-node graph per transformer layer (1 leaf + 13 ops: 2 RMSNorm, 7 MulMat, 1 attention compound, 2 residual add, 1 SwiGLU). Graph executor walks nodes in topological order, dispatching via KernelDispatch trait.
+
+**Key difference:** Graph path routes all projections through `batched_gemv_or_gemm` auto-selection (FP8 cuBLASLt at M>=5, DP4A at M<5). Baseline forces fused DP4A QKV for M=2-8, which is suboptimal when the iteration scheduler produces M>=5.
+
+| c | Baseline (decode tok/s) | Graph (decode tok/s) | Delta | Aggregate |
+|---|------------------------|---------------------|-------|-----------|
+| 1 | 148.6 | 148.7 | +0.1% | 148.7 |
+| 4 | 73.9 | 79.7 | **+7.8%** | 318.8 |
+| 8 | 64.7 | 66.0 | +2.0% | 528.0 |
+| 16 | 58.3 | 59.5 | +2.1% | 952.0 |
+| 32 | 48.9 | 50.1 | +2.5% | 1,603.2 |
+
+**Falsification:** BATCHED_DP4A=0 (disable fused DP4A, same individual projections) gives 68.3 tok/s at c=4 — WORSE than both baseline (73.9) and graph (79.7). The graph benefit is not just from bypassing fused DP4A; the simplified dispatch loop and graph-directed execution also reduce CPU overhead.
+
+Activated by `GRAPH_DISPATCH=1` env var. Implementation: trueno `ComputeGraph` + realizr `KernelDispatch` impl + `graph_builder` + `graph_decode`.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.

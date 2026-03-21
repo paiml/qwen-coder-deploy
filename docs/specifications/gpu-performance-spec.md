@@ -1,10 +1,10 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.28.0
+**Version:** 5.29.0
 **Last Updated:** 2026-03-21
 **Status:** ACTIVE
-**Date:** 2026-03-20
+**Date:** 2026-03-21
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 290 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 291 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -67,6 +67,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 | Megakernel (PMAT-288) | N/A | 1 block = 1/24 SM utilization |
 | Prefill chunking (PMAT-289) | 0% | Medium prompts already fit one chunk |
 | Realistic graph capture (PMAT-285) | 0% | em dash was the crash cause, not seq_lens |
+| **Tensor graph dispatch (PMAT-291)** | **+2-8%** | **CONFIRMED. 14-node graph per layer, auto-selects FP8 at M>=5** |
 
 **Step 4: What DO we know works?**
 
@@ -4614,6 +4615,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.29.0 | 2026-03-21 | **PMAT-291: Tensor graph dispatch — FIRST POSITIVE RESULT after exhaustive falsification.** Pure Rust tensor compute graph in trueno (ComputeGraph, TensorNode, KernelDispatch trait) + realizr graph builder (14 nodes/layer) + graph executor wiring. GRAPH_DISPATCH=1: +7.8% at c=4, +2.0-2.5% at c=8-32, parity at c=1. Key finding: graph path bypasses fused DP4A QKV (suboptimal at M>=5), routes through auto-selecting batched_gemv_or_gemm (FP8 cuBLASLt at M>=5). Aggregate at c=32: 1,603 tok/s (was 1,565 baseline). |
 | 5.28.0 | 2026-03-20 | **PMAT-286→289: Exhaustive kernel optimization falsification.** Fused KV scatter (−12%, extra params), fused Q+K DP4A (−12%, FP8 faster), non-GEMM fusion (−5%, PMAT-092 occupancy loss), megakernel (1 SM), prefill chunking (0% for medium prompts). All paths exhausted. GPU kernels within 8% of vLLM (7.4 vs 6.8ms). Binding bottleneck: 430 CPU dispatch calls. PMAT-256 audit corrected: CB scheduler MOSTLY RESOLVED (PMAT-088c/d), graph safety RESOLVED (CORRECTNESS-014). Only gap: prefill chunking (low ROI). |
 | 5.27.0 | 2026-03-20 | **Doc consistency: PMAT-280/283/285 falsification chain.** Updated exec summary, falsification table entries, and revision history to reflect complete chain: PMAT-280 projected 0.89× → PMAT-283 falsified (99.99% decode) → PMAT-285 batched graph also falsified (−32%, 654 nodes). Binding fix: kernel fusion (PMAT-054), not pipelining or graph capture. All stale "6.3ms serving" and "0.89× vLLM" claims annotated. |
 | 5.26.0 | 2026-03-19 | **PMAT-285: Five-whys per-M graph blocker.** H-CB11 attention grid freeze: attention kernels use gridDim=f(seq_len) at capture, frozen for replay. `batched_decode_graphs` HashMap exists but graphs are stale. Fix: position-independent kernels (max-grid capture + seq_len early-exit). Existing infra: `try_batched_graph_capture()`, `forward_batched_graphed_replay()`, `BATCHED_GRAPH=1`. Multi-week realizr effort. |
