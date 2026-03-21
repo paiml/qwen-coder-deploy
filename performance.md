@@ -695,12 +695,14 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 | realizr (PMAT-297: 16 physical cores) | 25.4 | 2.32x |
 | realizr (PMAT-298: + adaptive parallelism) | 26.4 | 2.23x |
 | realizr (PMAT-299: + deep prefetch) | 29.9 | 1.97x |
-| realizr (PMAT-300: + stack Q8K + tile sweep) | **30.0** | **1.97x** |
+| realizr (PMAT-300: + stack Q8K + tile sweep) | 30.0 | 1.97x |
+| realizr (PMAT-301: + ggml-style kernel) | 29.6 | 1.99x (instruction-neutral) |
+| realizr (PMAT-302: + HUGEPAGE + mlock) | **30.7** | **1.92x** |
 | llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
 
 **PMAT-300 tile sweep:** 64 optimal. 128 = -10%, 256 = -37% (load imbalance). Stack-allocated Q8K buffers: negligible improvement (malloc not bottleneck).
 
-**Cumulative CPU improvement: +75%** (17.1 → 30.0). Gap vs llama.cpp: **1.97x** (below 2x).
+**Cumulative CPU improvement: +80%** (17.1 → 30.7). Gap vs llama.cpp: **1.92x**.
 
 **PMAT-298:** AVX-512 VNNI (6/6 correct) FALSIFIED on perf (-16%, Cascade Lake freq penalty).
 
