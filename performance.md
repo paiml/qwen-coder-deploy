@@ -622,11 +622,11 @@ Pure Rust tensor compute graph replacing per-kernel dispatch. 14-node graph per 
 
 | c | Baseline (decode tok/s) | Graph (decode tok/s) | Delta | Aggregate |
 |---|------------------------|---------------------|-------|-----------|
-| 1 | 148.6 | 148.7 | +0.1% | 148.7 |
-| 4 | 73.9 | 79.7 | **+7.8%** | 318.8 |
-| 8 | 64.7 | 66.0 | +2.0% | 528.0 |
-| 16 | 58.3 | 59.5 | +2.1% | 952.0 |
-| 32 | 48.9 | 50.1 | +2.5% | 1,603.2 |
+| 1 | 148.6 | 148.6 | 0.0% | 148.6 |
+| 4 | 73.9 | 78.9 | **+6.8%** | 315.6 |
+| 8 | 64.7 | 65.8 | +1.7% | 526.4 |
+| 16 | 58.3 | 59.4 | +1.9% | 950.4 |
+| 32 | 48.9 | 50.2 | +2.7% | 1,606.4 |
 
 **Falsification:** BATCHED_DP4A=0 (disable fused DP4A, same individual projections) gives 68.3 tok/s at c=4 — WORSE than both baseline (73.9) and graph (79.7). The graph benefit is not just from bypassing fused DP4A; the simplified dispatch loop and graph-directed execution also reduce CPU overhead.
 
