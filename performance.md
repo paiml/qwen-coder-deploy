@@ -692,8 +692,11 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 | Config | Decode tok/s | Gap to llama.cpp |
 |--------|-------------|------------------|
 | realizr (default 32 threads) | 17.1 | 3.45x |
-| realizr (RAYON_NUM_THREADS=16) | **24.6** | **2.40x** |
+| realizr (PMAT-297: 16 physical cores) | 25.4 | 2.32x |
+| realizr (PMAT-298: + adaptive parallelism) | **26.4** | **2.23x** |
 | llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
+
+**Cumulative CPU improvement: +54%** (17.1 → 26.4). Remaining 2.23x gap is SIMD kernel quality (trueno AVX-512 VNNI vs ggml LLAMAFILE hand-tuned).
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
