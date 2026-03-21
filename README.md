@@ -4,144 +4,96 @@
   <img src="docs/assets/architecture.svg" alt="Architecture" width="720"/>
 </p>
 
-Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across realizar, ollama, llama.cpp, and vLLM. All infrastructure managed via [forjar](https://github.com/paiml/forjar). Quantitative scoring via [probador](https://github.com/paiml/probador).
+Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across four inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador).
 
 ## Quick Start
 
 ```bash
-# Yoga deployment (PRIMARY — RTX 4060 Laptop, isolated benchmarks)
-make bench-yoga-serial       # All 4 runtimes, c=1 and c=4 (short prompt, isolated)
-make bench-yoga-prod         # All 4 runtimes, production methodology (medium prompt, c=1-128)
-make bench-yoga-prod-realizr # realizr only (c=1-128)
-make bench-yoga-prod-vllm    # vLLM only (c=1-128)
-make score                   # Generate scorecards (table format)
-make score-prod              # Production methodology scorecards only
+make bench-yoga-prod         # All 4 runtimes, production methodology
+make score-prod              # Production scorecards
 make teardown-yoga           # Stop all services
-
-# 4090 deployment (deep profiling only — QLoRA training runs full-time)
-make deploy-gpu              # Build + start via forjar
-make nsys-gpu                # nsys kernel timeline
-make ncu-gpu                 # ncu per-kernel roofline
-
-# CPU deployment (intel host)
-make deploy                  # Deploy via forjar to 192.168.50.100
-make test                    # Correctness tests
-make load                    # Load tests
 ```
 
 ## Runtimes
 
-| Runtime | Port | Model Format | GPU |
-|---------|------|-------------|-----|
-| realizar (Sovereign AI Stack) | 8081 | GGUF Q4_K_M | CUDA (DP4A INT8 + FP8 prefill) |
-| ollama | 8082 | GGUF Q4_K_M | CUDA (auto-detected) |
-| llama.cpp | 8083 | GGUF Q4_K_M | CUDA (full offload, -ngl 99) |
-| vLLM | 8084 | AWQ INT4 | CUDA (PagedAttention, CUTLASS GEMM) |
+| Runtime | Port | Format | Quantization |
+|---------|------|--------|-------------|
+| [realizar](https://github.com/paiml/realizar) | 8081 | GGUF | Q4_K_M (DP4A + FP8) |
+| ollama | 8082 | GGUF | Q4_K_M |
+| llama.cpp | 8083 | GGUF | Q4_K_M |
+| vLLM | 8084 | AWQ | INT4 (CUTLASS) |
 
-<!-- PERFORMANCE_START -->
-## Performance — RTX 4060 Laptop (2026-03-19, PMAT-276 same-session, locked 1900MHz)
+## Performance
 
-### Production Methodology (medium prompt ~102 tok, uniform:16,256 output, streaming, 60s)
+RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform output, streaming, 60s).
+
+### Throughput (tok/s)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 147.2 | 158.0 | 152.3 | 148.6 |
-| 4 | 291.2 | 352.2 | 586.8 | 157.0 |
-| 8 | 494.6 | 416.5 | 1,114.4 | 156.6 |
-| 16 | 868.8 | 894.4 | 1,983.2 | 156.0 |
-| 32 | **1,469.4** | 922.9 | 2,898.5 | 153.0 |
-| 64 | **1,484.9** | — | 3,145.8 | — |
-| 128 | **1,510.5** | — | 3,162.6 | — |
+| 1 | 147 | 158 | 152 | 149 |
+| 4 | 291 | 352 | 587 | 157 |
+| 8 | 495 | 417 | 1,114 | 157 |
+| 16 | 869 | 894 | 1,983 | 156 |
+| 32 | **1,469** | 923 | 2,899 | 153 |
+| 64 | **1,485** | -- | 3,146 | -- |
+| 128 | **1,511** | -- | 3,163 | -- |
 
-realizr uses CUDA_MAX_BATCH=32 + ITERATION_SCHEDULER=1. Asymptote **~1,511 tok/s** (+71% vs BATCH=16). 0% errors at all c. All numbers ±1% across sessions.
-
-### Scorecards (probador llm score, PMAT-276 — same-session 4-runtime, B32 iter sched)
+### Quality Scores
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
 | 1 | 94 A | 93 A | 98 A+ | 77 B |
-| 4 | 70 B | 70 B | 98 A+ | 57 C |
 | 8 | **76 B** | 66 C+ | 97 A+ | 57 C |
-| 16 | **78 B** | 71 B | 94 A | 57 C |
 | 32 | **75 B** | 63 C+ | 87 A- | 57 C |
-| 64 | 64 C+ | — | 75 B | — |
-| 128 | **66 C+** | — | 64 C+ | — |
+| 128 | **66 C+** | -- | 64 C+ | -- |
 
-realizr B32 overtakes llama.cpp at c=8 (76 vs 66) and holds through c=32 (75 vs 63). Quality crossover: realizr **beats** vLLM at c=128 (66 vs 64).
+realizr overtakes llama.cpp at c=8 and beats vLLM on quality at c=128.
 
-### Asymptotes (PMAT-192/195/197/258)
+### Asymptotes
 
-| Runtime | Asymptote | Architecture |
-|---------|-----------|-------------|
-| vLLM | **3,163** tok/s | PagedAttention, continuous batching, CUTLASS GEMM |
-| realizr | **1,511** tok/s (iter sched, B32) | Iteration scheduler, BATCH=32 |
-| llama.cpp | 943 tok/s | Fixed 16 slots, ncols-templated GEMV |
-| ollama | 160 tok/s | Serial FIFO |
+| Runtime | Peak | Architecture |
+|---------|------|-------------|
+| vLLM | 3,163 tok/s | PagedAttention + continuous batching + CUTLASS |
+| realizr | 1,511 tok/s | Iteration scheduler + BATCH=32 |
+| llama.cpp | 923 tok/s | Fixed 16 slots |
+| ollama | 157 tok/s | Serial |
 
-Iteration scheduler + BATCH=32: asymptote 1,511 tok/s (+71% vs BATCH=16 885). PMAT-221 quality bug eliminated by slot-level recycling.
+### Cross-Platform (c=1 decode tok/s)
 
-### Cross-Platform Decode (c=1, isolated, streaming)
+| Platform | realizr | llama.cpp | vLLM |
+|----------|---------|-----------|------|
+| RTX 4060L (24 SMs) | 149 | 159 | 154 |
+| RTX 4090 (128 SMs) | 412 | 437 | -- |
+| Jetson Orin (8 SMs) | 25 | -- | -- |
 
-| Platform | vLLM | realizr | llama.cpp | ollama |
-|----------|------|---------|-----------|--------|
-| **RTX 4060L** (24 SMs, 1900MHz) | 153.6 | 149.2 | 159.1 | 160.8 |
-| RTX 4090 (128 SMs) | — | 411.7 | 436.9 | — |
-| Jetson Orin (8 SMs, MAXN_SUPER) | — | **25.2** | — | — |
+## Key Results
 
-*RTX 4060L: PMAT-276 same-session (Mar 19). Jetson: PMAT-278 (Mar 19). Production methodology (medium, uniform:16,256, streaming).*
+- **GPU kernels within 8% of vLLM** (7.4ms vs 6.8ms per step). The 2x throughput gap is CPU kernel dispatch overhead
+- **Iteration scheduler**: +71% throughput, 0% errors, production-stable (10-min sustained, 6,843 requests)
+- **Prompt-sensitivity**: realizr -24-26% long penalty (plateau), vLLM -9% peak then reverses, llama.cpp invariant
+- **Quality crossover**: realizr beats vLLM at c=128 on combined score (decode + ITL advantage)
 
-### Key Findings (PMAT-209→289)
-
-**Architecture (complete):**
-- **GPU kernels within 8% of vLLM** (PMAT-286): 7.4ms vs 6.8ms per step. The 2× gap is CPU dispatch overhead (430 launches × ~12µs)
-- **2-factor gap model** (PMAT-277): gap = decode_rate × sched_util, validated within 1%. Decode crossover c≈64 (realizr 1.98× vLLM at c=128)
-- **TTFT scaling** (PMAT-275): realizr FLAT (35-42ms c≤32), vLLM GRADUAL (12→111ms), llama.cpp LINEAR→CLIFF
-
-**Prompt-sensitivity (3-runtime × 3-profile × c=1→128):**
-- **3 structural patterns** (PMAT-268→272): realizr PLATEAU (−24-26%), vLLM CONCAVE (−9%→+18% reversal), llama.cpp INVARIANT (±4%)
-- **Competitive ratio shifts** (PMAT-274): realizr/vLLM widens 36% with long prompts
-
-**Production baselines (PMAT-276, same-session serial isolated):**
-- **Iteration scheduler + BATCH=32**: asymptote 1,511 tok/s (+71% vs B16). 0% errors. Quality crossover c=128 (66 > 64 vLLM)
-- **Stability verified** (PMAT-281): 10-min c=32, 6,843 req, 0 errors, no leak
-- **CB mostly complete**: mid-batch joins (PMAT-088c/d), graph safety (CORRECTNESS-014). Only gap: prefill chunking (low ROI)
-
-**All kernel optimizations exhausted (PMAT-279→289):**
-- ~~Event sync pipelining~~ **FALSIFIED** (PMAT-283): 0% ROI, no serving overhead
-- ~~Per-M CUDA graph~~ **FALSIFIED** (PMAT-285): −32%, 654 node overhead
-- ~~Fused KV scatter~~ **FALSIFIED** (PMAT-286): −12%, extra params
-- ~~Fused Q+K DP4A~~ **FALSIFIED** (PMAT-287): −12%, FP8 cuBLASLt faster
-- ~~Non-GEMM fusion~~ **FALSIFIED** (PMAT-288/092): −5%, RMSNorm occupancy loss
-- ~~Megakernel~~ **ABANDONED** (PMAT-288): 1/24 SM utilization
-- ~~Prefill chunking~~ **LOW ROI** (PMAT-289): medium prompts fit one chunk
-
-See [performance.md](performance.md) for full history. See [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) for detailed analysis.
-<!-- PERFORMANCE_END -->
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.28.0, 290 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
 | File | Purpose |
 |------|---------|
-| `forjar-yoga-realizr.yaml` | Yoga realizr deployment (RTX 4060L) |
-| `forjar-yoga-llamacpp.yaml` | Yoga llama.cpp deployment |
-| `forjar-yoga-ollama.yaml` | Yoga ollama deployment |
-| `forjar-yoga-vllm.yaml` | Yoga vLLM deployment |
-| `forjar-yoga-teardown.yaml` | Stop all Yoga services |
-| `forjar-gpu.yaml` | 4090 deployment (deep profiling) |
-| `forjar.yaml` | CPU deployment (intel host, SSH) |
-| `prompts/correctness.yaml` | 6-prompt correctness test suite |
+| `forjar-yoga-*.yaml` | Yoga deployment configs (RTX 4060L) |
+| `forjar-gpu.yaml` | 4090 profiling deployment |
+| `forjar.yaml` | CPU deployment (intel host) |
+| `prompts/correctness.yaml` | 6-prompt correctness suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance specification (v5.28.0) — [changelog](docs/specifications/gpu-performance-spec.md#14-revision-history) |
+| `docs/specifications/gpu-performance-spec.md` | Performance spec v5.28.0 |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
-
-## Correctness
-
-All 4 runtimes pass 6/6 correctness tests (math, code gen, explanation, JSON, SQL).
 
 ## Testing
 
-Correctness tests verify basic capabilities (math, code generation, explanation).
-Load tests measure throughput, latency percentiles, and tokens/sec via `probador llm load`.
-Scoring via `probador llm score` with absolute thresholds (decode, TTFT, ITL, tail, errors).
+```bash
+make test          # Correctness (6/6 all runtimes)
+make load          # Load tests
+make score-gate    # CI quality gate (fail if any runtime below C)
+```
 
-All results stored in `results/` and aggregated in `performance.md`.
+Results in `results/`, aggregated in `performance.md`.
