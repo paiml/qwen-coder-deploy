@@ -80,7 +80,15 @@ Performance specification for the realizar GPU inference engine, covering autore
 - Decode rate: 0.45-0.52x (binding factor -- 430 launches per step)
 - At c>=64: decode advantage (0.98-1.98x realizr) but queueing collapses scheduling (0.24-0.48x)
 
-**Step 6: What do competitors do differently?** (Source analysis of vLLM, llama.cpp, PyTorch — Mar 21)
+**Step 6: What do competitors do differently?** (Source analysis of vLLM, llama.cpp, PyTorch -- PMAT-291, Mar 21)
+
+Academic foundations of the vLLM advantage:
+- [Kwon et al., SOSP 2023] "Efficient Memory Management for Large Language Model Serving with PagedAttention" (arxiv:2309.06180) -- PagedAttention eliminates KV cache fragmentation, enabling dynamic sequence-length handling without fixed-slot waste. This is why vLLM's heterogeneity penalty is 0-2.5% vs realizr's 7-11% (PMAT-260).
+- [Yu et al., OSDI 2022] "Orca: A Distributed Serving System for Transformer-Based Generative Models" -- Iteration-level scheduling (selective batching). realizr's iteration scheduler (PMAT-257) implements this pattern (+71%).
+- [Agrawal et al., OSDI 2024] "Sarathi-Serve: Efficient Chunked Prefill for LLM Serving" -- Chunked prefill interleaves prefill tokens with decode tokens in the same forward pass. realizr has the infrastructure (PMAT-289) but medium prompts fit one chunk (low ROI).
+- [Dao, ICLR 2024] "FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning" (arxiv:2307.08691) -- IO-aware attention algorithm. realizr uses incremental attention (PMAT-040) with flash decoding for long sequences.
+- [NVIDIA, 2023] "CUTLASS: CUDA Templates for Linear Algebra Subroutines" -- Templated GEMM library. vLLM uses CUTLASS for quantized INT4/INT8/FP8 GEMM. realizr uses cuBLASLt FP8 GEMM (PMAT-053) + hand-written DP4A PTX.
+- [ggml, 2023] "GGML: Tensor Library for Machine Learning" -- Tensor-level compute graph with fused CUDA kernels. llama.cpp achieves 8-15 kernel launches/step via ggml's graph-level dispatch.
 
 | Dimension | realizr (430 launches) | llama.cpp (8-15 launches) | vLLM (~80 launches + graph) |
 |-----------|----------------------|--------------------------|---------------------------|
@@ -99,6 +107,35 @@ Performance specification for the realizar GPU inference engine, covering autore
 2. **ncols_dst-templated fused kernels** (from llama.cpp): Generate batch-size-specialized Q4K GEMV kernels at build time. Each kernel has optimal warp count and register pressure for its M. Reduces 430 launches to ~28 (one fused kernel per layer). This IS the PMAT-054 target — now with a concrete reference implementation in `ggml-cuda/mmvq.cu`.
 
 3. **Unified token scheduling** (from vLLM): Process prefill and decode tokens in the same forward pass via token budget. Eliminates separate `add_slot_to_batch` path. Major architectural change (~1000 LOC) but matches how vLLM achieves continuous batching.
+
+### Path to vLLM Parity (PMAT-291 synthesis)
+
+**Why vLLM is faster (chain of reasoning):**
+1. vLLM sits on PyTorch + torch.compile/inductor, which fuses operations at the IR level BEFORE they become CUDA kernels (~80 kernels instead of 430)
+2. CUDA graphs capture and replay the fused forward pass as a single command (~3us replay vs 430 x 12us = 5ms dispatch)
+3. PagedAttention [Kwon et al., SOSP 2023] eliminates KV cache fragmentation, enabling efficient variable-length batching
+4. Unified scheduler [Yu et al., OSDI 2022] treats all tokens (prefill+decode) as uniform, with token budget allocation
+
+**Why realizr can't incrementally match this:**
+1. realizr dispatches at the KERNEL level (430 cuLaunchKernel per step), not the TENSOR level (8-15 operations)
+2. The 224 non-GEMM kernels (rmsnorm, rope, scatter, attention, residual) can't be fused due to occupancy loss [PMAT-092: -5%]
+3. CUDA graphs at 654 nodes have management overhead exceeding launch savings [PMAT-285: -32%]
+4. The existing BatchedHwDp4aQ4KGemvKernel IS already equivalent to llama.cpp's fused mul_mat_vec_q -- kernel quality is not the issue
+
+**Three paths to parity (ranked by ROI):**
+
+| Path | LOC | Timeline | Projected c=4 | How |
+|------|-----|----------|---------------|-----|
+| **A: ggml backend** | ~2K | 2-4 weeks | ~500 tok/s (0.85x vLLM) | Replace PTX dispatch with ggml compute graph. Keep realizr serving layer |
+| B: cuBLAS grouped GEMM | ~500 | 4-6 weeks | ~420 tok/s (0.72x vLLM) | Batch 7 projections per layer into 1-2 cuBLASLt calls |
+| C: Tensor graph rewrite | ~10K | 3-6 months | ~533 tok/s (0.91x vLLM) | Rewrite forward pass as tensor-level graph with CUDA graph replay |
+
+**Path A (ggml backend) is recommended because:**
+- ggml CUDA kernels are battle-tested (llama.cpp: 158 tok/s at c=1, within 8% of realizr)
+- ggml provides 8-15 graph nodes per step (vs realizr's 430), enabling effective CUDA graph replay
+- realizr's VALUE is in the serving layer (iteration scheduler +71%, CB, streaming, quality crossover at c=128) -- NOT in the kernel dispatch
+- The FFI boundary (Rust calling C ggml functions) is well-understood (llama.cpp's C API)
+- Falsification condition: if realizr-on-ggml at c=4 < 500 tok/s, the integration overhead negates the launch reduction
 
 **Kernel-level profiling confirms this (PMAT-209→218, nsys+ncu on 4060L):** The decode kernel mix is **concurrency-invariant at c≥4** — DP4A GEMV 48%, attention 24%, regardless of c=4/8/16. realizr's per-kernel efficiency is high: fused_gate_up_swiglu achieves 76% DRAM BW (ncu), FP8 tensor core decode activates at M≥5 (128×128 tile grows 25× from c=4→c=16). Total per-token decode budget: 4,505µs kernel + 1,785µs CUDA graph overhead + 540µs serving = 6,830µs (146.4 tok/s). **vLLM nsys comparison (PMAT-214) reveals the root cause:** vLLM uses a SINGLE CUTLASS GEMM kernel for 95.7% of GPU time at c≥2. This GEMM takes 2.14-2.20ms per call (+2.8% from c=1→c=16) and processes M tokens per call — so throughput scales linearly with batch size while GPU time stays constant. realizr uses 771 small kernels (84µs largest) behind a CUDA graph that dispatches one token at a time. **CUDA API trace (PMAT-217) proves this: realizr makes only 117 graph launches at c=4 (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms).** llama.cpp re-captures graphs dynamically (103 captures) with 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with 18.9µs median event sync. **PMAT-267 corrected projection:** Per-step GPU kernel time is **7.4ms** (not 10ms). Serving overhead is **5.5ms** (40% of step). Graph + event-based sync enables CPU-GPU pipelining: serving overlaps GPU execution. Projected: **390-466 tok/s at c=4** (0.66-0.79× vLLM at 50-80% overlap). Wall-time gap is **2.0×** (not the 4.6× stated in initial PMAT-266). **⚠️ PMAT-279/282 update:** realizr's M=1 graph provides **0% benefit at c≥4** (launch overhead already amortized). vLLM's multi-M graphs provide **+18-27% at c≤16**. Graph explains ~25% of gap. Per-M graph value is CPU-GPU overlap + multi-token dispatch, not M=1 launch savings. **~~PMAT-280 pipelining projection:~~ FALSIFIED by PMAT-283 timing.** "6.3ms serving overhead" is GPU sync inside `batched_decode_step()`, not serving. 99.99% of step = decode. Scheduler-level pipelining has 0% ROI. **PMAT-285:** batched graph also FALSIFIED (−32%, 654 nodes overhead). **Binding fix: kernel fusion** — reduce 654 kernels/step to fewer, larger fused kernels (PMAT-054).
 
