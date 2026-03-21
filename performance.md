@@ -664,6 +664,20 @@ New PTX kernel in trueno: `FusedFp32Q4KGemvKernel`. Reads FP32 activations direc
 
 **Lesson:** Kernel fusion that changes the compute datatype (FP32 vs INT8 DP4A) is only viable when bandwidth-bound (M=1). For batched decode (M>1), DP4A is essential. The correct fusion path would be: **fuse Q8 quantize INTO the DP4A kernel** (keep INT8 compute, just inline the quantization). This requires cooperative warp-level absmax reduction within the GEMV inner loop.
 
+### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
+
+**Root cause found:** `batched_hw_dp4a_q4k_gemv_into` always re-quantized input to Q8_1, even when the same buffer was already quantized (K/V share input with Q, up shares with gate). The Q8 activation cache (`q8_activation_valid`) existed for M=1 but was never used in the batched (M>1) path.
+
+**Fix:** Add Q8 cache check to batched path + add cache invalidation to graph dispatch (RMSNorm, residual add, SwiGLU, attention). Saves 84 Q8 launches per decode step (3/layer x 28).
+
+| c | Pre-fix | Post-fix | Delta |
+|---|---------|----------|-------|
+| 1 | 148.6 | 148.6 | 0.0% |
+| 4 | 78.9 | 80.2 | **+1.6%** |
+| 8-32 | same | same | 0.0% |
+
++1.6% at c=4 only (DP4A active at M=2-4). At M>=5, FP8 cuBLASLt fires instead of DP4A, so Q8 cache is irrelevant.
+
 ### Reproducibility (PMAT-216)
 
 Fresh benchmarks on 2026-03-16 confirm <1% delta vs PMAT-177 across all runtimes and concurrency levels.
