@@ -82,13 +82,38 @@ Performance specification for the realizar GPU inference engine, covering autore
 
 **Step 6: What do competitors do differently?** (Source analysis of vLLM, llama.cpp, PyTorch -- PMAT-291, Mar 21)
 
-Academic foundations of the vLLM advantage:
-- [Kwon et al., SOSP 2023] "Efficient Memory Management for Large Language Model Serving with PagedAttention" (arxiv:2309.06180) -- PagedAttention eliminates KV cache fragmentation, enabling dynamic sequence-length handling without fixed-slot waste. This is why vLLM's heterogeneity penalty is 0-2.5% vs realizr's 7-11% (PMAT-260).
-- [Yu et al., OSDI 2022] "Orca: A Distributed Serving System for Transformer-Based Generative Models" -- Iteration-level scheduling (selective batching). realizr's iteration scheduler (PMAT-257) implements this pattern (+71%).
-- [Agrawal et al., OSDI 2024] "Sarathi-Serve: Efficient Chunked Prefill for LLM Serving" -- Chunked prefill interleaves prefill tokens with decode tokens in the same forward pass. realizr has the infrastructure (PMAT-289) but medium prompts fit one chunk (low ROI).
-- [Dao, ICLR 2024] "FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning" (arxiv:2307.08691) -- IO-aware attention algorithm. realizr uses incremental attention (PMAT-040) with flash decoding for long sequences.
-- [NVIDIA, 2023] "CUTLASS: CUDA Templates for Linear Algebra Subroutines" -- Templated GEMM library. vLLM uses CUTLASS for quantized INT4/INT8/FP8 GEMM. realizr uses cuBLASLt FP8 GEMM (PMAT-053) + hand-written DP4A PTX.
-- [ggml, 2023] "GGML: Tensor Library for Machine Learning" -- Tensor-level compute graph with fused CUDA kernels. llama.cpp achieves 8-15 kernel launches/step via ggml's graph-level dispatch.
+Academic foundations of the vLLM advantage (verified in source at `/home/noah/src/vllm`):
+
+**Core architecture:**
+- [Kwon et al., SOSP 2023] "Efficient Memory Management for Large Language Model Serving with PagedAttention" (arxiv:2309.06180) -- PagedAttention: OS-style virtual memory paging for KV cache. Eliminates 60-80% memory waste from fragmentation. This is why vLLM heterogeneity penalty is 0-2.5% vs realizr's 7-11% (PMAT-260). Found: `vllm/docs/design/paged_attention.md`.
+- [Yu et al., OSDI 2022] "Orca: A Distributed Serving System for Transformer-Based Generative Models" -- Iteration-level scheduling. realizr implements this pattern via PMAT-257 (+71%). Found: `vllm/v1/core/sched/interface.py` line 39.
+- [Agrawal et al., OSDI 2024] "Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve" (arxiv:2401.08671) -- Chunked prefill: splits long prefills into chunks interleaved with decode. vLLM V1 enables by default. Found: `vllm/engine/arg_utils.py` line 1884.
+- [Holmes et al., 2024] "DeepSpeed-FastGen: SplitFuse" (arxiv:2308.16369) -- Independent chunked prefill approach. Found: `vllm/docs/configuration/optimization.md` line 61.
+
+**Attention kernels:**
+- [Dao et al., NeurIPS 2022] "FlashAttention" (arxiv:2205.14135) -- IO-aware tiling, 2-4x speedup. Found: `vllm/v1/attention/backends/flash_attn.py`.
+- [Dao, 2023] "FlashAttention-2" (arxiv:2307.08691) -- Better parallelism, ~2x over FA1. realizr uses incremental attention (PMAT-040) + flash decoding.
+- [Shah et al., 2024] "FlashAttention-3" (arxiv:2407.08025) -- Hopper async, FP8, 740 TFLOPS on H100. Found: `vllm/docs/design/cuda_graphs.md` line 179.
+
+**Quantization:**
+- [Lin et al., MLSys 2024] "AWQ: Activation-Aware Weight Quantization" (arxiv:2306.00978) -- INT4 with salient channel protection. This is our vLLM deployment's quantization. Found: `vllm/model_executor/layers/quantization/awq.py`.
+- [Frantar et al., ICLR 2023] "GPTQ" (arxiv:2210.17323) -- One-shot INT4 quantization via Hessian. Found: `vllm/model_executor/layers/quantization/gptq.py`.
+- NVIDIA CUTLASS -- Templated GEMM for INT4/INT8/FP8. Found: `vllm/csrc/quantization/w8a8/cutlass/` (SM75-120). realizr uses cuBLASLt FP8 (PMAT-053) + hand-written DP4A PTX.
+
+**Compute backend:**
+- ggml -- Tensor-level compute graph with fused CUDA kernels (`ggml-cuda/mmvq.cu`). llama.cpp achieves 8-15 launches/step via graph-level dispatch vs realizr's 430 kernel-level dispatches.
+
+**vLLM's stack maps to performance advantage:**
+
+| Layer | Paper | What it gives vLLM | realizr equivalent |
+|-------|-------|--------------------|--------------------|
+| Memory | PagedAttention [Kwon] | Near-zero KV waste, max batch | Fixed-slot contiguous (7-11% waste) |
+| Scheduling | Orca [Yu] | Iteration-level batching | Iteration scheduler (PMAT-257, +71%) |
+| Prefill | Sarathi-Serve [Agrawal] | Chunked, no decode stalls | Blocking prefill (low ROI for medium) |
+| Attention | FlashAttention [Dao] | IO-aware, Hopper async | Incremental + flash decoding |
+| Quantized GEMM | CUTLASS + AWQ | INT4 at near-peak BW | cuBLASLt FP8 + DP4A PTX |
+| Kernel dispatch | torch.compile/inductor | ~80 fused kernels | 430 individual launches |
+| Graph replay | CUDA graphs (~80 nodes) | ~3us replay | 654 nodes = -32% (net negative) |
 
 | Dimension | realizr (430 launches) | llama.cpp (8-15 launches) | vLLM (~80 launches + graph) |
 |-----------|----------------------|--------------------------|---------------------------|
