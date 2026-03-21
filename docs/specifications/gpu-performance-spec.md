@@ -80,7 +80,25 @@ Performance specification for the realizar GPU inference engine, covering autore
 - Decode rate: 0.45-0.52x (binding factor -- 430 launches per step)
 - At c>=64: decode advantage (0.98-1.98x realizr) but queueing collapses scheduling (0.24-0.48x)
 
-**Step 6: What remains?** The 430 CPU kernel dispatches are the binding constraint. The only untested path is cuBLAS grouped GEMM (CUDA 12.x) to batch 7 projections per layer into 1-2 API calls. Alternatively: accept 0.44-0.51x vLLM at c=4-32, noting realizr wins on quality at c>=64, stability, and architectural simplicity.
+**Step 6: What do competitors do differently?** (Source analysis of vLLM, llama.cpp, PyTorch — Mar 21)
+
+| Dimension | realizr (430 launches) | llama.cpp (8-15 launches) | vLLM (~80 launches + graph) |
+|-----------|----------------------|--------------------------|---------------------------|
+| Weight GEMV | Individual Q4K GEMV per projection per layer | Fused `mul_mat_vec_q` — single-pass dequant+dot via DP4A | CUTLASS GEMM — one call per projection |
+| Batch handling | Runtime dispatch, same kernel for all M | `ncols_dst`-templated: compile-time switch (M=1-8) with optimal warp/register per size | Padded to nearest graph capture size |
+| CUDA graphs | M=1 only (+12% c=1, 0% c>=4). Batched graph -32% (654 nodes) | Graph + `cudaGraphExecUpdate` for different token counts WITHOUT recapture | Graph per batch size, ~80 nodes, captured at compile-time |
+| Prefill/decode | Separate paths (add_slot_to_batch blocks during prefill) | Separate contexts per slot | **Unified** — all tokens (prefill+decode) in same forward pass |
+| Fusion | fused_gate_up_swiglu (1 kernel). Other non-GEMM: separate | Almost everything fused into mul_mat_vec_q | PyTorch inductor fuses at IR level, then CUDA graphs on top |
+
+**Key insight: llama.cpp achieves 8-15 launches/step vs realizr's 430 by fusing dequant+GEMV into a single kernel per operation type.** The ncols_dst templating means each batch size (M=1-8) gets a compile-time-optimized kernel. Combined with CUDA graph replay, the entire forward pass is 1 graph launch.
+
+**Step 7: What remains?** Three untested approaches from competitors:
+
+1. **`cudaGraphExecUpdate`** (from llama.cpp): Update existing graph for different batch sizes instead of recapturing. Avoids the 654-node capture overhead that caused PMAT-285's -32%. Requires trueno API addition. **Testable now.**
+
+2. **ncols_dst-templated fused kernels** (from llama.cpp): Generate batch-size-specialized Q4K GEMV kernels at build time. Each kernel has optimal warp count and register pressure for its M. Reduces 430 launches to ~28 (one fused kernel per layer). This IS the PMAT-054 target — now with a concrete reference implementation in `ggml-cuda/mmvq.cu`.
+
+3. **Unified token scheduling** (from vLLM): Process prefill and decode tokens in the same forward pass via token budget. Eliminates separate `add_slot_to_batch` path. Major architectural change (~1000 LOC) but matches how vLLM achieves continuous batching.
 
 **Kernel-level profiling confirms this (PMAT-209→218, nsys+ncu on 4060L):** The decode kernel mix is **concurrency-invariant at c≥4** — DP4A GEMV 48%, attention 24%, regardless of c=4/8/16. realizr's per-kernel efficiency is high: fused_gate_up_swiglu achieves 76% DRAM BW (ncu), FP8 tensor core decode activates at M≥5 (128×128 tile grows 25× from c=4→c=16). Total per-token decode budget: 4,505µs kernel + 1,785µs CUDA graph overhead + 540µs serving = 6,830µs (146.4 tok/s). **vLLM nsys comparison (PMAT-214) reveals the root cause:** vLLM uses a SINGLE CUTLASS GEMM kernel for 95.7% of GPU time at c≥2. This GEMM takes 2.14-2.20ms per call (+2.8% from c=1→c=16) and processes M tokens per call — so throughput scales linearly with batch size while GPU time stays constant. realizr uses 771 small kernels (84µs largest) behind a CUDA graph that dispatches one token at a time. **CUDA API trace (PMAT-217) proves this: realizr makes only 117 graph launches at c=4 (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms).** llama.cpp re-captures graphs dynamically (103 captures) with 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with 18.9µs median event sync. **PMAT-267 corrected projection:** Per-step GPU kernel time is **7.4ms** (not 10ms). Serving overhead is **5.5ms** (40% of step). Graph + event-based sync enables CPU-GPU pipelining: serving overlaps GPU execution. Projected: **390-466 tok/s at c=4** (0.66-0.79× vLLM at 50-80% overlap). Wall-time gap is **2.0×** (not the 4.6× stated in initial PMAT-266). **⚠️ PMAT-279/282 update:** realizr's M=1 graph provides **0% benefit at c≥4** (launch overhead already amortized). vLLM's multi-M graphs provide **+18-27% at c≤16**. Graph explains ~25% of gap. Per-M graph value is CPU-GPU overlap + multi-token dispatch, not M=1 launch savings. **~~PMAT-280 pipelining projection:~~ FALSIFIED by PMAT-283 timing.** "6.3ms serving overhead" is GPU sync inside `batched_decode_step()`, not serving. 99.99% of step = decode. Scheduler-level pipelining has 0% ROI. **PMAT-285:** batched graph also FALSIFIED (−32%, 654 nodes overhead). **Binding fix: kernel fusion** — reduce 654 kernels/step to fewer, larger fused kernels (PMAT-054).
 
