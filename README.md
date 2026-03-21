@@ -27,17 +27,15 @@ make teardown-yoga           # Stop all services
 
 RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform output, streaming, 60s).
 
-### Throughput (tok/s)
+### Throughput (tok/s aggregate, Mar 21)
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 147 | 158 | 152 | 149 |
-| 4 | 291 | 352 | 587 | 157 |
-| 8 | 495 | 417 | 1,114 | 157 |
-| 16 | 869 | 894 | 1,983 | 156 |
-| 32 | **1,469** | 923 | 2,899 | 153 |
-| 64 | **1,485** | -- | 3,146 | -- |
-| 128 | **1,511** | -- | 3,163 | -- |
+| 1 | 149 | 160 | 154 | 163 |
+| 4 | 325 | 351 | 598 | 635 |
+| 8 | **525** | 419 | 1,142 | -- |
+| 16 | **931** | 912 | 2,037 | -- |
+| 32 | 1,600 | **1,949** | 2,998 | -- |
 
 ### Quality Scores
 
@@ -48,7 +46,7 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 | 32 | **75 B** | 63 C+ | 87 A- | 57 C |
 | 128 | **66 C+** | -- | 64 C+ | -- |
 
-realizr overtakes llama.cpp at c=8 and beats vLLM on quality at c=128.
+realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at c=128.
 
 ### Asymptotes
 
@@ -69,13 +67,13 @@ realizr overtakes llama.cpp at c=8 and beats vLLM on quality at c=128.
 
 ## Key Results
 
-- **Tensor graph dispatch (PMAT-291)**: +7.8% at c=4, +2% at c=8-32. Pure Rust graph executor in trueno
-- **GPU kernels within 8% of vLLM** (7.4ms vs 6.8ms per step). The 2x throughput gap is CPU kernel dispatch overhead
+- **Tensor graph dispatch (PMAT-291)**: +8.5% at c=4. Pure Rust graph executor + Q8 activation cache (PMAT-294)
+- **GPU kernels within 8% of vLLM** (7.4ms vs 6.8ms per step). 16 kernel fusion approaches falsified — 2-kernel Q8+DP4A pattern is optimal
 - **Iteration scheduler**: +71% throughput, 0% errors, production-stable (10-min sustained, 6,843 requests)
 - **Prompt-sensitivity**: realizr -24-26% long penalty (plateau), vLLM -9% peak then reverses, llama.cpp invariant
 - **Quality crossover**: realizr beats vLLM at c=128 on combined score (decode + ITL advantage)
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.29.0, 291 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.34.0, 295 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
@@ -86,7 +84,7 @@ Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spe
 | `forjar.yaml` | CPU deployment (intel host) |
 | `prompts/correctness.yaml` | 6-prompt correctness suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance spec v5.29.0 |
+| `docs/specifications/gpu-performance-spec.md` | Performance spec v5.34.0 |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Testing

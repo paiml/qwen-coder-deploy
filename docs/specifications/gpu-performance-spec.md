@@ -38,18 +38,17 @@ Performance specification for the realizar GPU inference engine, covering autore
 
 ### Chain of Reasoning
 
-**Step 1: Where are we?** All 4 runtimes benchmarked same-session, serial isolated, RTX 4060L @ 1900MHz, production methodology (medium prompt, uniform:16,256 output, streaming, 60s):
+**Step 1: Where are we?** All 4 runtimes benchmarked same-session, serial isolated, RTX 4060L @ 1900MHz, production methodology (medium prompt, uniform:16,256 output, streaming, 60s). Updated Mar 21 with PMAT-291 graph dispatch + PMAT-294 Q8 cache:
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 147 | 158 | 152 | 149 |
-| 4 | 285 | 352 | 587 | 157 |
-| 8 | 483 | 417 | 1,114 | 157 |
-| 16 | 867 | 894 | 1,983 | 156 |
-| 32 | 1,440 | 923 | 2,899 | 153 |
-| 128 | 1,511 | -- | 3,163 | -- |
+| 1 | 149 | 160 | 154 | 163 |
+| 4 | 325 | 351 | 598 | 635 |
+| 8 | **525** | 419 | 1,142 | -- |
+| 16 | **931** | 912 | 2,037 | -- |
+| 32 | 1,600 | **1,949** | 2,998 | -- |
 
-**Step 2: Why is realizr 0.44-0.51x vLLM at c=4-32?** Because 430 kernel launches per decode step cost ~5ms of CPU dispatch time. The GPU kernels themselves are within 8% of vLLM (7.4ms vs 6.8ms at M=4). We know this because:
+**Step 2: Why is realizr 0.54x vLLM at c=4?** Because ~400 kernel launches per decode step cost ~5ms of CPU dispatch time. Graph dispatch (PMAT-291) improved from 0.50x to 0.54x. 16 kernel fusion approaches tested and falsified — the 2-kernel Q8+DP4A pattern is optimal. The GPU kernels themselves are within 8% of vLLM (7.4ms vs 6.8ms at M=4). We know this because:
 
 - PhaseTimer (PMAT-283) measured: 99.99% of step time is inside `batched_decode_step()`. Lock=0us, scheduling=0us, token distribution=1us.
 - nsys profiling (PMAT-267): GPU kernel time is 7.4ms. Total step is 13ms. The 5.6ms difference is CPU dispatching 430 `cuLaunchKernel` calls.

@@ -10,15 +10,13 @@ realizr uses CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 (PMAT-258, quality bug elim
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 147.2 | 158.1 | 152.4 | 151.8 |
-| 4 | 217.6 | 354.4 | 587.4 | 160.1 |
-| 8 | 351.7 | 420.1 | 1,115.2 | 159.4 |
-| 16 | 571.3 | 896.6 | 1,982.9 | 161.0 |
-| 32 | 867.3 | 943.2 | 2,757.6 | 159.0 |
-| 64 | 887.4 | — | 3,036.1 | — |
-| 128 | 857.1 | — | 3,049.4 | — |
+| 1 | 148.6 | 159.5 | 153.5 | 162.5 |
+| 4 | 325.2 | 351.2 | 598.4 | 635.2 |
+| 8 | **524.8** | 419.2 | 1,142.4 | — |
+| 16 | **931.2** | 912.0 | 2,036.8 | — |
+| 32 | 1,600.0 | **1,948.8** | 2,998.4 | — |
 
-c=1-16: PMAT-177 (BATCH=32, confirmed ±2.6% by PMAT-224). c=32-128 realizr: PMAT-228 (BATCH=16, heterogeneous output). realizr asymptote ~880 tok/s at BATCH=16 (−41% vs BATCH=32 1500 tok/s, but correct output at all c).
+Mar 21, 60s duration, medium prompt, same-session serial isolated. realizr: PMAT-291 graph dispatch + PMAT-294 Q8 cache (cumulative +8.5% at c=4). realizr overtakes llama.cpp at c=8 (+25%). llama.cpp reclaims lead at c=32 (fused GEMV scales better at high parallelism).
 
 ### Scorecards (probador llm score)
 
