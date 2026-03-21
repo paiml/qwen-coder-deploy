@@ -147,20 +147,22 @@ Academic foundations of the vLLM advantage (verified in source at `/home/noah/sr
 3. CUDA graphs at 654 nodes have management overhead exceeding launch savings [PMAT-285: -32%]
 4. The existing BatchedHwDp4aQ4KGemvKernel IS already equivalent to llama.cpp's fused mul_mat_vec_q -- kernel quality is not the issue
 
-**Three paths to parity (ranked by ROI):**
+**Two paths to parity (pure Rust, sovereign AI stack -- NO FFI, NO external C dependencies):**
 
 | Path | LOC | Timeline | Projected c=4 | How |
 |------|-----|----------|---------------|-----|
-| **A: ggml backend** | ~2K | 2-4 weeks | ~500 tok/s (0.85x vLLM) | Replace PTX dispatch with ggml compute graph. Keep realizr serving layer |
-| B: cuBLAS grouped GEMM | ~500 | 4-6 weeks | ~420 tok/s (0.72x vLLM) | Batch 7 projections per layer into 1-2 cuBLASLt calls |
-| C: Tensor graph rewrite | ~10K | 3-6 months | ~533 tok/s (0.91x vLLM) | Rewrite forward pass as tensor-level graph with CUDA graph replay |
+| **A: Tensor graph layer in trueno** | ~3-5K | 4-8 weeks | ~500 tok/s (0.85x vLLM) | Build a Rust tensor compute graph (like ggml but pure Rust) in trueno that expresses the forward pass as ~15 tensor operations. Each operation dispatches ONE kernel. CUDA graphs replay the graph as 1 command. |
+| B: cuBLAS grouped GEMM | ~500 | 4-6 weeks | ~420 tok/s (0.72x vLLM) | Batch 7 projections per layer into 1-2 cuBLASLt calls via trueno's existing driver bindings |
 
-**Path A (ggml backend) is recommended because:**
-- ggml CUDA kernels are battle-tested (llama.cpp: 158 tok/s at c=1, within 8% of realizr)
-- ggml provides 8-15 graph nodes per step (vs realizr's 430), enabling effective CUDA graph replay
-- realizr's VALUE is in the serving layer (iteration scheduler +71%, CB, streaming, quality crossover at c=128) -- NOT in the kernel dispatch
-- The FFI boundary (Rust calling C ggml functions) is well-understood (llama.cpp's C API)
-- Falsification condition: if realizr-on-ggml at c=4 < 500 tok/s, the integration overhead negates the launch reduction
+**Path A (trueno tensor graph) is recommended because:**
+- Keeps the ENTIRE stack in Rust (trueno PTX generation, realizr serving, renacer tracing)
+- The insight from ggml is the DESIGN PATTERN (tensor-level graph with ~15 nodes), not the C code
+- trueno already has: PtxKernel builder, CudaStream, CudaGraph capture/replay, CudaEvent, cuBLASLt
+- The new layer composes EXISTING trueno primitives into a graph scheduler that dispatches ~15 fused operations per step instead of 430 individual kernel launches
+- Maintains sovereign AI stack principle: own every line from PTX to HTTP
+- Falsification condition: if trueno tensor graph at c=4 < 400 tok/s, the graph overhead negates launch reduction
+
+**FIRM CONSTRAINT: No FFI, no external C/C++ dependencies, no ggml, no llama.cpp linking.** The sovereign AI stack means: pure Rust + hand-written PTX. The competitor analysis informs DESIGN, not IMPLEMENTATION. We build our own tensor graph in Rust.
 
 **Kernel-level profiling confirms this (PMAT-209→218, nsys+ncu on 4060L):** The decode kernel mix is **concurrency-invariant at c≥4** — DP4A GEMV 48%, attention 24%, regardless of c=4/8/16. realizr's per-kernel efficiency is high: fused_gate_up_swiglu achieves 76% DRAM BW (ncu), FP8 tensor core decode activates at M≥5 (128×128 tile grows 25× from c=4→c=16). Total per-token decode budget: 4,505µs kernel + 1,785µs CUDA graph overhead + 540µs serving = 6,830µs (146.4 tok/s). **vLLM nsys comparison (PMAT-214) reveals the root cause:** vLLM uses a SINGLE CUTLASS GEMM kernel for 95.7% of GPU time at c≥2. This GEMM takes 2.14-2.20ms per call (+2.8% from c=1→c=16) and processes M tokens per call — so throughput scales linearly with batch size while GPU time stays constant. realizr uses 771 small kernels (84µs largest) behind a CUDA graph that dispatches one token at a time. **CUDA API trace (PMAT-217) proves this: realizr makes only 117 graph launches at c=4 (vs llama.cpp 3,579, vLLM 11,467) and spends 82.4% of CPU time blocked in `cuStreamSynchronize` (median 10.4ms).** llama.cpp re-captures graphs dynamically (103 captures) with 0.46µs median sync. vLLM pre-captures graphs at multiple batch sizes with 18.9µs median event sync. **PMAT-267 corrected projection:** Per-step GPU kernel time is **7.4ms** (not 10ms). Serving overhead is **5.5ms** (40% of step). Graph + event-based sync enables CPU-GPU pipelining: serving overlaps GPU execution. Projected: **390-466 tok/s at c=4** (0.66-0.79× vLLM at 50-80% overlap). Wall-time gap is **2.0×** (not the 4.6× stated in initial PMAT-266). **⚠️ PMAT-279/282 update:** realizr's M=1 graph provides **0% benefit at c≥4** (launch overhead already amortized). vLLM's multi-M graphs provide **+18-27% at c≤16**. Graph explains ~25% of gap. Per-M graph value is CPU-GPU overlap + multi-token dispatch, not M=1 launch savings. **~~PMAT-280 pipelining projection:~~ FALSIFIED by PMAT-283 timing.** "6.3ms serving overhead" is GPU sync inside `batched_decode_step()`, not serving. 99.99% of step = decode. Scheduler-level pipelining has 0% ROI. **PMAT-285:** batched graph also FALSIFIED (−32%, 654 nodes overhead). **Binding fix: kernel fusion** — reduce 654 kernels/step to fewer, larger fused kernels (PMAT-054).
 
