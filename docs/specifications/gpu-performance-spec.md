@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.33.0
+**Version:** 5.34.0
 **Last Updated:** 2026-03-21
 **Status:** ACTIVE
 **Date:** 2026-03-21
@@ -71,7 +71,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 | CUDA graph on tensor graph (PMAT-292) | -22.6% | 392 nodes (was 654). Better but still net negative. Need <150 nodes |
 | Fused FP32 Q4K GEMV (PMAT-293) | -66.5% at c=4 | FP32 2x slower compute than DP4A at M>1. Parity at M=1 only |
 | **Q8 cache for batched DP4A (PMAT-294)** | **+1.6% c=4** | **CONFIRMED. Saves 84 Q8 launches/step. Only helps at M=2-4 (DP4A)** |
-| Inline Q8 DP4A GEMV (PMAT-295) | WIP | Fuse Q8 quantize into GEMV inner loop. Projected ~10% (saves 112 launches) |
+| Inline Q8 DP4A GEMV (PMAT-295) | **-69% at c=4** | In-register Q8 adds ~60 insn/SB, register pressure, cache misses |
 
 **Step 4: What DO we know works?**
 
@@ -4619,7 +4619,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.33.0 | 2026-03-21 | **PMAT-295: Inline Q8 DP4A GEMV kernel (WIP).** Multi-week PTX kernel work: fuse Q8_1 quantize into DP4A GEMV inner loop, eliminating separate Q8 launch. Per-thread absmax + in-register INT8 quantize + standard DP4A. Projected ~10% at c=4 (saves 112 launches/step). Kernel skeleton committed to trueno — needs per-thread scale approach and API fixes. |
+| 5.34.0 | 2026-03-21 | **PMAT-295: Inline Q8 DP4A GEMV — FALSIFIED (-69% at c=4).** Per-thread absmax + in-register INT8 quantize + DP4A. Correctness: 6/6 PASS, parity at c=1. But c=4: 25.0 vs 80.2 (-69%). In-register quantization adds ~60 insn/SB, register pressure, scattered FP32 cache misses. **Definitive conclusion: 2-kernel Q8+DP4A pattern is optimal at M>1.** Both FP32 fusion (PMAT-293, -66.5%) and inline Q8 (PMAT-295, -69%) falsified. The 430-launch bottleneck cannot be reduced via GEMV kernel fusion. |
+| 5.33.0 | 2026-03-21 | *PMAT-295 WIP superseded by v5.34.0 measurement.* |
 | 5.32.0 | 2026-03-21 | **PMAT-294: Q8 activation cache for batched DP4A — +1.6% at c=4.** batched_hw_dp4a_q4k_gemv_into was always re-quantizing; added q8_activation_valid check + graph dispatch invalidation. Saves 84 launches/step. Only helps at M=2-4 (DP4A); FP8 at M>=5 bypasses Q8 entirely. |
 | 5.31.0 | 2026-03-21 | **PMAT-293: Fused FP32 Q4K GEMV — FALSIFIED (-66.5% at c=4).** FP32 dequant+multiply eliminates Q8 launch but loses 2x DP4A compute throughput. Parity at M=1 (bandwidth-bound), catastrophic at M>1 (compute-bound). Correct fusion: inline Q8 quantize INTO DP4A kernel (keep INT8 compute, cooperative warp absmax). |
 | 5.30.0 | 2026-03-21 | **PMAT-292: CUDA graph capture on tensor graph — FALSIFIED (-22.6%).** Wired tensor graph dispatch into CUDA graph capture path. 392 nodes (was 654). Improved from -32% to -22.6% but still net negative. Linear extrapolation: need <~150 nodes for breakeven. This requires kernel fusion (PMAT-054) to reduce launches from 14/layer to ~5/layer. CUDA graph overhead scales with node count — the path to viable CUDA graphs IS kernel fusion. |

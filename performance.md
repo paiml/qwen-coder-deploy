@@ -662,7 +662,23 @@ New PTX kernel in trueno: `FusedFp32Q4KGemvKernel`. Reads FP32 activations direc
 
 **FALSIFIED.** FP32 dequant+multiply is 2x slower compute than DP4A (128 vs 256 ops/cycle on sm_89). At M=1, kernel is bandwidth-bound so parity. At M>1, compute becomes binding and DP4A's 2x throughput advantage dominates. The Q8 quantize launch overhead (~12us) is trivial vs the compute penalty.
 
-**Lesson:** Kernel fusion that changes the compute datatype (FP32 vs INT8 DP4A) is only viable when bandwidth-bound (M=1). For batched decode (M>1), DP4A is essential. The correct fusion path would be: **fuse Q8 quantize INTO the DP4A kernel** (keep INT8 compute, just inline the quantization). This requires cooperative warp-level absmax reduction within the GEMV inner loop.
+**Lesson:** Kernel fusion that changes the compute datatype (FP32 vs INT8 DP4A) is only viable when bandwidth-bound (M=1). For batched decode (M>1), DP4A is essential.
+
+### Inline Q8 DP4A GEMV (PMAT-295, Mar 21)
+
+Correct fusion approach: keep DP4A compute, inline Q8 quantize using per-thread absmax (no shuffle). Each thread loads 4 FP32 values, finds local absmax, quantizes to INT8 in registers, packs into u32 for DP4A.
+
+| c | Baseline (graph dispatch) | Inline Q8 | Delta |
+|---|--------------------------|-----------|-------|
+| 1 | 148.6 | 148.6 | 0.0% |
+| 4 | 80.2 | 25.0 | **-69%** |
+| 8 | 65.8 | 12.4 | **-81%** |
+| 16 | 59.4 | 59.4 | 0.0% (FP8 bypasses) |
+| 32 | 50.2 | 50.2 | 0.0% (FP8 bypasses) |
+
+**FALSIFIED.** In-register Q8 quantize adds ~60 extra instructions per super-block (absmax + quantize + pack vs 2 loads from pre-computed Q8 buffer). This causes register pressure and scattered FP32 cache misses. The separate Q8 quantize kernel has full SM utilization and writes a contiguous L2-cached Q8 buffer.
+
+**Definitive conclusion: the 2-kernel pattern (Q8 quantize + DP4A GEMV) is optimal at M>1.** The separate Q8 kernel exploits full GPU parallelism for a trivially small operation, while the GEMV kernel reads from a perfectly coalesced Q8 buffer. Neither FP32 fusion (PMAT-293) nor inline Q8 DP4A (PMAT-295) can beat this. The 430-launch bottleneck is an architectural ceiling that cannot be addressed by GEMV kernel fusion.
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
