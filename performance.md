@@ -497,6 +497,13 @@ Attempted: relax Q6K V condition + extend M<=32. Results:
 - Clearing `~/.cache/trueno/ptx/` does NOT fix (cache is rebuilt, still uses linker API)
 - **FIXED (trueno 4bb8a1e):** Pass `CU_JIT_TARGET` to `cuLinkCreate` for sm < 120. Without it, the linker skips target-specific optimizations. Blackwell (sm_121+) still uses auto-detect. Results: 285.1/482.8/867.0/1440.3 at c=4/8/16/32 — within ±2.5% of PMAT-276 baseline. Regression eliminated.
 
+**PMAT-291: Cross-project analysis (vLLM/llama.cpp/PyTorch, Mar 21).**
+- llama.cpp achieves 8-15 launches/step vs realizr's 430 via fused `mul_mat_vec_q` + ncols_dst templating
+- vLLM uses ~80 nodes with CUTLASS GEMM, captured per batch size, replayed via CUDA graphs
+- PyTorch/inductor: two-stage (IR fusion → CUDA graph replay)
+- `cuGraphExecUpdate` API added to trueno (c047e5c) but **will NOT fix -32% batched graph** — the bottleneck is 654-node REPLAY overhead, not instantiation. llama.cpp graphs work because they have 8-15 nodes. The fix is reducing kernel count, not improving the graph API.
+- **Concrete reference implementation found:** `ggml-cuda/mmvq.cu` `mul_mat_vec_q` with `ncols_dst` compile-time switch. THIS is the PMAT-054 target kernel.
+
 ### PMAT-054 Implementation Brief: Fused Q4K GEMM (Binding Fix)
 
 **All alternative optimizations have been falsified.** The investigation chain (PMAT-279→280→283→285) proves:
