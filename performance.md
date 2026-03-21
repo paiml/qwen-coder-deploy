@@ -687,7 +687,13 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 | llama.cpp | 59.0 | 16.9 | 4,269 |
 | realizr (GGUF) | 17.1 | 58.4 | 16.8 |
 
-**Gap: 3.45x** (corrected from prior 10-23x which was from different test conditions). The CPU decode gap is from: (1) per-matmul Q8K allocation overhead (~7KB × 196 calls), (2) rayon thread dispatch overhead, (3) different SIMD kernel quality (trueno AVX2 vs ggml AVX2+AVX-512). Prefill gap is 254x — realizr CPU prefill is not optimized.
+**Gap: 2.40x** with `RAYON_NUM_THREADS=16` (was 3.45x at default 32 threads). HyperThreading contention caused +44% regression. The remaining 2.4x gap is SIMD kernel quality (trueno AVX-512 VNNI 4-row kernel vs ggml LLAMAFILE-optimized AVX-512).
+
+| Config | Decode tok/s | Gap to llama.cpp |
+|--------|-------------|------------------|
+| realizr (default 32 threads) | 17.1 | 3.45x |
+| realizr (RAYON_NUM_THREADS=16) | **24.6** | **2.40x** |
+| llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
