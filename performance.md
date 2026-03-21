@@ -696,7 +696,9 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 | realizr (PMAT-298: + adaptive parallelism) | **26.4** | **2.23x** |
 | llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
 
-**Cumulative CPU improvement: +54%** (17.1 → 26.4). Remaining 2.23x gap is SIMD kernel quality (trueno AVX-512 VNNI vs ggml LLAMAFILE hand-tuned).
+**Cumulative CPU improvement: +54%** (17.1 → 26.4). Remaining 2.23x gap is SIMD kernel quality.
+
+**Root cause identified (PMAT-298):** The "AVX-512 VNNI" kernel actually uses **AVX2** (256-bit) `_mm256_maddubs_epi16`, NOT 512-bit `_mm512_dpbusd_epi32`. True AVX-512 would process 2x data per instruction. AVX-512 helper written and committed but Q4K nibble-to-Q8K data layout mapping prevents direct integration (first attempt produced 0/6 correctness). This is the multi-week SIMD work: correctly map Q4K interleaved nibble layout to 512-bit VNNI loads.
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
