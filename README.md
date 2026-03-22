@@ -82,7 +82,7 @@ realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at
 - **CPU DRAM-bandwidth bound**: perf stat IPC 1.59 vs llama.cpp 1.01 — remaining gap is Rust abstraction overhead
 - **Quality crossover**: realizr beats vLLM at c=128 on combined score
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.35.0, 310 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.36.0, 311 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
