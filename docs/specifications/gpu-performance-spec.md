@@ -48,7 +48,9 @@ Performance specification for the realizar GPU inference engine, covering autore
 | 16 | **931** | 912 | 2,037 | -- |
 | 32 | 1,600 | **1,949** | 2,998 | -- |
 
-**Step 2: Why is realizr 0.54x vLLM at c=4?** Because ~400 kernel launches per decode step cost ~5ms of CPU dispatch time. Graph dispatch (PMAT-291) improved from 0.50x to 0.54x. 16 kernel fusion approaches tested and falsified — the 2-kernel Q8+DP4A pattern is optimal. The GPU kernels themselves are within 8% of vLLM (7.4ms vs 6.8ms at M=4). We know this because:
+**Step 2: Why is realizr 0.54x vLLM at c=4?** Because ~400 kernel launches per decode step cost ~5ms of CPU dispatch time. Graph dispatch (PMAT-291) improved from 0.50x to 0.54x. 16 kernel fusion approaches tested and falsified — the 2-kernel Q8+DP4A pattern is optimal.
+
+**CPU parity (PMAT-297-312):** realizr CPU decode: 32.6 tok/s (+91% from 17.1). Gap vs llama.cpp: 1.81x. 20 optimization approaches tested, 7 confirmed: thread pool +49%, deep prefetch +13%, hugepage +2%, lean pointer dispatch +3.6%, QKV workspace +0.6%, raw inner dot +1.6%, adaptive parallelism +4%. 13 falsified including AVX-512 VNNI (-16%), PGO (0%), inline F16C (-47%), direct FP32 (-17%). Root cause: perf stat IPC 1.59 vs llama.cpp 1.01 — Rust abstraction overhead between DRAM loads. The GPU kernels themselves are within 8% of vLLM (7.4ms vs 6.8ms at M=4). We know this because:
 
 - PhaseTimer (PMAT-283) measured: 99.99% of step time is inside `batched_decode_step()`. Lock=0us, scheduling=0us, token distribution=1us.
 - nsys profiling (PMAT-267): GPU kernel time is 7.4ms. Total step is 13ms. The 5.6ms difference is CPU dispatching 430 `cuLaunchKernel` calls.
@@ -71,6 +73,15 @@ Performance specification for the realizar GPU inference engine, covering autore
 | Fused FP32 Q4K GEMV (PMAT-293) | -66.5% at c=4 | FP32 2x slower compute than DP4A at M>1. Parity at M=1 only |
 | **Q8 cache for batched DP4A (PMAT-294)** | **+1.6% c=4** | **CONFIRMED. Saves 84 Q8 launches/step. Only helps at M=2-4 (DP4A)** |
 | Inline Q8 DP4A GEMV (PMAT-295) | **-69% at c=4** | In-register Q8 adds ~60 insn/SB, register pressure, cache misses |
+| **CPU thread pool 16 cores (PMAT-297)** | **+49% CPU** | **Default was 32 HT threads — contention. Now auto-detected** |
+| **CPU deep prefetch 2 SB (PMAT-299)** | **+13% CPU** | **L2 prefetch 2 SBs ahead + L1 1 SB ahead. 3 SBs = L2 pollution** |
+| CPU AVX-512 VNNI 512-bit (PMAT-298) | -16% CPU | Cascade Lake downclocks 3.2→2.5GHz for 512-bit ops |
+| CPU ggml-style kernel (PMAT-301) | 0% CPU | **Proves CPU is 100% DRAM-bandwidth bound** |
+| **CPU lean pointer dispatch (PMAT-306)** | **+3.6% CPU** | **Unsafe raw pointers in outer loop — eliminates bounds checks** |
+| **CPU raw inner dot (PMAT-308)** | **+1.6% CPU** | **Pre-cast usize→ptr in rayon closure** |
+| CPU direct FP32 skip Q8K (PMAT-305) | -17% CPU | Q8K maddubs (32 muls/insn) essential — 4x vs FP32 fmadd |
+| CPU PGO (PMAT-311) | 0% CPU | No branch misprediction in tight SIMD loop |
+| CPU inline F16C (PMAT-312) | -47% CPU | target_feature(f16c) breaks register allocation |
 
 **Step 4: What DO we know works?**
 
