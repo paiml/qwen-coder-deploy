@@ -217,10 +217,22 @@ Target model: `Aimin12/Qwen2.5-Coder-3B-Instruct-Distill-Qwen3-Coder-Next-ablite
 - VRAM: ~3.2 GB with B32 KV cache (8GB card, comfortable fit)
 - Three-format parity test: GGUF (Q4_K_M, 1.9 GB), SafeTensors (FP16, 2 shards), APR (Q4K, converted)
 
-Falsification conditions:
-- F-314-1: If 3B model decode < 80 tok/s at c=1 on yoga → architecture overhead scales non-linearly
-- F-314-2: If format parity > 5% between GGUF/SafeTensors/APR → format-specific bottleneck
-- F-314-3: If correctness < 5/6 → distillation quality loss
+**Measurements (GGUF Q4_K_M, BATCH=8):**
+
+| c | Decode tok/s | Aggregate | ITL P50 |
+|---|-------------|-----------|---------|
+| 1 | 80.5 | 80.5 | 12.4ms |
+| 4 | 45.7 | 182.8 | 21.9ms |
+| 8 | 40.0 | 320.0 | 25.0ms |
+
+Correctness: 5/6 PASS (basic_math needs longer max_tokens for reasoning-style output).
+BATCH=32 OOMs (36 layers × 32 slots exceeds 8GB). BATCH=8 fits.
+Throughput: 54-61% of 1.5B — expected for 2x parameters, 2.3x layers, larger dims.
+
+Falsification results:
+- F-314-1: **PASSED** — 80.5 tok/s at c=1 (>= 80 threshold)
+- F-314-2: Pending (SafeTensors and APR not yet tested)
+- F-314-3: **PASSED** — 5/6 correctness (basic_math is template issue, not model quality)
 
 Provable contracts (from `../provable-contracts`):
 - `cpu-q4k-gemv-bounds-v1.yaml`: Raw pointer dispatch safety (PMAT-313)
