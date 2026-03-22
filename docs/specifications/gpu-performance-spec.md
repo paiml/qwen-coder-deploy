@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.39.0
+**Version:** 5.40.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -215,24 +215,34 @@ Target model: `Aimin12/Qwen2.5-Coder-3B-Instruct-Distill-Qwen3-Coder-Next-ablite
 - Architecture: Qwen2 (dense 3B) — realizr fully supports
 - Knowledge: Distilled from Qwen3-Coder-Next (state-of-the-art coding model)
 - VRAM: ~3.2 GB with B32 KV cache (8GB card, comfortable fit)
-- Three-format parity test: GGUF (Q4_K_M, 1.9 GB), SafeTensors (FP16, 2 shards), APR (Q4K, converted)
+- Three-format parity test: GGUF (Q4_K_M, 1.9 GB), SafeTensors (BF16→Q4K, 2 shards), APR (Q4K, converted)
 
-**Measurements (GGUF Q4_K_M, BATCH=8):**
+**Three-Format GPU Parity (c=1, 60s, BATCH=8, Q4_K_M quantization):**
 
-| c | Decode tok/s | Aggregate | ITL P50 |
-|---|-------------|-----------|---------|
-| 1 | 80.5 | 80.5 | 12.4ms |
-| 4 | 45.7 | 182.8 | 21.9ms |
-| 8 | 40.0 | 320.0 | 25.0ms |
+| Format | Decode tok/s | Aggregate | TTFT ms | ITL ms | Correct |
+|--------|-------------|-----------|---------|--------|---------|
+| GGUF Q4_K_M | 80.9 | 79.9 | 31.6 | 12.4 | 5/6 |
+| SafeTensors→Q4K | 91.6 | 88.5 | 62.5 | 10.9 | 5/6 |
+| APR Q4K | BROKEN | — | 28,000 | — | 0/6 |
 
-Correctness: 5/6 PASS (basic_math needs longer max_tokens for reasoning-style output).
+**Key finding:** SafeTensors decode is +13% faster than GGUF at same Q4_K_M quantization.
+TTFT 2x slower (BF16→Q4K streaming conversion overhead). Both formats produce correct output.
+APR format broken for 3B model (weight layout bug in GGUF→APR export, separate PMAT-315).
+
+**Root cause fix (PMAT-314):** `resolve_model_path` in apr-cli resolved sharded SafeTensors
+directories to `model-00001-of-00002.safetensors` (a single shard with 344/434 tensors) instead
+of `model.safetensors.index.json`. Layer 28 was split across shards — shard 1 had attention
+weights, shard 2 had norms + MLP. Architecture gate correctly rejected the incomplete model.
+Fix: check `model.safetensors.index.json` BEFORE individual shard files. Also route sharded
+models through GPU Q4K fallback chain (was going to F32-only server).
+
 BATCH=32 OOMs (36 layers × 32 slots exceeds 8GB). BATCH=8 fits.
 Throughput: 54-61% of 1.5B — expected for 2x parameters, 2.3x layers, larger dims.
 
 Falsification results:
-- F-314-1: **PASSED** — 80.5 tok/s at c=1 (>= 80 threshold)
-- F-314-2: Pending (SafeTensors and APR not yet tested)
-- F-314-3: **PASSED** — 5/6 correctness (basic_math is template issue, not model quality)
+- F-314-1: **PASSED** — 80.9 tok/s GGUF, 91.6 tok/s SafeTensors (>= 80 threshold)
+- F-314-2: **PARTIAL** — GGUF/SafeTensors at parity (+13%), APR BROKEN (0 tok/s, weight layout bug)
+- F-314-3: **PASSED** — 5/6 correctness both formats (different failures: math vs SQL regex)
 
 Provable contracts (from `../provable-contracts`):
 - `cpu-q4k-gemv-bounds-v1.yaml`: Raw pointer dispatch safety (PMAT-313)
@@ -4670,6 +4680,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.40.0 | 2026-03-22 | **PMAT-314: Three-format GPU parity measured.** Fixed sharded SafeTensors loading (resolve_model_path picked shard file instead of index.json). GGUF 80.9, SafeTensors 91.6 (+13%), APR BROKEN (weight layout bug → PMAT-315). Sharded models now route through GPU Q4K fallback chain. |
 | 5.39.0 | 2026-03-22 | **PMAT-314: Model expansion spec.** Qwen2.5-Coder-3B-Distill-Qwen3-Coder-Next target: 3-format parity (GGUF/SafeTensors/APR), falsification conditions, provable contracts integration. 6 new academic citations (distillation, Qwen2.5-Coder, Qwen3, REAP pruning, provable-contracts). |
 | 5.38.0 | 2026-03-22 | **PMAT-313: Q4K GEMV bounds safety contract** (provable-contracts). 5 preconditions, 3 postconditions, 2 Kani harnesses for raw pointer dispatch safety. NUMA pinning ruled out (single socket). Scoring confirmed: realizr 76 B > llama.cpp 65 C+ at c=8. |
 | 5.37.0 | 2026-03-22 | **PMAT-312: Inline F16C FALSIFIED (-47%)**. Assembly analysis found half::f16 generating function CALL per SB. Inline _mm_cvtph_ps with target_feature(f16c) broke register alloc. Software f16 -22%. half crate already optimal. GPU revalidated: 149/322/529/947/1600 at c=1/4/8/16/32 (all PMAT-291/294 gains confirmed). 312 PMAT items total, 20 CPU approaches tested. |
