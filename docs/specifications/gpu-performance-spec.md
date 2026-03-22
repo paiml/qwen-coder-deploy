@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.37.0
+**Version:** 5.38.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 312 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 313 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4629,6 +4629,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.38.0 | 2026-03-22 | **PMAT-313: Q4K GEMV bounds safety contract** (provable-contracts). 5 preconditions, 3 postconditions, 2 Kani harnesses for raw pointer dispatch safety. NUMA pinning ruled out (single socket). Scoring confirmed: realizr 76 B > llama.cpp 65 C+ at c=8. |
 | 5.37.0 | 2026-03-22 | **PMAT-312: Inline F16C FALSIFIED (-47%)**. Assembly analysis found half::f16 generating function CALL per SB. Inline _mm_cvtph_ps with target_feature(f16c) broke register alloc. Software f16 -22%. half crate already optimal. GPU revalidated: 149/322/529/947/1600 at c=1/4/8/16/32 (all PMAT-291/294 gains confirmed). 312 PMAT items total, 20 CPU approaches tested. |
 | 5.36.0 | 2026-03-22 | **PMAT-311: PGO FALSIFIED (0%).** Profile-guided optimization has zero impact on tight SIMD matmul loop (no branch misprediction). CPU best remains 32.6 tok/s (+91%), gap 1.81x. 19 CPU approaches tested, 7 confirmed, 12 falsified. Remaining P0: extern C naked inner loop. |
 | 5.35.0 | 2026-03-22 | **PMAT-297-310: CPU format parity.** 18 optimization approaches tested, 6 confirmed. CPU decode: 17.1 → 32.6 tok/s (+91%). Gap vs llama.cpp: 1.81x (was 3.45x). Key wins: thread pool 16 cores (+49%), deep prefetch (+13%), hugepage+mlock (+2%), lean pointer dispatch (+3.6%), raw inner dot (+1.6%). Falsified: AVX-512 VNNI (-16% freq penalty), direct FP32 (-17%), ggml-style kernel (0% = DRAM-bound proof), 3 custom thread pools (all deadlock). perf stat root cause: realizr IPC 1.60 vs llama.cpp 1.01 — remaining gap is Rust abstraction overhead between DRAM loads. |
