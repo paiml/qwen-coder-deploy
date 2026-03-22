@@ -699,6 +699,8 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 | realizr (PMAT-301: + ggml-style kernel) | 29.6 | 1.99x (instruction-neutral) |
 | realizr (PMAT-302: + HUGEPAGE + mlock) | 30.7 | 1.92x |
 | realizr (PMAT-306: + lean pointer dispatch) | **31.9** | **1.85x** |
+| realizr (PMAT-306: + raw inner dot) | 30.2 | 1.95x (function call overhead) |
+| realizr (PMAT-306: + inline(always)) | 28.9 | 2.04x (I-cache bloat) |
 | llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
 
 **PMAT-300 tile sweep:** 64 optimal. 128 = -10%, 256 = -37% (load imbalance). Stack-allocated Q8K buffers: negligible improvement (malloc not bottleneck).
