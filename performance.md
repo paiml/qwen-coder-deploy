@@ -730,7 +730,27 @@ Added MAP_POPULATE + MADV_RANDOM (matching llama.cpp's llama-mmap.cpp).
 
 **PMAT-305: Direct FP32 (skip Q8K) — FALSIFIED (-17%).** Q8K maddubs essential.
 
-### Recommended Next Moves (PMAT-310, Mar 22)
+### GPU Format Parity — 3B Model (PMAT-314, Mar 22)
+
+Qwen2.5-Coder-3B-Distill-Qwen3-Coder-Next, RTX 4060L, BATCH=8, c=1, 60s, Q4_K_M:
+
+| Format | Decode tok/s | Aggregate | TTFT ms | ITL ms | Correct |
+|--------|-------------|-----------|---------|--------|---------|
+| GGUF Q4_K_M | 80.9 | 79.9 | 31.6 | 12.4 | 5/6 |
+| SafeTensors→Q4K | **91.6** | **88.5** | 62.5 | **10.9** | 5/6 |
+| APR Q4K | BROKEN | — | 28,000 | — | 0/6 |
+
+**SafeTensors +13% decode vs GGUF** at same Q4K quantization. TTFT 2x slower (BF16→Q4K
+streaming conversion overhead). Both produce correct output (5/6, different failures).
+
+**Root cause fix:** `resolve_model_path` picked `model-00001-of-00002.safetensors` (344/434
+tensors) instead of `model.safetensors.index.json`. Layer 28 split across shards — shard 1
+had attention weights, shard 2 had norms + MLP. Architecture gate correctly rejected incomplete
+model. Fix: check index.json BEFORE individual shard files.
+
+APR format broken (28s TTFT, 0 output) — weight layout bug in GGUF→APR export (PMAT-315).
+
+### Recommended Next Moves (PMAT-314, Mar 22)
 
 | Priority | Approach | Projected ROI | Effort |
 |----------|----------|--------------|--------|

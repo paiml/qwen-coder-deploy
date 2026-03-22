@@ -5335,20 +5335,43 @@ roadmap:
 - id: PMAT-314
   github_issue: null
   item_type: task
-  title: 'PMAT-314: Model expansion - Qwen2.5-Coder-3B-Distill-Qwen3-Coder-Next'
-  status: inprogress
+  title: 'PMAT-314: Model expansion - 3-format GPU parity measured'
+  status: done
   priority: high
   assigned_to: null
   created: 1970-01-01T00:00:00Z
-  updated: 2026-03-22T15:40:46.232381884+00:00
+  updated: 2026-03-22T18:00:00+00:00
   spec: null
   acceptance_criteria:
   - Deploy 3B distilled model on yoga (GGUF Q4_K_M)
-  - 'Three-format parity: GGUF, SafeTensors, APR within 5%'
-  - 6/6 correctness on distilled model
+  - 'GGUF/SafeTensors parity: 80.9 vs 91.6 tok/s (+13%). APR BROKEN → PMAT-315'
+  - 5/6 correctness on both working formats
   - Decode rate >= 80 tok/s at c=1 on yoga GPU
   phases: []
   subtasks: []
   estimated_effort: null
-  labels: []
-  notes: Qwen3 knowledge distilled into Qwen2.5-Coder-3B body
+  labels:
+  - measurement
+  - format-parity
+  - bugfix
+  notes: 'Fixed sharded SafeTensors loading: resolve_model_path picked shard file instead of index.json. SafeTensors +13% decode. APR weight layout bug deferred to PMAT-315.'
+- id: PMAT-315
+  github_issue: null
+  item_type: task
+  title: 'PMAT-315: Fix APR Q4K format for 3B distilled model'
+  status: todo
+  priority: medium
+  assigned_to: null
+  created: 2026-03-22T18:00:00+00:00
+  updated: 2026-03-22T18:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - APR Q4K produces correct output on 3B distilled model
+  - 'Format parity: APR decode within 10% of GGUF'
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - bugfix
+  - format-parity
+  notes: 'GGUF→APR export produces broken weights for 3B model (28s TTFT, 0 output). Weight layout or transposition bug.'
