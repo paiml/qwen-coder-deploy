@@ -728,7 +728,20 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 
 Added MAP_POPULATE + MADV_RANDOM (matching llama.cpp's llama-mmap.cpp).
 
-**PMAT-305: Direct FP32 (skip Q8K) — FALSIFIED (-17%).** 25.4 vs 30.8 tok/s. Q8K maddubs (32 muls/insn) beats FP32 fmadd (8 muls/insn) despite Q8K overhead. The IPC gap is from ~364 Vec allocations per token in the forward pass (cache line pollution), not Q8K quantize cost. CpuWorkspace struct created for pre-allocated buffers (wiring in progress).
+**PMAT-305: Direct FP32 (skip Q8K) — FALSIFIED (-17%).** Q8K maddubs essential.
+
+### Recommended Next Moves (PMAT-310, Mar 22)
+
+| Priority | Approach | Projected ROI | Effort |
+|----------|----------|--------------|--------|
+| **P0** | PGO (profile-guided optimization) | +5-15% CPU | 1 day |
+| **P0** | `extern "C"` naked matmul inner loop | +10-20% CPU | 1 week |
+| **P1** | CPU KV cache workspace (remaining allocs) | +2-5% CPU | 3 days |
+| **P1** | cuBLAS grouped GEMM (batch QKV) | +5% GPU | 2 weeks |
+| **P2** | NUMA thread pinning | +1-2% CPU | 1 day |
+| **P2** | GPU persistent kernel | +10-15% GPU | 4 weeks |
+
+**CPU gap root cause (PMAT-304):** perf stat IPC 1.59 vs llama.cpp 1.01. The 0.58 excess IPC = Rust abstraction overhead between DRAM loads. PGO + naked inner loop could close 15-35% of the 1.81x gap.
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
