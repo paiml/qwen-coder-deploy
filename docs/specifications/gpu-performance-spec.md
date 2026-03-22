@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.41.0
+**Version:** 5.42.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -241,6 +241,20 @@ models through GPU Q4K fallback chain (was going to F32-only server).
 
 BATCH=32 OOMs (36 layers × 32 slots exceeds 8GB). BATCH=8 fits.
 Throughput: 54-61% of 1.5B — expected for 2x parameters, 2.3x layers, larger dims.
+
+**PMAT-316: 3B concurrency characterization (BATCH=8):**
+
+| c | Aggregate tok/s | Decode tok/s | TTFT P50 ms | Prefill tok/s |
+|---|----------------|-------------|-------------|--------------|
+| 1 | 79.9 | 80.9 | 31.6 | 3,227 |
+| 4 | 80.1 | 80.9 | 5,704 | 18.2 |
+| 8 | 79.7 | 80.6 | 13,024 | 7.8 |
+
+**Effectively serial** — aggregate flat at ~80 tok/s regardless of concurrency. 8GB VRAM
+budget too tight for concurrent KV cache slots with 3B model (weights ~2 GB + FP8 cache ~2.9 GB
++ KV slots). BATCH=8 provides 8 KV slots but VRAM pressure limits actual concurrent decoding
+to 1 active slot. The 1.5B model achieves 10x scaling at c=32 because BATCH=32 fits in 8GB.
+**Falsification: F-316-1 FALSIFIED** — 3B does NOT scale with concurrency on 8GB.
 
 Falsification results:
 - F-314-1: **PASSED** — 80.9 tok/s GGUF, 91.6 tok/s SafeTensors (>= 80 threshold)
@@ -4683,6 +4697,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.42.0 | 2026-03-22 | **PMAT-316: 3B concurrency FALSIFIED.** Aggregate flat at ~80 tok/s at c=1/4/8 — effectively serial. 8GB VRAM too tight for concurrent KV cache slots with 3B model. 1.5B achieves 10x scaling because BATCH=32 fits. |
 | 5.41.0 | 2026-03-22 | **PMAT-315: APR Q4K bias fix.** ALB-095 forward path missing QKV bias — "HHHH" garbage on all Qwen2 APR models. Fix: extract q/k/v biases, add after GEMV. All 3 formats now correct. |
 | 5.40.0 | 2026-03-22 | **PMAT-314: Three-format GPU parity measured.** Fixed sharded SafeTensors loading. GGUF 80.9, SafeTensors 91.6 (+13%), APR fixed via PMAT-315. |
 | 5.39.0 | 2026-03-22 | **PMAT-314: Model expansion spec.** Qwen2.5-Coder-3B-Distill-Qwen3-Coder-Next target: 3-format parity (GGUF/SafeTensors/APR), falsification conditions, provable contracts integration. 6 new academic citations (distillation, Qwen2.5-Coder, Qwen3, REAP pruning, provable-contracts). |

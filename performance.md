@@ -751,7 +751,21 @@ index.json BEFORE individual shard files.
 Qwen2 APR models. Fix: extract q/k/v biases per layer, add after GEMV. APR probador benchmark
 blocked by SSE streaming format (curl works, separate issue).
 
-### Recommended Next Moves (PMAT-314, Mar 22)
+### 3B Model Concurrency (PMAT-316, Mar 22)
+
+3B GGUF, BATCH=8, RTX 4060L 8GB:
+
+| c | Aggregate tok/s | Decode tok/s | TTFT P50 ms |
+|---|----------------|-------------|-------------|
+| 1 | 79.9 | 80.9 | 31.6 |
+| 4 | 80.1 | 80.9 | 5,704 |
+| 8 | 79.7 | 80.6 | 13,024 |
+
+**Effectively serial** — aggregate flat at ~80 tok/s. 8GB VRAM too tight for concurrent
+KV cache with 3B model. The 1.5B model achieves 10x scaling at c=32 (BATCH=32 fits).
+**Conclusion:** 3B on 8GB is single-user only. Use 1.5B for concurrent workloads.
+
+### Recommended Next Moves (PMAT-316, Mar 22)
 
 | Priority | Approach | Projected ROI | Effort |
 |----------|----------|--------------|--------|

@@ -5375,3 +5375,23 @@ roadmap:
   - bugfix
   - format-parity
   notes: 'Root cause: ALB-095 forward_token_apr_q4k had zero bias handling. Qwen2 requires QKV biases. Fix: extract biases per layer, add after GEMV.'
+- id: PMAT-316
+  github_issue: null
+  item_type: task
+  title: 'PMAT-316: 3B concurrency characterization — effectively serial on 8GB'
+  status: done
+  priority: medium
+  assigned_to: null
+  created: 2026-03-22T19:30:00+00:00
+  updated: 2026-03-22T19:30:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Benchmark 3B GGUF at c=1,4,8 with BATCH=8
+  - Document VRAM-limited scaling behavior
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - measurement
+  - 3b-model
+  notes: 'Aggregate flat at ~80 tok/s at c=1/4/8. 8GB VRAM too tight for concurrent KV cache. 3B is single-user on yoga.'
