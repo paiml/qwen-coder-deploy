@@ -721,6 +721,8 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 
 Added MAP_POPULATE + MADV_RANDOM (matching llama.cpp's llama-mmap.cpp).
 
+**PMAT-305: Direct FP32 (skip Q8K) — FALSIFIED (-17%).** 25.4 vs 30.8 tok/s. Q8K maddubs (32 muls/insn) beats FP32 fmadd (8 muls/insn) despite Q8K overhead. The IPC gap is from ~364 Vec allocations per token in the forward pass (cache line pollution), not Q8K quantize cost. CpuWorkspace struct created for pre-allocated buffers (wiring in progress).
+
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 
 **Root cause found:** `batched_hw_dp4a_q4k_gemv_into` always re-quantized input to Q8_1, even when the same buffer was already quantized (K/V share input with Q, up shares with gate). The Q8 activation cache (`q8_activation_valid`) existed for M=1 but was never used in the batched (M>1) path.
