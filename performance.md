@@ -704,6 +704,7 @@ Fresh same-machine CPU benchmark (Intel Xeon W-3245 @ 3.2GHz, c=1, 60s):
 | realizr (PMAT-307: + QKV workspace) | 32.1 | 1.84x |
 | realizr (PMAT-308: + raw inner dot) | **32.6** | **1.81x** |
 | realizr (PMAT-309: shared Q8K gate+up) | 31.5 | 1.87x (Vec alloc overhead) |
+| realizr (PMAT-310: GEMV barrier pool) | deadlock | FALSIFIED (concurrent requests) |
 | llama.cpp (16 threads, LLAMAFILE) | 59.0 | -- |
 
 **PMAT-300 tile sweep:** 64 optimal. 128 = -10%, 256 = -37% (load imbalance). Stack-allocated Q8K buffers: negligible improvement (malloc not bottleneck).
