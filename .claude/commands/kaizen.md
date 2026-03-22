@@ -49,8 +49,10 @@ Continue implementing the next best step with PMAT work items from our spec. Thi
 - Spec: `docs/specifications/gpu-performance-spec.md` v5.34.0 (296 PMAT items)
 - Production config: `CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1`
 - Yoga IP: `192.168.50.38`, ports: realizr 8081, ollama 8082, llama.cpp 8083, vLLM 8084
-- **Production: 149/325/525/931/1600 tok/s at c=1/4/8/16/32** (PMAT-296)
-- Graph dispatch ON by default + Q8 cache = +8.5% at c=4
-- realizr beats llama.cpp at c=8 (+25%). vLLM ~2x at c=4-16
-- **16 kernel fusion approaches falsified** (PMAT-279-295). 2-kernel Q8+DP4A is optimal. Architecture ceiling reached
-- Remaining paths: cuBLAS grouped GEMM, persistent kernel, or accept ceiling and pivot to features/quality
+- Spec: v5.37.0 (312 PMAT items)
+- **GPU: 149/322/529/947/1600 tok/s at c=1/4/8/16/32** (+8.5% from PMAT-291/294)
+- **CPU: 32.6 tok/s** (+91% from 17.1, gap 1.81x vs llama.cpp 59.0)
+- Graph dispatch ON by default + Q8 cache. realizr beats llama.cpp at c=8 (+26%)
+- 16 GPU kernel fusion approaches falsified. Architecture ceiling reached
+- 20 CPU approaches tested: 7 confirmed, 13 falsified. IPC 1.59 vs 1.01
+- Remaining: NUMA pinning, cuBLAS grouped GEMM, persistent kernel, or pivot to features
