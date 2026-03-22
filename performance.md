@@ -734,7 +734,7 @@ Added MAP_POPULATE + MADV_RANDOM (matching llama.cpp's llama-mmap.cpp).
 
 | Priority | Approach | Projected ROI | Effort |
 |----------|----------|--------------|--------|
-| **P0** | PGO (profile-guided optimization) | +5-15% CPU | 1 day |
+| ~~P0~~ | ~~PGO~~ | ~~+5-15%~~ | FALSIFIED: 32.4 vs 32.6 (0%). No branch misprediction in tight matmul loop |
 | **P0** | `extern "C"` naked matmul inner loop | +10-20% CPU | 1 week |
 | **P1** | CPU KV cache workspace (remaining allocs) | +2-5% CPU | 3 days |
 | **P1** | cuBLAS grouped GEMM (batch QKV) | +5% GPU | 2 weeks |
