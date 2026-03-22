@@ -65,15 +65,24 @@ realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at
 | RTX 4090 (128 SMs) | 412 | 437 | -- |
 | Jetson Orin (8 SMs) | 25 | -- | -- |
 
+### CPU (Xeon W-3245, c=1 decode tok/s)
+
+| Runtime | tok/s | Gap |
+|---------|-------|-----|
+| llama.cpp | 59.0 | -- |
+| realizr | **32.6** | **1.81x** |
+
++91% from baseline (17.1), 18 approaches tested (PMAT-297-310).
+
 ## Key Results
 
-- **Tensor graph dispatch (PMAT-291)**: +8.5% at c=4. Pure Rust graph executor + Q8 activation cache (PMAT-294)
-- **GPU kernels within 8% of vLLM** (7.4ms vs 6.8ms per step). 16 kernel fusion approaches falsified — 2-kernel Q8+DP4A pattern is optimal
-- **Iteration scheduler**: +71% throughput, 0% errors, production-stable (10-min sustained, 6,843 requests)
-- **Prompt-sensitivity**: realizr -24-26% long penalty (plateau), vLLM -9% peak then reverses, llama.cpp invariant
-- **Quality crossover**: realizr beats vLLM at c=128 on combined score (decode + ITL advantage)
+- **GPU tensor graph dispatch (PMAT-291)**: +8.5% at c=4. Pure Rust graph executor + Q8 cache
+- **CPU +91% (PMAT-297-310)**: thread pool, prefetch, hugepage, lean pointer dispatch
+- **GPU kernels within 8% of vLLM** (7.4ms vs 6.8ms). 16 kernel fusion approaches falsified
+- **CPU DRAM-bandwidth bound**: perf stat IPC 1.59 vs llama.cpp 1.01 — remaining gap is Rust abstraction overhead
+- **Quality crossover**: realizr beats vLLM at c=128 on combined score
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.34.0, 295 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.35.0, 310 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
@@ -84,7 +93,7 @@ Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spe
 | `forjar.yaml` | CPU deployment (intel host) |
 | `prompts/correctness.yaml` | 6-prompt correctness suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance spec v5.34.0 |
+| `docs/specifications/gpu-performance-spec.md` | Performance spec v5.35.0 |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Testing

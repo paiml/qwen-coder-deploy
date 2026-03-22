@@ -1,10 +1,10 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.34.0
-**Last Updated:** 2026-03-21
+**Version:** 5.35.0
+**Last Updated:** 2026-03-22
 **Status:** ACTIVE
-**Date:** 2026-03-21
+**Date:** 2026-03-22
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 291 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 310 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4618,6 +4618,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.35.0 | 2026-03-22 | **PMAT-297-310: CPU format parity.** 18 optimization approaches tested, 6 confirmed. CPU decode: 17.1 → 32.6 tok/s (+91%). Gap vs llama.cpp: 1.81x (was 3.45x). Key wins: thread pool 16 cores (+49%), deep prefetch (+13%), hugepage+mlock (+2%), lean pointer dispatch (+3.6%), raw inner dot (+1.6%). Falsified: AVX-512 VNNI (-16% freq penalty), direct FP32 (-17%), ggml-style kernel (0% = DRAM-bound proof), 3 custom thread pools (all deadlock). perf stat root cause: realizr IPC 1.60 vs llama.cpp 1.01 — remaining gap is Rust abstraction overhead between DRAM loads. |
 | 5.34.0 | 2026-03-21 | **PMAT-295: Inline Q8 DP4A GEMV — FALSIFIED (-69% at c=4).** Per-thread absmax + in-register INT8 quantize + DP4A. Correctness: 6/6 PASS, parity at c=1. But c=4: 25.0 vs 80.2 (-69%). In-register quantization adds ~60 insn/SB, register pressure, scattered FP32 cache misses. **Definitive conclusion: 2-kernel Q8+DP4A pattern is optimal at M>1.** Both FP32 fusion (PMAT-293, -66.5%) and inline Q8 (PMAT-295, -69%) falsified. The 430-launch bottleneck cannot be reduced via GEMV kernel fusion. |
 | 5.33.0 | 2026-03-21 | *PMAT-295 WIP superseded by v5.34.0 measurement.* |
 | 5.32.0 | 2026-03-21 | **PMAT-294: Q8 activation cache for batched DP4A — +1.6% at c=4.** batched_hw_dp4a_q4k_gemv_into was always re-quantizing; added q8_activation_valid check + graph dispatch invalidation. Saves 84 launches/step. Only helps at M=2-4 (DP4A); FP8 at M>=5 bypasses Q8 entirely. |
