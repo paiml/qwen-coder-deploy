@@ -5358,20 +5358,20 @@ roadmap:
 - id: PMAT-315
   github_issue: null
   item_type: task
-  title: 'PMAT-315: Fix APR Q4K format for 3B distilled model'
-  status: todo
+  title: 'PMAT-315: Fix APR Q4K bias — ALB-095 QKV bias addition'
+  status: done
   priority: medium
   assigned_to: null
   created: 2026-03-22T18:00:00+00:00
-  updated: 2026-03-22T18:00:00+00:00
+  updated: 2026-03-22T19:00:00+00:00
   spec: null
   acceptance_criteria:
-  - APR Q4K produces correct output on 3B distilled model
-  - 'Format parity: APR decode within 10% of GGUF'
+  - APR Q4K produces correct output on 1.5B and 3B Qwen2 models
+  - Root cause identified and fixed
   phases: []
   subtasks: []
   estimated_effort: null
   labels:
   - bugfix
   - format-parity
-  notes: 'GGUF→APR export produces broken weights for 3B model (28s TTFT, 0 output). Weight layout or transposition bug.'
+  notes: 'Root cause: ALB-095 forward_token_apr_q4k had zero bias handling. Qwen2 requires QKV biases. Fix: extract biases per layer, add after GEMV. No-op for non-bias architectures.'

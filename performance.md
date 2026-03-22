@@ -748,7 +748,9 @@ tensors) instead of `model.safetensors.index.json`. Layer 28 split across shards
 had attention weights, shard 2 had norms + MLP. Architecture gate correctly rejected incomplete
 model. Fix: check index.json BEFORE individual shard files.
 
-APR format broken (28s TTFT, 0 output) — weight layout bug in GGUF→APR export (PMAT-315).
+**APR format FIXED (PMAT-315)** — ALB-095 forward path was missing QKV bias addition.
+Added `q_proj.bias`, `k_proj.bias`, `v_proj.bias` after GEMV. 1.5B outputs "4" (was "HHHH"),
+3B outputs "4." (was "HHHH"). Probador benchmark fails due to APR SSE format (curl works).
 
 ### Recommended Next Moves (PMAT-314, Mar 22)
 
