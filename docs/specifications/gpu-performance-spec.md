@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.38.0
+**Version:** 5.39.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 313 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 314 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -209,6 +209,24 @@ Academic foundations of the vLLM advantage (verified in source at `/home/noah/sr
 
 **Roadmap:** cuBLAS grouped GEMM (CUDA 12.x) → continuous batching → paged KV → Phase 2 (cache intelligence). **⚠️ PMAT-283→288 exhaustive falsification chain:** event sync (0% ROI), per-M graph (−32%), fused KV scatter (−12%), fused Q+K DP4A (−12%), non-GEMM fusion (−5% via PMAT-092), megakernel (1 SM). **All incremental kernel optimizations from this repo are exhausted.** The binding bottleneck is 430 cuLaunchKernel dispatches (~7.5ms CPU time). The ONLY remaining path: reduce GEMM launch count via cuBLASLt grouped GEMM (batch 7 projections into 1-2 API calls per layer). Requires cuBLASLt 12.x API addition to trueno. **Gap decomposition (PMAT-179→277):** gap = decode_rate × scheduling_utilization, validated within 1%. With B32 iter sched: **sched_util=0.94-0.98× at c≤32** (near-optimal). Remaining gap is purely decode_rate (0.45-0.52×). At c≥64: queueing penalty (0.24-0.48×) from BATCH=32 cap offsets decode advantage (0.98-1.98×). **Phase projections (PMAT-265→267→279):** event sync + per-M graph → **0.66-0.79× vLLM** (50-80% CPU-GPU overlap). Per-step at c=4: GPU 7.4ms + serving 6.3ms. c=1 decomposition (PMAT-279): GPU 6.29ms + serving 0.54ms + graph savings 0.83ms. Serving overhead grows with c (0.54ms c=1 → 6.3ms c=4 → ~8.4ms c=16). With kernel fusion: 0.85-1.00× vLLM. **Iso-quality gap (PMAT-263):** Score≥70: 2.1× (was 5.3× at B16 B&S). **Quality crossover (PMAT-192/261):** realizr BEATS vLLM at c≈64-128 (decode advantage 0.98-1.98× with B32). Target: ≥0.90× vLLM at c=8 after Phase 1 (requires kernel fusion + pipelining).
 
+**PMAT-314: Model expansion — Qwen2.5-Coder-3B-Instruct-Distill-Qwen3-Coder-Next**
+
+Target model: `Aimin12/Qwen2.5-Coder-3B-Instruct-Distill-Qwen3-Coder-Next-abliterated`
+- Architecture: Qwen2 (dense 3B) — realizr fully supports
+- Knowledge: Distilled from Qwen3-Coder-Next (state-of-the-art coding model)
+- VRAM: ~3.2 GB with B32 KV cache (8GB card, comfortable fit)
+- Three-format parity test: GGUF (Q4_K_M, 1.9 GB), SafeTensors (FP16, 2 shards), APR (Q4K, converted)
+
+Falsification conditions:
+- F-314-1: If 3B model decode < 80 tok/s at c=1 on yoga → architecture overhead scales non-linearly
+- F-314-2: If format parity > 5% between GGUF/SafeTensors/APR → format-specific bottleneck
+- F-314-3: If correctness < 5/6 → distillation quality loss
+
+Provable contracts (from `../provable-contracts`):
+- `cpu-q4k-gemv-bounds-v1.yaml`: Raw pointer dispatch safety (PMAT-313)
+- `cpu-q4k-activation-quant-v1.yaml`: Q8K quantization correctness (Kani harnesses)
+- `q4k-q6k-superblock-v1.yaml`: Weight layout invariants
+
 **Methodology:**
 - Toyota Way: Jidoka (stop-on-error), Kaizen (iterative improvement), Genchi Genbutsu (direct measurement)
 - Popperian Falsification: Every claim has defined falsification conditions
@@ -226,6 +244,8 @@ Academic foundations of the vLLM advantage (verified in source at `/home/noah/sr
 | Mistral | 7B, Nemo, Mixtral-8x7B | Sliding window attention |
 | Phi | 2, 3-mini, 3-medium | LayerNorm + GELU, partial attention |
 | Qwen | 7B, 14B, Qwen2-7B, 2-72B | Aggressive GQA (6:1-8:1), large RoPE theta (1M) |
+| Qwen2.5-Coder | 0.5B, 1.5B, 3B, 7B, 14B, 32B | Code-specialized, same architecture as Qwen2 |
+| Qwen3 | 0.6B-8B (dense), 30B-A3B (MoE) | GQA, SwiGLU, QK-norm. MoE variants too large for 8GB |
 
 ### Decode Path
 
@@ -4615,6 +4635,15 @@ The following external documents are authoritative for their respective domains 
 42. [Mooncake: A KVCache-centric Disaggregated Architecture (ATC 2025)](https://arxiv.org/abs/2407.00079) — Qin et al. Prefix-aware scheduling, KV cache as elastic shared resource.
 43a. [ai-dynamo/dynamo (GitHub)](https://github.com/ai-dynamo/dynamo) — NVIDIA Dynamo open-source implementation. Rust + Python. BlockManager with 4-state FSM, ConcurrentRadixTree, FrequencyFilter eviction, WSPT/FCFS scheduling, NIXL cross-worker KV transfer, AgentHints/CacheControl NvExt API. Source analysis in PMAT-139.
 
+### Knowledge Distillation & Model Compression
+
+48. [DistilBERT (NeurIPS 2019 Workshop)](https://arxiv.org/abs/1910.01108) — Sanh et al. Knowledge distillation for transformers. 60% smaller, 60% faster, 97% quality.
+49. [TinyBERT (EMNLP 2020)](https://arxiv.org/abs/1909.10351) — Jiao et al. Two-stage task-specific distillation with intermediate layer matching.
+50. [Qwen2.5-Coder Technical Report (2024)](https://arxiv.org/abs/2409.12186) — Hui et al. Code-specific training data curation, multi-task fine-tuning, 0.5B-32B model series.
+51. [Qwen3 Technical Report (2025)](https://arxiv.org/abs/2505.09388) — Yang et al. Dense + MoE models, thinking mode, 119 languages. Qwen3-30B-A3B: 30B total, 3B active (128 experts, 8 active/token).
+52. [REAP: Expert Pruning for MoE (2025)](https://arxiv.org/abs/2501.02999) — Lu et al. Reward-guided expert pruning reduces MoE parameters while preserving active capacity.
+53. [Provable Contracts for Safe Unsafe Code](https://github.com/paiml/provable-contracts) — PAIML. Compiler-enforced safety contracts: Kani harnesses, Flux refinement types, MIRAI annotations. Enables `unsafe` raw pointer dispatch with formal safety proofs.
+
 ### Methodology
 
 43. [The Logic of Scientific Discovery](https://www.routledge.com/9780415278447) — Popper, 1959
@@ -4629,6 +4658,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.39.0 | 2026-03-22 | **PMAT-314: Model expansion spec.** Qwen2.5-Coder-3B-Distill-Qwen3-Coder-Next target: 3-format parity (GGUF/SafeTensors/APR), falsification conditions, provable contracts integration. 6 new academic citations (distillation, Qwen2.5-Coder, Qwen3, REAP pruning, provable-contracts). |
 | 5.38.0 | 2026-03-22 | **PMAT-313: Q4K GEMV bounds safety contract** (provable-contracts). 5 preconditions, 3 postconditions, 2 Kani harnesses for raw pointer dispatch safety. NUMA pinning ruled out (single socket). Scoring confirmed: realizr 76 B > llama.cpp 65 C+ at c=8. |
 | 5.37.0 | 2026-03-22 | **PMAT-312: Inline F16C FALSIFIED (-47%)**. Assembly analysis found half::f16 generating function CALL per SB. Inline _mm_cvtph_ps with target_feature(f16c) broke register alloc. Software f16 -22%. half crate already optimal. GPU revalidated: 149/322/529/947/1600 at c=1/4/8/16/32 (all PMAT-291/294 gains confirmed). 312 PMAT items total, 20 CPU approaches tested. |
 | 5.36.0 | 2026-03-22 | **PMAT-311: PGO FALSIFIED (0%).** Profile-guided optimization has zero impact on tight SIMD matmul loop (no branch misprediction). CPU best remains 32.6 tok/s (+91%), gap 1.81x. 19 CPU approaches tested, 7 confirmed, 12 falsified. Remaining P0: extern C naked inner loop. |
