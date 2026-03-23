@@ -765,19 +765,31 @@ blocked by SSE streaming format (curl works, separate issue).
 KV cache with 3B model. The 1.5B model achieves 10x scaling at c=32 (BATCH=32 fits).
 **Conclusion:** 3B on 8GB is single-user only. Use 1.5B for concurrent workloads.
 
-### Recommended Next Moves (PMAT-316, Mar 22)
+### PMAT-317: Fused Q4K Prefill + Nightly (Mar 23)
+
+**Config change:** Enabled `FUSED_Q4K_PREFILL=1` in yoga forjar config. PMAT-268 showed
+long-prompt penalty increases with iteration scheduler (-17→-26% at c=4→32). Fused Q4K GEMM
+reads Q4K directly (0.56 B/elem vs 2 B/elem FP16), eliminating the dequantize→HGEMM overhead.
+**Pending measurement** — yoga offline, will benchmark when available.
+
+**Nightly automation:** Extended `scripts/nightly.sh` with `yoga` mode:
+- Isolated serial: deploy one runtime → benchmark c=1,4,8,16,32 → teardown → next
+- Scoring gate: `probador llm score --fail-on-grade C`
+- Run: `./scripts/nightly.sh yoga`
+
+### Recommended Next Moves (PMAT-317, Mar 23)
 
 | Priority | Approach | Projected ROI | Effort |
 |----------|----------|--------------|--------|
 | ~~P0~~ | ~~PGO~~ | ~~+5-15%~~ | FALSIFIED (0%). No branch misprediction |
 | ~~P0~~ | ~~Inline F16C conversion~~ | ~~+5%~~ | FALSIFIED (-47%). target_feature interaction breaks register alloc |
+| **P0** | Fused Q4K prefill (PMAT-317) | reduce long-prompt penalty | config change (done) |
 | **P0** | Eliminate rayon per-matmul overhead | +5-10% CPU | 2 weeks |
 | **P1** | CPU KV cache workspace (remaining allocs) | +2-5% CPU | 3 days |
 | **P1** | cuBLAS grouped GEMM (batch QKV) | +5% GPU | 2 weeks |
-| **P2** | NUMA thread pinning | +1-2% CPU | 1 day |
 | **P2** | GPU persistent kernel | +10-15% GPU | 4 weeks |
 
-**CPU gap root cause (PMAT-304):** perf stat IPC 1.59 vs llama.cpp 1.01. The 0.58 excess IPC = Rust abstraction overhead between DRAM loads. PGO + naked inner loop could close 15-35% of the 1.81x gap.
+**CPU gap root cause (PMAT-304):** perf stat IPC 1.59 vs llama.cpp 1.01. The 0.58 excess IPC = Rust abstraction overhead between DRAM loads.
 
 ### Q8 Activation Cache for Batched DP4A (PMAT-294, Mar 21)
 

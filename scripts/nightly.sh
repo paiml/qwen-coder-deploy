@@ -1,9 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: nightly.sh [cpu|gpu|both]
+# Usage: nightly.sh [cpu|gpu|yoga|both|all]
 MODE="${1:-gpu}"
 DATE=$(date +%Y%m%d)
+YOGA_HOST="192.168.50.38"
 
 echo "=== Nightly Benchmark: $(date) (mode: $MODE) ==="
 
@@ -51,6 +52,76 @@ run_benchmark() {
     done
 }
 
+# PMAT-317: Yoga isolated serial benchmark — deploy one runtime at a time,
+# benchmark at multiple concurrency levels, teardown, repeat.
+run_yoga_serial() {
+    echo "--- [yoga] Isolated serial benchmarks ---"
+
+    local runtimes=("realizr:forjar-yoga-realizr.yaml:8081" \
+                    "llamacpp:forjar-yoga-llamacpp.yaml:8083" \
+                    "ollama:forjar-yoga-ollama.yaml:8082")
+    local concurrencies=(1 4 8 16 32)
+
+    for rt_spec in "${runtimes[@]}"; do
+        IFS=':' read -r name forjar port <<< "$rt_spec"
+        echo "=== [yoga] $name ==="
+
+        # Deploy
+        echo "  Deploying $name..."
+        forjar apply -f "$forjar" || { echo "  Deploy FAILED, skipping"; continue; }
+
+        # Wait for health
+        echo -n "  Health check :$port..."
+        timeout 60 bash -c "until curl -sf http://$YOGA_HOST:$port/health >/dev/null 2>&1; do sleep 2; done" || {
+            echo " TIMEOUT, skipping"
+            forjar apply -f forjar-yoga-teardown.yaml 2>/dev/null || true
+            continue
+        }
+        echo " OK"
+
+        # Correctness
+        echo "  Correctness..."
+        local model_flag=""
+        [[ "$name" == "ollama" ]] && model_flag="--model qwen2.5-coder:1.5b-instruct"
+        probador llm test \
+            --config prompts/correctness.yaml \
+            --url "http://$YOGA_HOST:$port" \
+            $model_flag \
+            --runtime-name "$name-yoga" || true
+
+        # Load tests at each concurrency level
+        for c in "${concurrencies[@]}"; do
+            # Skip high concurrency for runtimes that don't scale
+            [[ "$name" == "ollama" && $c -gt 32 ]] && continue
+            echo "  Load c=$c..."
+            probador llm load \
+                --url "http://$YOGA_HOST:$port" \
+                --concurrency "$c" \
+                --duration 60 \
+                --warmup 5 \
+                --prompt-profile short \
+                --max-tokens-distribution uniform:16,256 \
+                --stream true \
+                $model_flag \
+                --runtime-name "$name-yoga" \
+                -o "results/yoga-serial-${name}-c${c}-${DATE}.json" || true
+        done
+
+        # Teardown
+        echo "  Teardown..."
+        forjar apply -f forjar-yoga-teardown.yaml 2>/dev/null || true
+        sleep 5
+    done
+
+    # Score
+    echo "--- [yoga] Scoring ---"
+    probador llm score \
+        --results results/ \
+        --platform yoga \
+        --format table \
+        --fail-on-grade C 2>&1 || true
+}
+
 case "$MODE" in
     cpu)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
@@ -58,12 +129,19 @@ case "$MODE" in
     gpu)
         run_benchmark "gpu" "127.0.0.1" "forjar-gpu.yaml"
         ;;
+    yoga)
+        run_yoga_serial
+        ;;
     both)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
         run_benchmark "gpu" "127.0.0.1" "forjar-gpu.yaml"
         ;;
+    all)
+        run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
+        run_yoga_serial
+        ;;
     *)
-        echo "Usage: nightly.sh [cpu|gpu|both]"
+        echo "Usage: nightly.sh [cpu|gpu|yoga|both|all]"
         exit 1
         ;;
 esac
