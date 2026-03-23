@@ -5438,3 +5438,25 @@ roadmap:
   - cpu
   - falsified
   notes: '4 pool approaches now falsified (spin, barrier, scoped, large-chunk). CPU gap is kernel quality not dispatch. 30.5 tok/s baseline confirmed.'
+- id: PMAT-319
+  github_issue: null
+  item_type: task
+  title: 'PMAT-319: Official Qwen2.5-Coder-3B-Instruct — 6/6 correctness, 3-runtime benchmark'
+  status: done
+  priority: high
+  assigned_to: null
+  created: 2026-03-23T03:00:00+00:00
+  updated: 2026-03-23T03:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Deploy official Qwen2.5-Coder-3B-Instruct on yoga
+  - 6/6 correctness (better than distill 5/6)
+  - 3-runtime comparison (realizr vs llama.cpp vs ollama)
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - measurement
+  - 3b-model
+  - model-expansion
+  notes: 'realizr 81.9, llama.cpp 90.7 (+10.7%), ollama 92.1. realizr serial at c=4 (VRAM). llama.cpp scales. 6/6 correct. Recommended for single-user quality.'

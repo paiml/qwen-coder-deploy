@@ -765,6 +765,22 @@ blocked by SSE streaming format (curl works, separate issue).
 KV cache with 3B model. The 1.5B model achieves 10x scaling at c=32 (BATCH=32 fits).
 **Conclusion:** 3B on 8GB is single-user only. Use 1.5B for concurrent workloads.
 
+### Official Qwen2.5-Coder-3B-Instruct (PMAT-319, Mar 23)
+
+3-runtime comparison on RTX 4060L 8GB, BATCH=8:
+
+| Runtime | Decode c=1 | Aggregate c=4 | TTFT c=1 | Correct |
+|---------|-----------|---------------|---------|---------|
+| realizr | 81.9 | 80.3 (serial) | 27ms | **6/6** |
+| llama.cpp | **90.7** | **195.7** | **15ms** | — |
+| ollama | 92.1 | — | 74ms | — |
+
+**Official 3B: 6/6 correctness** (distill was 5/6). llama.cpp 10.7% faster at c=1 AND
+scales at c=4 (not VRAM-constrained like realizr). The serialization is realizr's iteration
+scheduler under VRAM pressure, not a model limitation.
+
+**Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
+
 ### PMAT-317: Fused Q4K Prefill FALSIFIED (Mar 23)
 
 **FALSIFIED:** `FUSED_Q4K_PREFILL=1` is **-52% slower** on prefill, -1.9% decode (noise).

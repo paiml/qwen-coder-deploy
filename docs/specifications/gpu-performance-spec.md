@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.44.0
+**Version:** 5.45.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -256,10 +256,25 @@ budget too tight for concurrent KV cache slots with 3B model (weights ~2 GB + FP
 to 1 active slot. The 1.5B model achieves 10x scaling at c=32 because BATCH=32 fits in 8GB.
 **Falsification: F-316-1 FALSIFIED** — 3B does NOT scale with concurrency on 8GB.
 
+**PMAT-319: Official Qwen2.5-Coder-3B-Instruct — 3-runtime comparison:**
+
+| Runtime | Decode c=1 | Aggregate c=4 | TTFT c=1 | Correct |
+|---------|-----------|---------------|---------|---------|
+| realizr | 81.9 | 80.3 (serial) | 27ms | **6/6** |
+| llama.cpp | **90.7** | **195.7** | **15ms** | — |
+| ollama | 92.1 | — | 74ms | — |
+
+- Official 3B: **6/6 correctness** (distill was 5/6) — strictly better code quality
+- llama.cpp 3B beats realizr by 10.7% at c=1 AND scales at c=4 (not VRAM-bound)
+- realizr serialization at c=4 is iteration scheduler VRAM pressure, not model limitation
+- **Recommendation**: Deploy official 3B for single-user quality workloads; 1.5B for concurrent
+
 Falsification results:
 - F-314-1: **PASSED** — 80.9 tok/s GGUF, 91.6 tok/s SafeTensors (>= 80 threshold)
 - F-314-2: **PASSED** — GGUF/SafeTensors at parity (+13%). APR fixed (PMAT-315, bias addition)
 - F-314-3: **PASSED** — 5/6 correctness both formats (different failures: math vs SQL regex)
+- F-319-1: **PASSED** — Official 3B 81.9 tok/s (>= 80), 6/6 correct
+- F-319-2: **FALSIFIED** — realizr 3B 10.7% slower than llama.cpp (81.9 vs 90.7)
 
 Provable contracts (from `../provable-contracts`):
 - `cpu-q4k-gemv-bounds-v1.yaml`: Raw pointer dispatch safety (PMAT-313)
@@ -4697,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.44.0 | 2026-03-23 | **PMAT-318: Rayon replacement FALSIFIED.** std::thread::scope -77% (spawn overhead), large-chunk rayon -75% (serial fallback). 4 pool approaches all failed. Rayon work-stealing with 64-row chunks confirmed optimal. CPU gap is kernel quality, not dispatch. |
+| 5.45.0 | 2026-03-23 | **PMAT-319: Official Qwen2.5-Coder-3B-Instruct deployed.** 6/6 correctness (vs 5/6 distill). realizr 81.9 tok/s, llama.cpp 90.7 (+10.7%), ollama 92.1. realizr serial at c=4 (VRAM pressure). llama.cpp scales to 195.7 at c=4. |
+| 5.44.0 | 2026-03-23 | **PMAT-318: Rayon replacement FALSIFIED.** std::thread::scope -77%, large-chunk rayon -75%. 4 pool approaches failed. Rayon confirmed optimal. |
 | 5.43.0 | 2026-03-23 | **PMAT-317: Fused Q4K prefill FALSIFIED (-52% prefill).** In-kernel Q4K dequant slower than cuBLAS HGEMM+FP8 at M>1. PMAT-268 "required" claim FALSIFIED. Nightly yoga automation kept. |
 | 5.42.0 | 2026-03-22 | **PMAT-316: 3B concurrency FALSIFIED.** Aggregate flat at ~80 tok/s at c=1/4/8 — effectively serial. 8GB VRAM too tight for concurrent KV cache slots with 3B model. 1.5B achieves 10x scaling because BATCH=32 fits. |
 | 5.41.0 | 2026-03-22 | **PMAT-315: APR Q4K bias fix.** ALB-095 forward path missing QKV bias — "HHHH" garbage on all Qwen2 APR models. Fix: extract q/k/v biases, add after GEMV. All 3 formats now correct. |
