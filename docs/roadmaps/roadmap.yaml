@@ -5395,3 +5395,26 @@ roadmap:
   - measurement
   - 3b-model
   notes: 'Aggregate flat at ~80 tok/s at c=1/4/8. 8GB VRAM too tight for concurrent KV cache. 3B is single-user on yoga.'
+- id: PMAT-317
+  github_issue: null
+  item_type: task
+  title: 'PMAT-317: Fused Q4K prefill + yoga nightly automation'
+  status: inprogress
+  priority: high
+  assigned_to: null
+  created: 2026-03-23T00:00:00+00:00
+  updated: 2026-03-23T00:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Enable FUSED_Q4K_PREFILL=1 in yoga forjar config
+  - Measure long-prompt penalty reduction at c=16+
+  - Extend nightly.sh with yoga mode (isolated serial benchmarks)
+  - Score gate (fail-on-grade C)
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - infrastructure
+  - automation
+  - config
+  notes: 'PMAT-268 says fused Q4K prefill is REQUIRED at c>=16 for long prompts but was never enabled. Nightly automation enables regression detection.'
