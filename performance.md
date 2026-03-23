@@ -791,10 +791,15 @@ scheduler contention, not from HGEMM overhead. Reverted config.
 | ~~P0~~ | ~~PGO~~ | ~~+5-15%~~ | FALSIFIED (0%). No branch misprediction |
 | ~~P0~~ | ~~Inline F16C conversion~~ | ~~+5%~~ | FALSIFIED (-47%). target_feature breaks register alloc |
 | ~~P0~~ | ~~Fused Q4K prefill~~ | ~~reduce penalty~~ | FALSIFIED (-52%). In-kernel dequant < HGEMM+FP8 |
-| **P0** | Eliminate rayon per-matmul overhead | +5-10% CPU | 2 weeks |
+| ~~P0~~ | ~~Eliminate rayon per-matmul overhead~~ | ~~+5-10% CPU~~ | FALSIFIED. scoped threads -77%, large-chunk -75%. 4 pool approaches deadlocked/regressed |
 | **P1** | CPU KV cache workspace (remaining allocs) | +2-5% CPU | 3 days |
 | **P1** | cuBLAS grouped GEMM (batch QKV) | +5% GPU | 2 weeks |
 | **P2** | GPU persistent kernel | +10-15% GPU | 4 weeks |
+
+**PMAT-318: Rayon replacement FALSIFIED.** `std::thread::scope` per-matmul: -77% (thread spawn
+overhead: 896 spawns/token × 16 threads). Large-chunk rayon (1 chunk/thread): -75% (serial
+execution from env detection). Rayon's work-stealing with 64-row chunks is the right approach —
+the CPU gap is kernel quality, not dispatch overhead.
 
 **CPU gap root cause (PMAT-304):** perf stat IPC 1.59 vs llama.cpp 1.01. The 0.58 excess IPC = Rust abstraction overhead between DRAM loads.
 

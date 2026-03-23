@@ -5417,3 +5417,24 @@ roadmap:
   - automation
   - config
   notes: 'FALSIFIED: in-kernel Q4K dequant -52% slower than cuBLAS HGEMM+FP8 at M>1. PMAT-268 required claim FALSIFIED. Nightly yoga automation kept.'
+- id: PMAT-318
+  github_issue: null
+  item_type: task
+  title: 'PMAT-318: Rayon replacement FALSIFIED — scoped threads -77%, large-chunk -75%'
+  status: done
+  priority: high
+  assigned_to: null
+  created: 2026-03-23T02:00:00+00:00
+  updated: 2026-03-23T02:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - 'std::thread::scope: FALSIFIED -77% (thread spawn overhead per matmul)'
+  - 'Large-chunk rayon: FALSIFIED -75% (serial from env detection)'
+  - Rayon work-stealing confirmed optimal for this workload
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - cpu
+  - falsified
+  notes: '4 pool approaches now falsified (spin, barrier, scoped, large-chunk). CPU gap is kernel quality not dispatch. 30.5 tok/s baseline confirmed.'

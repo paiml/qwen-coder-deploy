@@ -1,0 +1,89 @@
+{
+  "total_requests": 3,
+  "successful": 3,
+  "failed": 0,
+  "throughput_rps": 0.03438765322414073,
+  "latency_p50_ms": 33756.28544,
+  "latency_p95_ms": 34836.359595500006,
+  "latency_p99_ms": 34932.3661871,
+  "ttft_p50_ms": 3531.851779,
+  "tokens_per_sec": 6.957768502351141,
+  "avg_tok_per_req": 202.33333333333334,
+  "itl_p50_ms": 127.41135470940172,
+  "decode_tok_per_sec": 7.848594046274666,
+  "prefill_tok_per_sec": 6.512164563857254,
+  "timestamp": "2026-03-23T16:58:16.456830808+00:00",
+  "runtime_name": "realizr-cpu-largechunk",
+  "elapsed_secs": 87.240614544,
+  "concurrency": 1,
+  "ttft_p90_ms": 3602.9049958,
+  "ttft_p95_ms": 3611.7866479000004,
+  "ttft_p99_ms": 3618.89196958,
+  "tpot_p50_ms": 127.41135470940172,
+  "tpot_p90_ms": 128.51345089925738,
+  "tpot_p95_ms": 128.65121292298934,
+  "tpot_p99_ms": 128.76142254197492,
+  "latency_min_ms": 18527.803661,
+  "latency_max_ms": 34956.367835000005,
+  "latency_stddev_ms": 9158.280186688622,
+  "error_rate": 0.0,
+  "prompt_tokens_total": 69,
+  "completion_tokens_total": 607,
+  "truncated_pct": 0.0,
+  "sse_batch_ratio": 1.0,
+  "goodput_pct": 0.0,
+  "output_tokens_dist": [
+    118.0,
+    244.0,
+    244.79999999999998,
+    245.0
+  ],
+  "request_details": [
+    {
+      "latency_ms": 18527.803661,
+      "ttft_ms": 3620.6683000000003,
+      "completion_tokens": 118,
+      "prompt_tokens": 23,
+      "itl_ms": 127.41135470940172,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 34956.367835000005,
+      "ttft_ms": 3531.851779,
+      "completion_tokens": 245,
+      "prompt_tokens": 23,
+      "itl_ms": 128.7889749467213,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 33756.28544,
+      "ttft_ms": 3423.80288,
+      "completion_tokens": 244,
+      "prompt_tokens": 23,
+      "itl_ms": 124.82500337448559,
+      "finish_reason": "stop"
+    }
+  ],
+  "tail_analysis": {
+    "itl_p999_ms": 128.7862197062467,
+    "itl_p9999_ms": 128.78869942267383,
+    "ttft_p999_ms": 3620.490666958,
+    "ttft_p9999_ms": 3620.6505366958004,
+    "latency_p999_ms": 34953.967670210004,
+    "latency_p9999_ms": 34956.127818521,
+    "tail_ratio_itl": 1.010596134352801,
+    "tail_ratio_ttft": 1.0246443497707156,
+    "tail_ratio_latency": 1.034840348449785,
+    "jitter": {
+      "itl_cv": 0.01584513703771892,
+      "itl_iqr_ms": 1.9819857861178605,
+      "spike_count": 0,
+      "spike_threshold_ms": 637.0567735470086
+    },
+    "drift": {
+      "itl_slope_ms_per_min": 5.945957358353581,
+      "ttft_slope_ms_per_min": 295.2981300000001,
+      "degradation_detected": false
+    }
+  }
+}
