@@ -4697,7 +4697,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.43.0 | 2026-03-23 | **PMAT-317: Fused Q4K prefill + nightly automation.** Enabled `FUSED_Q4K_PREFILL=1` in yoga forjar config (PMAT-268 required at c>=16). Extended nightly.sh with `yoga` mode: isolated serial benchmarks at c=1/4/8/16/32 with per-runtime deploy/teardown and scoring gate. |
+| 5.43.0 | 2026-03-23 | **PMAT-317: Fused Q4K prefill FALSIFIED (-52% prefill).** In-kernel Q4K dequant slower than cuBLAS HGEMM+FP8 at M>1. Decode -1.9% (noise). TTFT doubled (17→34s at c=16). Reverted. Nightly automation kept (yoga mode). PMAT-268 "required" claim FALSIFIED. |
 | 5.42.0 | 2026-03-22 | **PMAT-316: 3B concurrency FALSIFIED.** Aggregate flat at ~80 tok/s at c=1/4/8 — effectively serial. 8GB VRAM too tight for concurrent KV cache slots with 3B model. 1.5B achieves 10x scaling because BATCH=32 fits. |
 | 5.41.0 | 2026-03-22 | **PMAT-315: APR Q4K bias fix.** ALB-095 forward path missing QKV bias — "HHHH" garbage on all Qwen2 APR models. Fix: extract q/k/v biases, add after GEMV. All 3 formats now correct. |
 | 5.40.0 | 2026-03-22 | **PMAT-314: Three-format GPU parity measured.** Fixed sharded SafeTensors loading. GGUF 80.9, SafeTensors 91.6 (+13%), APR fixed via PMAT-315. |

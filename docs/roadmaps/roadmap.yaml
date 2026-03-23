@@ -5398,16 +5398,15 @@ roadmap:
 - id: PMAT-317
   github_issue: null
   item_type: task
-  title: 'PMAT-317: Fused Q4K prefill + yoga nightly automation'
-  status: inprogress
+  title: 'PMAT-317: Fused Q4K prefill FALSIFIED (-52%) + yoga nightly automation'
+  status: done
   priority: high
   assigned_to: null
   created: 2026-03-23T00:00:00+00:00
-  updated: 2026-03-23T00:00:00+00:00
+  updated: 2026-03-23T01:00:00+00:00
   spec: null
   acceptance_criteria:
-  - Enable FUSED_Q4K_PREFILL=1 in yoga forjar config
-  - Measure long-prompt penalty reduction at c=16+
+  - 'FUSED_Q4K_PREFILL=1: FALSIFIED -52% prefill, -1.9% decode. Reverted'
   - Extend nightly.sh with yoga mode (isolated serial benchmarks)
   - Score gate (fail-on-grade C)
   phases: []
@@ -5417,4 +5416,4 @@ roadmap:
   - infrastructure
   - automation
   - config
-  notes: 'PMAT-268 says fused Q4K prefill is REQUIRED at c>=16 for long prompts but was never enabled. Nightly automation enables regression detection.'
+  notes: 'FALSIFIED: in-kernel Q4K dequant -52% slower than cuBLAS HGEMM+FP8 at M>1. PMAT-268 required claim FALSIFIED. Nightly yoga automation kept.'
