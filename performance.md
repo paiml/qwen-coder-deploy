@@ -797,6 +797,19 @@ Intel Xeon W-3245 (16 cores @ 3.2GHz), 192GB RAM, 2x Radeon Pro W5700X (unused �
   into realizr's inference pipeline. W5700X GPUs idle. Integration would require wiring
   trueno's `GpuBackend` into the Q4K GEMV forward pass.
 
+**PMAT-321: WGPU matmul benchmark on W5700X:**
+
+| Config | GPU ms | GFLOPS | vs CPU |
+|--------|--------|--------|--------|
+| M=1 Q proj (1536²) | 7.90 | 0.6 | 113x SLOWER |
+| M=23 FFN up (23×1536×8960) | 39.31 | 16.1 | ~2x SLOWER |
+| M=102 FFN up (102×1536×8960) | 93.13 | 30.1 | ~4.6x SLOWER |
+
+**Peak 30 GFLOPS = 0.3% of W5700X 9 TFLOPS.** Root cause: trueno's WGPU backend creates
+per-call GPU buffers (alloc + upload + dispatch + readback + dealloc). Production integration
+requires persistent weight buffers + pre-allocated I/O staging. Current WGPU is **not viable**
+for inference — needs buffer pooling rewrite in trueno before integration.
+
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
 ### PMAT-317: Fused Q4K Prefill FALSIFIED (Mar 23)
