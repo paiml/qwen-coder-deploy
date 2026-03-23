@@ -82,8 +82,9 @@ realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at
 - **CPU DRAM-bandwidth bound**: perf stat IPC 1.59 vs llama.cpp 1.01 — remaining gap is Rust abstraction overhead
 - **Quality crossover**: realizr beats vLLM at c=128 on combined score
 - **3B model format parity (PMAT-314)**: SafeTensors→Q4K 91.6 tok/s (+13% vs GGUF 80.9). Fixed sharded SafeTensors loading
+- **Qwen2.5-Coder-3B-Instruct (PMAT-319)**: 6/6 correctness, 81.9 tok/s. Single-user quality mode
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.40.0, 314 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.45.0, 319 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
