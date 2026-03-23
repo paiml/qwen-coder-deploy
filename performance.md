@@ -781,6 +781,24 @@ scheduler under VRAM pressure, not a model limitation.
 
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
+### Intel CPU Benchmarks (PMAT-320, Mar 23)
+
+Intel Xeon W-3245 (16 cores @ 3.2GHz), 192GB RAM, 2x Radeon Pro W5700X (unused — WGPU not wired):
+
+| Runtime | Model | Decode c=1 | TTFT P50 | ITL P50 | Correct |
+|---------|-------|-----------|---------|---------|---------|
+| realizr | 1.5B | 34.4 | 792ms | 29.1ms | 5/6 |
+| realizr | 3B | 19.2 | 1433ms | 52.0ms | **6/6** |
+| llama.cpp | 3B | **35.6** | **34ms** | **28.1ms** | — |
+
+- realizr 3B: 19.2 tok/s (55.8% of 1.5B) — expected for 2x params, 2.3x layers
+- llama.cpp 3B: 35.6 tok/s — **1.85x faster** (same gap as 1.5B at 1.71x)
+- **WGPU**: trueno has WGSL compute shaders (matmul, dot, softmax) but not integrated
+  into realizr's inference pipeline. W5700X GPUs idle. Integration would require wiring
+  trueno's `GpuBackend` into the Q4K GEMV forward pass.
+
+**Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
+
 ### PMAT-317: Fused Q4K Prefill FALSIFIED (Mar 23)
 
 **FALSIFIED:** `FUSED_Q4K_PREFILL=1` is **-52% slower** on prefill, -1.9% decode (noise).

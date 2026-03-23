@@ -5460,3 +5460,26 @@ roadmap:
   - 3b-model
   - model-expansion
   notes: 'realizr 81.9, llama.cpp 90.7 (+10.7%), ollama 92.1. realizr serial at c=4 (VRAM). llama.cpp scales. 6/6 correct. Recommended for single-user quality.'
+- id: PMAT-320
+  github_issue: null
+  item_type: task
+  title: 'PMAT-320: Intel CPU + WGPU benchmarks — 3B at 19.2 tok/s, WGPU not wired'
+  status: done
+  priority: high
+  assigned_to: null
+  created: 2026-03-23T04:00:00+00:00
+  updated: 2026-03-23T04:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Benchmark 1.5B and 3B on CPU (intel Xeon W-3245)
+  - Compare realizr vs llama.cpp
+  - Investigate WGPU on Radeon Pro W5700X
+  - 3B correctness on CPU
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - measurement
+  - cpu
+  - wgpu
+  notes: 'realizr 3B CPU 19.2 tok/s, llama.cpp 35.6 (1.85x gap). WGPU: trueno has WGSL shaders but not wired into inference pipeline. W5700X GPUs idle.'
