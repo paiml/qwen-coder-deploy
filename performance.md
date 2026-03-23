@@ -765,14 +765,21 @@ blocked by SSE streaming format (curl works, separate issue).
 KV cache with 3B model. The 1.5B model achieves 10x scaling at c=32 (BATCH=32 fits).
 **Conclusion:** 3B on 8GB is single-user only. Use 1.5B for concurrent workloads.
 
-### PMAT-317: Fused Q4K Prefill + Nightly (Mar 23)
+### PMAT-317: Fused Q4K Prefill FALSIFIED (Mar 23)
 
-**Config change:** Enabled `FUSED_Q4K_PREFILL=1` in yoga forjar config. PMAT-268 showed
-long-prompt penalty increases with iteration scheduler (-17→-26% at c=4→32). Fused Q4K GEMM
-reads Q4K directly (0.56 B/elem vs 2 B/elem FP16), eliminating the dequantize→HGEMM overhead.
-**Pending measurement** — yoga offline, will benchmark when available.
+**FALSIFIED:** `FUSED_Q4K_PREFILL=1` is **-52% slower** on prefill, -1.9% decode (noise).
 
-**Nightly automation:** Extended `scripts/nightly.sh` with `yoga` mode:
+| Config | Decode tok/s | Prefill tok/s | TTFT P99.9 |
+|--------|-------------|--------------|------------|
+| Baseline (HGEMM+FP8) | 150.9 | 6.4 | 17.1s |
+| FUSED_Q4K_PREFILL=1 | 148.1 | 3.1 | 34.2s |
+
+In-kernel Q4K dequant cannot compete with cuBLAS HGEMM+FP8 tensor core GEMM at M>1 prefill.
+The fused path is optimal for M=1 GEMV (decode) but counterproductive for M>1 GEMM (prefill).
+**PMAT-268 "required at c>=16" FALSIFIED** — the long-prompt penalty is from iteration
+scheduler contention, not from HGEMM overhead. Reverted config.
+
+**Nightly automation kept:** Extended `scripts/nightly.sh` with `yoga` mode:
 - Isolated serial: deploy one runtime → benchmark c=1,4,8,16,32 → teardown → next
 - Scoring gate: `probador llm score --fail-on-grade C`
 - Run: `./scripts/nightly.sh yoga`
@@ -782,8 +789,8 @@ reads Q4K directly (0.56 B/elem vs 2 B/elem FP16), eliminating the dequantize→
 | Priority | Approach | Projected ROI | Effort |
 |----------|----------|--------------|--------|
 | ~~P0~~ | ~~PGO~~ | ~~+5-15%~~ | FALSIFIED (0%). No branch misprediction |
-| ~~P0~~ | ~~Inline F16C conversion~~ | ~~+5%~~ | FALSIFIED (-47%). target_feature interaction breaks register alloc |
-| **P0** | Fused Q4K prefill (PMAT-317) | reduce long-prompt penalty | config change (done) |
+| ~~P0~~ | ~~Inline F16C conversion~~ | ~~+5%~~ | FALSIFIED (-47%). target_feature breaks register alloc |
+| ~~P0~~ | ~~Fused Q4K prefill~~ | ~~reduce penalty~~ | FALSIFIED (-52%). In-kernel dequant < HGEMM+FP8 |
 | **P0** | Eliminate rayon per-matmul overhead | +5-10% CPU | 2 weeks |
 | **P1** | CPU KV cache workspace (remaining allocs) | +2-5% CPU | 3 days |
 | **P1** | cuBLAS grouped GEMM (batch QKV) | +5% GPU | 2 weeks |
