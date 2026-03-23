@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.46.0
+**Version:** 5.47.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.46.0 | 2026-03-23 | **PMAT-320: Intel CPU + WGPU benchmarks.** 1.5B CPU: realizr 34.4, gap 1.71x vs llama.cpp. 3B CPU: realizr 19.2, llama.cpp 35.6, gap 1.85x. 3B 6/6 correct on CPU. WGPU (W5700X): trueno has WGSL shaders but not wired into serve path. |
+| 5.47.0 | 2026-03-23 | **PMAT-321: WGPU matmul benchmark — 0.3% utilization, not viable.** W5700X peak 30 GFLOPS of 9 TFLOPS. Per-call buffer alloc dominates (8ms overhead). M=1: 113x slower than CPU. M=102: 4.6x slower. Needs persistent buffer pool rewrite in trueno. |
+| 5.46.0 | 2026-03-23 | **PMAT-320: Intel CPU + WGPU benchmarks.** 1.5B CPU: 34.4, gap 1.71x. 3B CPU: 19.2, llama.cpp 35.6 (1.85x). WGPU not wired. |
 | 5.45.0 | 2026-03-23 | **PMAT-319: Official Qwen2.5-Coder-3B-Instruct deployed.** 6/6 correctness (vs 5/6 distill). realizr 81.9 tok/s, llama.cpp 90.7 (+10.7%), ollama 92.1. |
 | 5.44.0 | 2026-03-23 | **PMAT-318: Rayon replacement FALSIFIED.** std::thread::scope -77%, large-chunk rayon -75%. 4 pool approaches failed. Rayon confirmed optimal. |
 | 5.43.0 | 2026-03-23 | **PMAT-317: Fused Q4K prefill FALSIFIED (-52% prefill).** In-kernel Q4K dequant slower than cuBLAS HGEMM+FP8 at M>1. PMAT-268 "required" claim FALSIFIED. Nightly yoga automation kept. |

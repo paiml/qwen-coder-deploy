@@ -5483,3 +5483,25 @@ roadmap:
   - cpu
   - wgpu
   notes: 'realizr 3B CPU 19.2 tok/s, llama.cpp 35.6 (1.85x gap). WGPU: trueno has WGSL shaders but not wired into inference pipeline. W5700X GPUs idle.'
+- id: PMAT-321
+  github_issue: null
+  item_type: task
+  title: 'PMAT-321: WGPU matmul benchmark — 0.3% utilization, not viable without buffer pool'
+  status: done
+  priority: high
+  assigned_to: null
+  created: 2026-03-23T05:00:00+00:00
+  updated: 2026-03-23T05:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Benchmark trueno WGPU matmul on Radeon Pro W5700X
+  - Measure actual GFLOPS vs theoretical peak
+  - Determine viability for LLM inference
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - measurement
+  - wgpu
+  - falsified
+  notes: 'Peak 30 GFLOPS of 9 TFLOPS = 0.3%. Per-call buffer alloc ~8ms overhead. M=1 113x slower, M=102 4.6x slower than CPU. Needs persistent buffer pool in trueno.'
