@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.68.0
+**Version:** 5.69.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.68.0 | 2026-03-24 | **PMAT-341: WGPU BPE tokenizer — 151387 merge rules from GGUF.** Proper BPE with special tokens. 26 prompt tokens (was 40 greedy). Output: newlines (Ċ) — forward_layer attention placeholder, not tokenizer issue. |
+| 5.69.0 | 2026-03-24 | **PMAT-342: WGPU attention + QKV biases.** Hybrid GPU/CPU: QKV projection on GPU, attention+biases on CPU (GQA expansion). Output still Ċ — needs RoPE for position encoding. QKV biases split from fused tensor. CPU-side bias map in WgslForwardPass. |
+| 5.68.0 | 2026-03-24 | **PMAT-341: BPE tokenizer.** 151387 merge rules. 26 prompt tokens. |
 | 5.67.0 | 2026-03-24 | **PMAT-340: WGPU vocab + greedy tokenizer.** 151936 tokens. Chat template. |
 | 5.66.0 | 2026-03-24 | **PMAT-339: WGPU HTTP serving!** First AMD GPU inference via HTTP: 2.56 tok/s on W5700X. |
 | 5.65.0 | 2026-03-24 | **PMAT-338: GPU LM head.** Tiled GEMM for vocab > 65535 dispatch limit. Full forward 1388ms. |
