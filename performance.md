@@ -851,6 +851,23 @@ are fast (140µs each) but irrelevant next to matmul.
 Cooperative K-reduction GEMV + multi-pass single-submit = correct architecture.
 Next: vectorized WGSL loads (vec4), warp-level reduction → target CPU parity.
 
+### PyTorch Canary Testing (PMAT-328, Mar 24)
+
+Adapted from bashrs canary pattern: HuggingFace FP16 as ground truth, ship/kill gate.
+Golden reference: `Qwen/Qwen2.5-Coder-1.5B-Instruct` via `transformers.AutoModelForCausalLM`.
+
+| Runtime | Platform | Match | Exact Word | Gate | Divergence |
+|---------|----------|-------|-----------|------|------------|
+| realizr-gpu | yoga GPU | 5/5 | 3/5 | **SHIP** | json: "John" vs "John Doe" |
+| llama.cpp | yoga GPU | 5/5 | 4/5 | **SHIP** | hello: capitalization |
+| realizr-cpu | intel CPU | 5/5 | 4/5 | **SHIP** | hello: capitalization |
+
+**Key finding:** realizr GPU Q4K CUDA kernel produces different rounding than CPU Q4K SIMD
+for the same weights. Both produce correct code but differ in creative text (names, formatting).
+llama.cpp and realizr-cpu match more closely because both use CPU-style Q4K dequantization.
+
+**Usage:** `python3 scripts/canary_pytorch.py full --model Qwen/Qwen2.5-Coder-1.5B-Instruct --urls realizr=http://host:8081`
+
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
 ### PMAT-317: Fused Q4K Prefill FALSIFIED (Mar 23)
