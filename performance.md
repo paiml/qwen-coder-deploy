@@ -816,8 +816,15 @@ Intel Xeon W-3245 (16 cores @ 3.2GHz), 192GB RAM, 2x Radeon Pro W5700X (unused �
 | M=102 FFN up | 93.13ms | **76.51ms** | 1.2x | 36.7 |
 
 Peak 36.7 GFLOPS (0.4% of 9 TFLOPS). 3.4x faster than uncached but still ~48x slower than
-CPU SIMD for M=1 decode. Remaining overhead: per-call input buffer + bind group + staging
-readback. Viable path: persistent I/O buffers + batched command submission + Q4K WGSL shader.
+CPU SIMD for M=1 decode.
+
+**PMAT-323: Persistent I/O buffers — <5% improvement.** Buffer allocation was not the bottleneck.
+Real overhead: synchronous GPU roundtrip (submit→poll→map→readback) ≈ **2ms minimum per call**.
+196 matmuls/token × 2ms = 392ms = ~2.5 tok/s max. CPU does 34 tok/s.
+
+**Architectural conclusion:** WGPU per-matmul dispatch cannot compete with CPU SIMD.
+Only viable path: implement entire forward pass in WGSL (no intermediate readbacks,
+all data GPU-resident). Equivalent to a WebGPU inference engine. Estimated: 4-8 weeks.
 
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 

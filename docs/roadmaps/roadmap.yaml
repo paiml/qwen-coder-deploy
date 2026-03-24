@@ -5526,4 +5526,26 @@ roadmap:
   - wgpu
   - measurement
   - implementation
-  notes: 'GpuMatmulCache: upload_weight once, matmul_cached per call. 3.4x faster M=1 (2.36 vs 7.90ms). Peak 36.7 GFLOPS (0.4%). Still 48x slower than CPU. Next: persistent I/O buffers + batch submission.'
+  notes: 'GpuMatmulCache: upload_weight once, matmul_cached per call. 3.4x faster M=1 (2.36 vs 7.90ms). Peak 36.7 GFLOPS (0.4%). Still 48x slower than CPU.'
+- id: PMAT-323
+  github_issue: null
+  item_type: task
+  title: 'PMAT-323: Persistent I/O buffers <5% — synchronous roundtrip is the bottleneck'
+  status: done
+  priority: high
+  assigned_to: null
+  created: 2026-03-24T01:00:00+00:00
+  updated: 2026-03-24T01:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Add persistent I/O buffers to GpuMatmulCache
+  - Benchmark improvement vs PMAT-322
+  - Determine architectural viability
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - wgpu
+  - measurement
+  - falsified
+  notes: '<5% improvement. Real bottleneck: synchronous GPU roundtrip 2ms/call (submit→poll→map→readback). 196 matmuls × 2ms = 2.5 tok/s max. CPU does 34. Per-matmul WGPU dispatch architecturally non-viable. Need full WGSL forward pass (4-8 weeks).'
