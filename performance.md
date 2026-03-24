@@ -868,6 +868,23 @@ llama.cpp and realizr-cpu match more closely because both use CPU-style Q4K dequ
 
 **Usage:** `python3 scripts/canary_pytorch.py full --model Qwen/Qwen2.5-Coder-1.5B-Instruct --urls realizr=http://host:8081`
 
+### Cross-Backend Parity Gate (PMAT-329, Mar 24)
+
+Formalized as provable contract: `q4k-cross-backend-parity-v1.yaml`.
+
+| Prompt | GPU | CPU | llama.cpp | Status |
+|--------|-----|-----|-----------|--------|
+| 7 × 8 = ? | 56 | 56 | 56 | MATCH |
+| Capital of France | Paris | Paris | Paris | MATCH |
+| **fn main language** | **Go** | **Rust** | **Rust** | **FAIL** |
+| Your name? | Alibaba AI | AI | — | diverge (ok) |
+| 3 colors | red,orange,yellow | red,blue,green | — | diverge (ok) |
+
+**FACTUAL BUG FOUND:** realizr GPU Q4K answers "Go" instead of "Rust" for `fn main`.
+llama.cpp with same GGUF says "Rust". CPU realizr says "Rust". The GPU DP4A kernel
+accumulation produces enough rounding drift to flip the argmax on this factual question.
+**Gate: KILL** (2/3 factual). Needs investigation in realizr CUDA Q4K GEMV kernel.
+
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
 ### PMAT-317: Fused Q4K Prefill FALSIFIED (Mar 23)
