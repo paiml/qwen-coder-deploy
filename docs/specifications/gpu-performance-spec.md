@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.57.0
+**Version:** 5.58.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.57.0 | 2026-03-24 | **PMAT-332: WGPU serve integration architecture.** Mapped full code path: CLI→model load→dequant Q4K→upload WgslForwardPass→HTTP serve. Integration points identified across aprender (handlers.rs, types.rs) + realizr (loading.rs, dequant) + trueno (wgsl_forward.rs). Next: implement `--backend wgpu` flag. |
+| 5.58.0 | 2026-03-24 | **PMAT-332: `--backend wgpu` CLI flag implemented.** `apr serve run model.gguf --backend wgpu` recognized, prints WGPU header, falls back to CPU. CLI→config→dispatch wired across types.rs, serve_commands.rs, dispatch_run.rs, handlers.rs. Org ruleset fixed (accepts both `gate` and `ci / gate`). Full WGPU handler next. |
+| 5.57.0 | 2026-03-24 | **PMAT-332 (arch): WGPU serve architecture mapped.** Code path: CLI→load→dequant→WgslForwardPass→HTTP. |
 | 5.56.0 | 2026-03-24 | **PMAT-331: vec4 GEMV — 1.29ms/layer, 27.6 tok/s (81% CPU).** Peak 90.6 GFLOPS. W5700X viable. |
 | 5.55.0 | 2026-03-24 | **PMAT-329/330: Cross-backend parity.** GPU "Go" vs CPU "Rust" for `fn main`. 1.5B-specific (3B correct). DP4A rounding × low model confidence. |
 | 5.54.0 | 2026-03-24 | **PMAT-328: PyTorch canary testing.** All runtimes SHIP on canary prompts. GPU/CPU divergence on creative text. |
