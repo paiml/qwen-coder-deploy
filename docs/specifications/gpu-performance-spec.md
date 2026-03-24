@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.60.0
+**Version:** 5.61.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.60.0 | 2026-03-24 | **PMAT-333: WGPU dequant pipeline validated end-to-end.** `apr serve run model.gguf --backend wgpu` loads GGUF→dequant 253 weights→6175 MB F32 in 2.3s. Pipeline: GGUF→OwnedQuantizedModel→dequant→F32 vectors ready for WgslForwardPass upload. Org CI gate fix (standalone `gate` job) applied to realizr + aprender. |
+| 5.61.0 | 2026-03-24 | **PMAT-334: Provable contracts for WGPU + cross-backend parity.** `q4k-cross-backend-parity-v1.yaml` (dot epsilon, factual match). `wgpu-forward-pass-v1.yaml` (RMSNorm, GEMV dispatch, dequant). `#[contract]` macros on CPU GEMV + dequant adapter. build.rs binding.yaml updated with 5 new equations. |
+| 5.60.0 | 2026-03-24 | **PMAT-333: WGPU dequant pipeline validated.** 253 weights, 6175 MB, 2.3s. Org CI gate fix. |
 | 5.59.0 | 2026-03-24 | **PMAT-333 (adapter): dequant_model_weights() API.** Q4K/Q6K/Q5K→F32. |
 | 5.58.0 | 2026-03-24 | **PMAT-332: `--backend wgpu` CLI flag.** Wired through CLI→config→dispatch. Org ruleset fixed. |
 | 5.57.0 | 2026-03-24 | **PMAT-332 (arch): WGPU serve architecture mapped.** Code path: CLI→load→dequant→WgslForwardPass→HTTP. |
