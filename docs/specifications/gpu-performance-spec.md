@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.48.0
+**Version:** 5.49.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.48.0 | 2026-03-24 | **PMAT-322: GpuMatmulCache — 3.4x faster, still 48x slower than CPU.** Persistent weight buffers + cached pipeline. Peak 36.7 GFLOPS (0.4% of 9 TFLOPS). M=1: 2.36ms (was 7.90). Still ~48x slower than CPU SIMD. Needs persistent I/O + batch submission + Q4K shader. |
+| 5.49.0 | 2026-03-24 | **PMAT-323: Persistent I/O buffers <5%.** Synchronous GPU roundtrip (2ms/call) is the real bottleneck, not buffer alloc. 196 matmuls × 2ms = 2.5 tok/s max vs CPU 34. Per-matmul WGPU dispatch architecturally non-viable. Need full forward pass in WGSL. |
+| 5.48.0 | 2026-03-24 | **PMAT-322: GpuMatmulCache — 3.4x faster, still 48x slower than CPU.** Persistent weight buffers. Peak 36.7 GFLOPS (0.4% of 9 TFLOPS). |
 | 5.47.0 | 2026-03-23 | **PMAT-321: WGPU matmul uncached — 0.3% utilization.** Per-call buffer alloc ~8ms. M=1: 113x slower. M=102: 4.6x slower. |
 | 5.46.0 | 2026-03-23 | **PMAT-320: Intel CPU + WGPU benchmarks.** 1.5B CPU: 34.4, gap 1.71x. 3B CPU: 19.2, llama.cpp 35.6 (1.85x). WGPU not wired. |
 | 5.45.0 | 2026-03-23 | **PMAT-319: Official Qwen2.5-Coder-3B-Instruct deployed.** 6/6 correctness (vs 5/6 distill). realizr 81.9 tok/s, llama.cpp 90.7 (+10.7%), ollama 92.1. |
