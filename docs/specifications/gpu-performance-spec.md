@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.66.0
+**Version:** 5.67.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.66.0 | 2026-03-24 | **PMAT-339: WGPU HTTP inference serving!** First-ever WGPU inference on AMD GPU via HTTP. `/v1/chat/completions` on W5700X: 4 tokens in 1559ms = 2.56 tok/s. Full pipeline: GGUF→dequant→upload→forward→HTTP. Placeholder tokenizer (no KV cache). |
+| 5.67.0 | 2026-03-24 | **PMAT-340: WGPU vocab from GGUF + greedy tokenizer.** 151936 tokens extracted. Qwen2 chat template applied. 40 prompt tokens (was 2). Output still repetitive — needs BPE merge rules for proper byte-level tokenization. |
+| 5.66.0 | 2026-03-24 | **PMAT-339: WGPU HTTP serving!** First AMD GPU inference via HTTP: 2.56 tok/s on W5700X. |
 | 5.65.0 | 2026-03-24 | **PMAT-338: GPU LM head.** Tiled GEMM for vocab > 65535 dispatch limit. Full forward 1388ms. |
 | 5.64.0 | 2026-03-24 | **PMAT-337: forward_model works.** 151936 logits in 1.5s. Full GGUF→WGPU→logits pipeline. |
 | 5.63.0 | 2026-03-24 | **PMAT-336: trueno `#[contract]` enforcement.** provable-contracts-macros, 56/56 AllImplemented. |
