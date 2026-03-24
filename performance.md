@@ -824,12 +824,23 @@ Real overhead: synchronous GPU roundtrip (submit→poll→map→readback) ≈ **
 
 **Architectural conclusion:** WGPU per-matmul dispatch cannot compete with CPU SIMD.
 
-**PMAT-324: WGSL shader validation — full forward pass IS viable.**
-RMSNorm WGSL shader on W5700X: correctness PASS (4.77e-7 max error).
-GPU compute: 140µs/op (no readback). With readback: 254µs/op.
-Estimated batched forward pass: 28 layers × 20 ops × 140µs = **78ms/token** (2.7x vs CPU 29ms).
-This is close enough to be viable with shader optimization (better tiling, vectorization).
-WGSL shaders implemented: RMSNorm, SiLU×mul, residual add, RoPE (NeoX-style).
+**PMAT-324: WGSL shaders validated** — RMSNorm PASS (4.77e-7). Element-wise ops: 140µs/op.
+
+**PMAT-325: Multi-pass single-submit forward layer — 37ms/layer, ~1 tok/s.**
+14 compute passes in one command encoder, single readback. But matmul dominates:
+7 matmuls × ~5ms = 35ms (tiled 16×16 GEMM wastes 15/16 at M=1 GEMV). Element-wise ops
+are fast (140µs each) but irrelevant next to matmul.
+
+| Metric | Value |
+|--------|-------|
+| Per-layer | 37.0ms |
+| Full model (28 layers) | 1,037ms |
+| Estimated tok/s | ~1.0 |
+| vs CPU 34 tok/s | 35.8x slower |
+
+**Root cause:** WGSL tiled GEMM (16×16 workgroups) is wrong for M=1 GEMV. Need dedicated
+GEMV shader: each workgroup computes one output element via cooperative K-reduction.
+WGSL shaders implemented: RMSNorm, SiLU×mul, residual, RoPE, multi-pass forward.
 
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
