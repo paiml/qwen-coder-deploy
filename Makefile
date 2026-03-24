@@ -951,3 +951,17 @@ score-jetson:
 
 score-gate:
 	probador llm score --results results/ --platform yoga --concurrency 1 --fail-on-grade C
+
+# PMAT-328: PyTorch canary testing (ground truth comparison)
+canary-golden:
+	ssh yoga 'source ~/venvs/vllm/bin/activate && python3 /tmp/canary_pytorch.py generate --model Qwen/Qwen2.5-Coder-1.5B-Instruct --output /tmp/canary-golden.json'
+	scp yoga:/tmp/canary-golden.json results/canary-golden.json
+
+canary-yoga:
+	scp scripts/canary_pytorch.py yoga:/tmp/canary_pytorch.py
+	ssh yoga 'source ~/venvs/vllm/bin/activate && python3 /tmp/canary_pytorch.py compare --golden /tmp/canary-golden.json --url http://127.0.0.1:8081 --name realizr-gpu'
+
+canary-cpu:
+	scp scripts/canary_pytorch.py intel:/tmp/canary_pytorch.py
+	scp results/canary-golden.json intel:/tmp/canary-golden.json
+	ssh intel 'python3 /tmp/canary_pytorch.py compare --golden /tmp/canary-golden.json --url http://127.0.0.1:8081 --name realizr-cpu'
