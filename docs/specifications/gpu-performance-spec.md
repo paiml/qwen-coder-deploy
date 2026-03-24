@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.54.0
+**Version:** 5.55.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.54.0 | 2026-03-24 | **PMAT-328: PyTorch canary testing.** HuggingFace FP16 golden reference vs all runtimes. realizr-gpu 5/5 SHIP (3/5 exact), llama.cpp 5/5 SHIP (4/5 exact), realizr-cpu 5/5 SHIP (4/5 exact). GPU/CPU quantization divergence found (json_output: "John" vs "John Doe"). Adapted from bashrs canary pattern. |
+| 5.55.0 | 2026-03-24 | **PMAT-329: Cross-backend parity gate + factual divergence found.** GPU says "Go", CPU says "Rust" for `fn main` question (llama.cpp also says "Rust"). Deterministic factual error in realizr GPU Q4K path. Provable contract: q4k-cross-backend-parity-v1.yaml. Parity gate: 2/3 factual KILL. |
+| 5.54.0 | 2026-03-24 | **PMAT-328: PyTorch canary testing.** All runtimes SHIP on canary prompts. GPU/CPU divergence on creative text. |
 | 5.53.0 | 2026-03-24 | **PMAT-327: GEMV multi-pass — 1.39ms/layer, 25.7 tok/s (75% of CPU).** W5700X viable for LLM decode via WGPU/Vulkan. |
 | 5.52.0 | 2026-03-24 | **PMAT-326: WGSL GEMV shader — 27-33x faster at M=1.** Cooperative K-reduction. Peak 78 GFLOPS (0.87%). |
 | 5.51.0 | 2026-03-24 | **PMAT-325: Multi-pass forward — 37ms/layer (35.8x slower).** Tiled GEMM wastes 15/16 at M=1. |
