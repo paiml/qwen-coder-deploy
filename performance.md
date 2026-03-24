@@ -859,6 +859,13 @@ are fast (140µs each) but irrelevant next to matmul.
 Peak 90.6 GFLOPS on FFN down (1% of 9 TFLOPS theoretical).
 Remaining gap: per-pass bind group creation + pipeline bubbles.
 
+**PMAT-332: WGPU serve integration architecture** (in progress):
+- Add `--backend wgpu` to `apr serve run` CLI
+- Model load: dequantize Q4K→F32 via `dequantize_q4_k()`, upload to `WgslForwardPass`
+- Forward: `WgslForwardPass::forward_layer()` × 28 per token (GEMV at M=1)
+- Serve: reuse existing HTTP router + tokenizer, swap inference backend
+- Integration files: `handlers.rs` (dispatcher), `types.rs` (config), `wgsl_forward.rs` (engine)
+
 ### PyTorch Canary Testing (PMAT-328, Mar 24)
 
 Adapted from bashrs canary pattern: HuggingFace FP16 as ground truth, ship/kill gate.
