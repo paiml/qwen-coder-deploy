@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.56.0
+**Version:** 5.57.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.56.0 | 2026-03-24 | **PMAT-331: vec4 GEMV — 1.29ms/layer, 27.6 tok/s (81% of CPU).** Vectorized 4-wide loads + dot(vec4). 7.4% over PMAT-327. Peak 90.6 GFLOPS. W5700X viable for production AMD GPU inference via WGPU/Vulkan. |
+| 5.57.0 | 2026-03-24 | **PMAT-332: WGPU serve integration architecture.** Mapped full code path: CLI→model load→dequant Q4K→upload WgslForwardPass→HTTP serve. Integration points identified across aprender (handlers.rs, types.rs) + realizr (loading.rs, dequant) + trueno (wgsl_forward.rs). Next: implement `--backend wgpu` flag. |
+| 5.56.0 | 2026-03-24 | **PMAT-331: vec4 GEMV — 1.29ms/layer, 27.6 tok/s (81% CPU).** Peak 90.6 GFLOPS. W5700X viable. |
 | 5.55.0 | 2026-03-24 | **PMAT-329/330: Cross-backend parity.** GPU "Go" vs CPU "Rust" for `fn main`. 1.5B-specific (3B correct). DP4A rounding × low model confidence. |
 | 5.54.0 | 2026-03-24 | **PMAT-328: PyTorch canary testing.** All runtimes SHIP on canary prompts. GPU/CPU divergence on creative text. |
 | 5.53.0 | 2026-03-24 | **PMAT-327: GEMV multi-pass — 1.39ms/layer, 25.7 tok/s (75% of CPU).** W5700X viable for LLM decode via WGPU/Vulkan. |
