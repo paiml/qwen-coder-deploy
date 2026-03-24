@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.52.0
+**Version:** 5.53.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.52.0 | 2026-03-24 | **PMAT-326: WGSL GEMV shader — 27-33x faster at M=1.** Cooperative K-reduction: 0.27ms Q proj (was 2.36), 0.39ms FFN up (was 10.78). Peak 78 GFLOPS (0.87%). Est ~10 tok/s (3x CPU, was 48x). |
+| 5.53.0 | 2026-03-24 | **PMAT-327: GEMV multi-pass — 1.39ms/layer, 25.7 tok/s (75% of CPU).** GEMV + single-submit: 38.9ms/28 layers. Gap: 1.3x vs CPU 34 (was 48x). W5700X now viable for LLM decode via WGPU/Vulkan. |
+| 5.52.0 | 2026-03-24 | **PMAT-326: WGSL GEMV shader — 27-33x faster at M=1.** Cooperative K-reduction. Peak 78 GFLOPS (0.87%). |
 | 5.51.0 | 2026-03-24 | **PMAT-325: Multi-pass forward — 37ms/layer (35.8x slower).** Tiled GEMM wastes 15/16 at M=1. |
 | 5.50.0 | 2026-03-24 | **PMAT-324: WGSL RMSNorm validated (4.77e-7).** Element-wise 140µs/op. Estimate of 78ms/token was wrong — matmul cost not included. |
 | 5.49.0 | 2026-03-24 | **PMAT-323: Persistent I/O <5%.** Sync roundtrip 2ms/call. Per-matmul dispatch non-viable. Need full WGSL forward pass. |

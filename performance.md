@@ -838,9 +838,18 @@ are fast (140µs each) but irrelevant next to matmul.
 | Estimated tok/s | ~1.0 |
 | vs CPU 34 tok/s | 35.8x slower |
 
-**Root cause:** WGSL tiled GEMM (16×16 workgroups) is wrong for M=1 GEMV. Need dedicated
-GEMV shader: each workgroup computes one output element via cooperative K-reduction.
-WGSL shaders implemented: RMSNorm, SiLU×mul, residual, RoPE, multi-pass forward.
+**PMAT-327: GEMV multi-pass single-submit — 1.39ms/layer, 25.7 tok/s!**
+
+| Metric | GEMM (325) | **GEMV (327)** | Improvement |
+|--------|-----------|---------------|-------------|
+| Per-layer | 37.0ms | **1.39ms** | **26.6x** |
+| Full model (28L) | 1,037ms | **38.9ms** | **26.6x** |
+| Tok/s | ~1.0 | **25.7** | **25.7x** |
+| vs CPU 34 | 35.8x slower | **1.3x slower** | gap: 48x→1.3x |
+
+**W5700X now at 75% of CPU speed for LLM decode via WGPU/Vulkan.**
+Cooperative K-reduction GEMV + multi-pass single-submit = correct architecture.
+Next: vectorized WGSL loads (vec4), warp-level reduction → target CPU parity.
 
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
