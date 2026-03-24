@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.49.0
+**Version:** 5.50.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.49.0 | 2026-03-24 | **PMAT-323: Persistent I/O buffers <5%.** Synchronous GPU roundtrip (2ms/call) is the real bottleneck, not buffer alloc. 196 matmuls × 2ms = 2.5 tok/s max vs CPU 34. Per-matmul WGPU dispatch architecturally non-viable. Need full forward pass in WGSL. |
+| 5.50.0 | 2026-03-24 | **PMAT-324: WGSL RMSNorm shader validated on W5700X.** Correctness PASS (4.77e-7). GPU compute 140µs/op, readback 114µs. Batched dispatch: 78ms/token est (28 layers × 20 ops × 140µs) vs CPU 29ms = 2.7x gap (was 48x). WGSL forward pass viable. |
+| 5.49.0 | 2026-03-24 | **PMAT-323: Persistent I/O <5%.** Sync roundtrip 2ms/call. Per-matmul dispatch non-viable. Need full WGSL forward pass. |
 | 5.48.0 | 2026-03-24 | **PMAT-322: GpuMatmulCache — 3.4x faster, still 48x slower than CPU.** Persistent weight buffers. Peak 36.7 GFLOPS (0.4% of 9 TFLOPS). |
 | 5.47.0 | 2026-03-23 | **PMAT-321: WGPU matmul uncached — 0.3% utilization.** Per-call buffer alloc ~8ms. M=1: 113x slower. M=102: 4.6x slower. |
 | 5.46.0 | 2026-03-23 | **PMAT-320: Intel CPU + WGPU benchmarks.** 1.5B CPU: 34.4, gap 1.71x. 3B CPU: 19.2, llama.cpp 35.6 (1.85x). WGPU not wired. |
