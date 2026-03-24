@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.59.0
+**Version:** 5.60.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.59.0 | 2026-03-24 | **PMAT-333: WGPU dequant adapter.** `dequant_model_weights()` converts Q4K/Q6K/Q5K → F32 vectors for WgslForwardPass upload. Handles fused/separate QKV, all quant types. Full pipeline: load GGUF → dequant → upload → forward. |
+| 5.60.0 | 2026-03-24 | **PMAT-333: WGPU dequant pipeline validated end-to-end.** `apr serve run model.gguf --backend wgpu` loads GGUF→dequant 253 weights→6175 MB F32 in 2.3s. Pipeline: GGUF→OwnedQuantizedModel→dequant→F32 vectors ready for WgslForwardPass upload. Org CI gate fix (standalone `gate` job) applied to realizr + aprender. |
+| 5.59.0 | 2026-03-24 | **PMAT-333 (adapter): dequant_model_weights() API.** Q4K/Q6K/Q5K→F32. |
 | 5.58.0 | 2026-03-24 | **PMAT-332: `--backend wgpu` CLI flag.** Wired through CLI→config→dispatch. Org ruleset fixed. |
 | 5.57.0 | 2026-03-24 | **PMAT-332 (arch): WGPU serve architecture mapped.** Code path: CLI→load→dequant→WgslForwardPass→HTTP. |
 | 5.56.0 | 2026-03-24 | **PMAT-331: vec4 GEMV — 1.29ms/layer, 27.6 tok/s (81% CPU).** Peak 90.6 GFLOPS. W5700X viable. |
