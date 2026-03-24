@@ -1,4 +1,4 @@
-name: unified
+name: ci
 
 on:
   push:
@@ -7,7 +7,14 @@ on:
     branches: [main]
 
 jobs:
+  # Second job forces GitHub to use "ci / gate" format for check names
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "lint placeholder"
+
   gate:
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
