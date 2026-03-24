@@ -847,9 +847,17 @@ are fast (140µs each) but irrelevant next to matmul.
 | Tok/s | ~1.0 | **25.7** | **25.7x** |
 | vs CPU 34 | 35.8x slower | **1.3x slower** | gap: 48x→1.3x |
 
-**W5700X now at 75% of CPU speed for LLM decode via WGPU/Vulkan.**
-Cooperative K-reduction GEMV + multi-pass single-submit = correct architecture.
-Next: vectorized WGSL loads (vec4), warp-level reduction → target CPU parity.
+**PMAT-331: vec4 GEMV — 1.29ms/layer, 27.6 tok/s (81% of CPU).**
+
+| Version | Per-layer | Tok/s | vs CPU 34 |
+|---------|----------|-------|-----------|
+| PMAT-325 (GEMM) | 37.0ms | ~1.0 | 35.8x slower |
+| PMAT-327 (GEMV) | 1.39ms | 25.7 | 1.3x slower |
+| **PMAT-331 (vec4)** | **1.29ms** | **27.6** | **1.2x slower** |
+
+**W5700X at 81% of CPU speed via WGPU/Vulkan** — viable for AMD GPU inference.
+Peak 90.6 GFLOPS on FFN down (1% of 9 TFLOPS theoretical).
+Remaining gap: per-pass bind group creation + pipeline bubbles.
 
 ### PyTorch Canary Testing (PMAT-328, Mar 24)
 
