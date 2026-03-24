@@ -5505,3 +5505,25 @@ roadmap:
   - wgpu
   - falsified
   notes: 'Peak 30 GFLOPS of 9 TFLOPS = 0.3%. Per-call buffer alloc ~8ms overhead. M=1 113x slower, M=102 4.6x slower than CPU. Needs persistent buffer pool in trueno.'
+- id: PMAT-322
+  github_issue: null
+  item_type: task
+  title: 'PMAT-322: GpuMatmulCache — persistent weight buffers, 3.4x faster but still 48x slower'
+  status: done
+  priority: high
+  assigned_to: null
+  created: 2026-03-24T00:00:00+00:00
+  updated: 2026-03-24T00:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - Implement GpuMatmulCache in trueno with persistent weight buffers
+  - Benchmark cached vs uncached on W5700X
+  - Determine if cached path is viable for inference
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - wgpu
+  - measurement
+  - implementation
+  notes: 'GpuMatmulCache: upload_weight once, matmul_cached per call. 3.4x faster M=1 (2.36 vs 7.90ms). Peak 36.7 GFLOPS (0.4%). Still 48x slower than CPU. Next: persistent I/O buffers + batch submission.'

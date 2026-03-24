@@ -805,10 +805,19 @@ Intel Xeon W-3245 (16 cores @ 3.2GHz), 192GB RAM, 2x Radeon Pro W5700X (unused �
 | M=23 FFN up (23×1536×8960) | 39.31 | 16.1 | ~2x SLOWER |
 | M=102 FFN up (102×1536×8960) | 93.13 | 30.1 | ~4.6x SLOWER |
 
-**Peak 30 GFLOPS = 0.3% of W5700X 9 TFLOPS.** Root cause: trueno's WGPU backend creates
-per-call GPU buffers (alloc + upload + dispatch + readback + dealloc). Production integration
-requires persistent weight buffers + pre-allocated I/O staging. Current WGPU is **not viable**
-for inference — needs buffer pooling rewrite in trueno before integration.
+**PMAT-321 (uncached):** Peak 30 GFLOPS = 0.3% of W5700X 9 TFLOPS. Per-call buffer overhead ~8ms.
+
+**PMAT-322 (cached weight buffers):** `GpuMatmulCache` pre-uploads weights, caches pipeline:
+
+| Config | Uncached | Cached | Speedup | GFLOPS |
+|--------|----------|--------|---------|--------|
+| M=1 Q proj | 7.90ms | **2.36ms** | 3.4x | 2.0 |
+| M=23 FFN up | 39.31ms | **21.33ms** | 1.8x | 29.7 |
+| M=102 FFN up | 93.13ms | **76.51ms** | 1.2x | 36.7 |
+
+Peak 36.7 GFLOPS (0.4% of 9 TFLOPS). 3.4x faster than uncached but still ~48x slower than
+CPU SIMD for M=1 decode. Remaining overhead: per-call input buffer + bind group + staging
+readback. Viable path: persistent I/O buffers + batched command submission + Q4K WGSL shader.
 
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
