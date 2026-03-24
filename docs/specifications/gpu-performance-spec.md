@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.62.0
+**Version:** 5.63.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.62.0 | 2026-03-24 | **PMAT-335: WGPU weight upload — 253 weights to W5700X GPU in 5.4s.** Full pipeline: load GGUF→dequant→init WGPU device→upload to WgslForwardPass. Model GPU-resident, ready for forward_layer(). `wgpu` feature flag added. Token loop next. |
+| 5.63.0 | 2026-03-24 | **PMAT-336: trueno WGPU inference + `#[contract]` enforcement.** `provable-contracts-macros` added to trueno. `forward_model()` with `#[contract("wgpu-forward-pass-v1", equation = "rmsnorm_correctness")]`. build.rs: 56/56 AllImplemented. CLAUDE.md + binding.yaml updated across trueno + provable-contracts. |
+| 5.62.0 | 2026-03-24 | **PMAT-335: WGPU weight upload.** 253 weights to W5700X in 5.4s. Model GPU-resident. `wgpu` feature. |
 | 5.61.0 | 2026-03-24 | **PMAT-334: Provable contracts.** 2 contracts, 5 equations, `#[contract]` macros, build.rs binding.yaml. |
 | 5.60.0 | 2026-03-24 | **PMAT-333: WGPU dequant pipeline validated.** 253 weights, 6175 MB, 2.3s. Org CI gate fix. |
 | 5.59.0 | 2026-03-24 | **PMAT-333 (adapter): dequant_model_weights() API.** Q4K/Q6K/Q5K→F32. |
