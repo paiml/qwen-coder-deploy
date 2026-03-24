@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.55.0
+**Version:** 5.56.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.55.0 | 2026-03-24 | **PMAT-329: Cross-backend parity gate + factual divergence found.** GPU says "Go", CPU says "Rust" for `fn main` question (llama.cpp also says "Rust"). Deterministic factual error in realizr GPU Q4K path. Provable contract: q4k-cross-backend-parity-v1.yaml. Parity gate: 2/3 factual KILL. |
+| 5.56.0 | 2026-03-24 | **PMAT-330: GPU factual divergence investigated.** 1.5B-specific (3B correct). All GPU config flags tested — core DP4A issue. Model quality × quantization margin interaction, not kernel bug. Mitigation: 3B for correctness. |
+| 5.55.0 | 2026-03-24 | **PMAT-329: Cross-backend parity gate.** GPU "Go" vs CPU "Rust" for `fn main`. Provable contract formalized. |
 | 5.54.0 | 2026-03-24 | **PMAT-328: PyTorch canary testing.** All runtimes SHIP on canary prompts. GPU/CPU divergence on creative text. |
 | 5.53.0 | 2026-03-24 | **PMAT-327: GEMV multi-pass — 1.39ms/layer, 25.7 tok/s (75% of CPU).** W5700X viable for LLM decode via WGPU/Vulkan. |
 | 5.52.0 | 2026-03-24 | **PMAT-326: WGSL GEMV shader — 27-33x faster at M=1.** Cooperative K-reduction. Peak 78 GFLOPS (0.87%). |

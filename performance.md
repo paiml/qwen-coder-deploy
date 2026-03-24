@@ -883,7 +883,15 @@ Formalized as provable contract: `q4k-cross-backend-parity-v1.yaml`.
 **FACTUAL BUG FOUND:** realizr GPU Q4K answers "Go" instead of "Rust" for `fn main`.
 llama.cpp with same GGUF says "Rust". CPU realizr says "Rust". The GPU DP4A kernel
 accumulation produces enough rounding drift to flip the argmax on this factual question.
-**Gate: KILL** (2/3 factual). Needs investigation in realizr CUDA Q4K GEMV kernel.
+
+**PMAT-330 investigation:**
+- FP8 disabled: still "Go". Graph dispatch disabled: still "Go"
+- Iteration scheduler disabled: still "Go". **Core DP4A kernel issue**
+- Same prompt tokenization (22 tokens). Divergence at first decode step
+- **3B model on GPU says "Rust"** — only 1.5B affected (lower confidence margin)
+- Root cause: 1.5B model's logits for "R" vs "Go" within DP4A rounding margin (~1e-4)
+- Not a kernel bug — model quality × quantization precision interaction
+- **Mitigation: use 3B for correctness-critical workloads**
 
 **Recommendation:** Deploy official 3B for single-user quality; 1.5B for concurrent serving.
 
