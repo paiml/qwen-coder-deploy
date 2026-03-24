@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.64.0
+**Version:** 5.65.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.64.0 | 2026-03-24 | **PMAT-337: WGPU forward_model works end-to-end.** Token 9707 → 151,936 logits in 1.5s on W5700X. Full pipeline: GGUF→dequant→WGPU upload→forward_model()→logits. 28 GPU layers + CPU LM head. `#[contract]` enforced. |
+| 5.65.0 | 2026-03-24 | **PMAT-338: GPU LM head + dispatch limit fix.** LM head moved to GPU tiled GEMM (vocab 151936 > 65535 WGPU dispatch limit). Full forward: 1388ms (was 1501ms, 7.5% faster). Entire pipeline GPU-accelerated. |
+| 5.64.0 | 2026-03-24 | **PMAT-337: forward_model works.** 151936 logits in 1.5s. Full GGUF→WGPU→logits pipeline. |
 | 5.63.0 | 2026-03-24 | **PMAT-336: trueno `#[contract]` enforcement.** provable-contracts-macros, 56/56 AllImplemented. |
 | 5.62.0 | 2026-03-24 | **PMAT-335: WGPU weight upload.** 253 weights to W5700X in 5.4s. Model GPU-resident. `wgpu` feature. |
 | 5.61.0 | 2026-03-24 | **PMAT-334: Provable contracts.** 2 contracts, 5 equations, `#[contract]` macros, build.rs binding.yaml. |
