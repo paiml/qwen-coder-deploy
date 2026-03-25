@@ -2,11 +2,12 @@
 
 ## Project Overview
 
-Deployment infrastructure for Qwen2.5-Coder-1.5B-Instruct across four inference runtimes:
+Deployment infrastructure for Qwen2.5-Coder-1.5B-Instruct across five inference runtimes:
 - **realizar** (Sovereign AI Stack) — port 8081
 - **ollama** — port 8082
 - **llama.cpp** (llama-server) — port 8083
 - **vLLM** (AWQ INT4) — port 8084
+- **realizar-wgpu** (WGPU/Vulkan on AMD) — port 8081 on intel
 
 Uses **forjar** for declarative deployment and **probador** (probar CLI) for correctness testing and load testing.
 
@@ -20,11 +21,11 @@ Yoga (PRIMARY benchmark target)          4090 Host (QLoRA training + deep profil
 ├── vLLM       :8084  (AWQ INT4)         └── Builds: apr, llama.cpp, trueno
 └── RTX 4060 Laptop, sm_89, 8GB
 
-Jetson Orin (secondary load testing)     CPU (intel, 192.168.50.100)
-├── realizr    :8081  (GGUF, CUDA)       ├── realizr     :8081  (nohup)
-├── ollama     :8082  (GGUF, CUDA)       ├── ollama      :8082  (nohup)
-├── llama.cpp  :8083  (GGUF, CUDA)       └── llama.cpp   :8083  (nohup)
-└── 8 SMs, sm_87, 8GB unified
+Jetson Orin (secondary load testing)     Intel (192.168.50.100, WGPU + CPU)
+├── realizr    :8081  (GGUF, CUDA)       ├── realizr-wgpu :8081  (GGUF, Vulkan)
+├── ollama     :8082  (GGUF, CUDA)       │   Radeon Pro W5700X (Navi 10, 8GB)
+├── llama.cpp  :8083  (GGUF, CUDA)       ├── realizr-cpu  :8082  (GGUF, AVX2)
+└── 8 SMs, sm_87, 8GB unified           └── llama.cpp    :8083  (GGUF, CPU)
 ```
 
 ## Commands
@@ -60,6 +61,12 @@ make test              # Correctness tests
 make load              # Load tests
 make teardown          # Stop services
 
+# WGPU deployment (intel host, Radeon Pro W5700X)
+# Build: cd ~/src/aprender && CARGO_TARGET_DIR=/mnt/nvme-raid0/targets/aprender cargo build --release -p apr-cli --bin apr --features "apr-cli/inference,apr-cli/wgpu" --no-default-features
+# Deploy: scp /mnt/nvme-raid0/targets/aprender/release/apr intel:~/.cargo/bin/apr
+# Start: ssh intel 'apr serve run ~/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --backend wgpu --port 8081 --host 0.0.0.0'
+# Test: curl http://192.168.50.100:8081/v1/chat/completions -d '{"model":"qwen","messages":[{"role":"user","content":"2+2?"}],"max_tokens":8}'
+
 # Reports
 make report            # Generate performance.md + update README
 
@@ -80,6 +87,7 @@ make score-gate        # CI gate: fail if any runtime below C
 | ollama | GGUF (Q4_K_M) | ollama pull qwen2.5-coder:1.5b-instruct |
 | llama.cpp | GGUF (Q4_K_M) | Same GGUF file as realizar |
 | vLLM | AWQ INT4 | Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ from HuggingFace |
+| realizar-wgpu | GGUF (Q4_K_M→F32) | Same GGUF, dequantized to F32 for WGPU/Vulkan on AMD |
 
 ## Forjar Configs
 
@@ -106,7 +114,7 @@ Load tests via `probador llm load` with configurable concurrency and duration.
 - `forjar-gpu.yaml` — 4090 deployment (deep profiling only)
 - `forjar.yaml` — CPU deployment configuration (intel host)
 - `prompts/correctness.yaml` — Correctness test suite
-- `docs/specifications/gpu-performance-spec.md` — Performance specification (v5.28.0)
+- `docs/specifications/gpu-performance-spec.md` — Performance specification (v5.77.0, 349 PMAT items)
 - `docs/specifications/scoring.yaml` — Quantitative scoring contract v2.0.0 (weights, thresholds, grades)
 - `docs/specifications/probador-llm-score-v1.yaml` — Scoring CLI spec + falsification tests
 - `performance.md` — Historical performance data (auto-updated)

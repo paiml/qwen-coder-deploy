@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.77.0
+**Version:** 5.78.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 349 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 350 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.78.0 | 2026-03-25 | **PMAT-350: Cross-backend factual parity verified.** WGPU/CPU: 1/3 token-match, 3/3 factual-correct. "Capital of France?" exact match. "2+2?" both correct, different wording (tokenizer difference). `factual_match` contract bound. trueno 60/60, realizr 212/212 = **272 provable contracts**. CLAUDE.md updated with WGPU architecture. |
 | 5.77.0 | 2026-03-25 | **PMAT-349: realizr dequant_correctness contract.** `#[contract]` on `dequant_model_weights()`. Fixed stale "transposed" log. realizr 212/212 bindings. trueno 59/59 bindings. Total cross-repo: 271 provable contract bindings AllImplemented. |
 | 5.76.0 | 2026-03-25 | **PMAT-348: Provable contracts for WGPU bugs.** `wgpu-forward-pass-v1.yaml` v2.0.0: `gemv_params_safety`, `buffer_size_safety`, `weight_transpose` equations. trueno binding.yaml 56→59 bindings, AllImplemented. `#[contract]` on `new()` and `upload_weight_transposed()`. |
 | 5.75.0 | 2026-03-25 | **PMAT-347: GPU LM head with weight transpose.** `upload_weight_transposed()` transposes `[N,K]` to `[K,N]` at init. GPU tiled GEMM for LM head (vocab=151936). +36% tok/s (0.7 to 0.95). Extracted WGSL shaders to separate file (732 lines, was 782). |
