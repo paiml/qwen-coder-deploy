@@ -5572,3 +5572,45 @@ roadmap:
   - implementation
   - measurement
   notes: 'RMSNorm correctness PASS (4.77e-7). GPU 140µs/op no readback. 78ms/token est (2.7x CPU). SiLU, residual, RoPE shaders also implemented. Next: WGSL matmul integration + multi-pass single submission.'
+- id: PMAT-346
+  github_issue: null
+  item_type: task
+  title: "WGPU output quality fixed — GEMV params + SiLU buffer overflow"
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-03-25T06:00:00+00:00
+  updated: 2026-03-25T08:00:00+00:00
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - "AC1: WGPU output matches CPU realizr for 'What is 2+2?' — PASS: '2 + 2 equals 4.'"
+  - "AC2: WGPU output matches CPU for 'Capital of France?' — PASS: 'The capital of France is Paris.'"
+  - "AC3: GEMV verified vs CPU reference — max_abs_err < 0.00003"
+  phases: []
+  subtasks: []
+  estimated_effort: 1d
+  labels:
+  - wgpu
+  - bugfix
+  - critical
+  notes: "Two critical bugs: (1) GEMV params struct mismatch — Params{n,k} received [m=1,k,n,0], only row 0 computed. (2) SiLU buffer overflow — attn_out_buf=1536 but SiLU writes intermediate_dim=8960. Both fixed in trueno. LM head reverted to CPU (matmul expects [K,N] but weights [N,K])."
+- id: PMAT-347
+  github_issue: null
+  item_type: task
+  title: "WGPU GPU-accelerated LM head with weight transpose"
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-25T08:00:00+00:00
+  updated: 2026-03-25T08:00:00+00:00
+  spec: docs/specifications/gpu-performance-spec.md
+  acceptance_criteria:
+  - "AC1: LM head runs on GPU via tiled GEMM with transposed weight"
+  - "AC2: Performance improvement measured vs CPU LM head baseline"
+  phases: []
+  subtasks: []
+  estimated_effort: 0.5d
+  labels:
+  - wgpu
+  - performance
+  notes: "CPU LM head is correct but slow for vocab=151936. Need upload_weight_transposed() that converts [N,K] to [K,N] at init. Currently ~2ms/token on CPU."
