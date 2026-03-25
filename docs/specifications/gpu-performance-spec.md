@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.86.0
+**Version:** 5.87.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 358 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 359 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.87.0 | 2026-03-25 | **PMAT-359: gpu_bias_rope_order contract bound.** `#[contract]` on `forward_layer()`. trueno 61/61, realizr 212/212 = **273 provable contracts**. wgpu-forward-pass-v1 v3.0.0: 8 equations, all bound. |
 | 5.86.0 | 2026-03-25 | **PMAT-358: GPU-side bias+RoPE.** QKV bias and RoPE now on GPU in same command encoder as GEMV. CPU bias+RoPE removed. 5 fewer CPU ops per layer. Foundation for single-submit forward_layer. 0.72 tok/s (net neutral perf — GPU dispatch overhead offsets CPU savings at this scale). All 3 correctness tests pass. |
 | 5.85.0 | 2026-03-25 | **PMAT-357: File split + GPU LM head regression fix.** Split `wgsl_forward.rs` (757→324 lines) into struct+layer+shader files. Found GPU LM head regression: `upload_weight` no longer returns early for biases → `lm_head` stored in `weight_buffers` → GPU matmul fires with non-transposed weight. Reverted to CPU-only LM head. BIAS_ADD_SHADER + `bias_add_pipeline` infrastructure ready for PMAT-356 GPU bias+RoPE. |
 | 5.84.0 | 2026-03-25 | **PMAT-356: GPU bias+RoPE+attention design.** Bias and RoPE don't commute — must move both to GPU together. Requires: (1) split wgsl_forward.rs into struct+layer files, (2) BIAS_ADD_SHADER in wgsl_shaders.rs, (3) upload biases to GPU at init, (4) encode bias→RoPE→attention in same command encoder. Currently blocked by 500-line file health limit. Next session: file split + implementation. |
