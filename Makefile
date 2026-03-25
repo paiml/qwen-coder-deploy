@@ -33,11 +33,12 @@
 
 DATE := $(shell date +%Y%m%d)
 
-# --- Intel (CPU-only remote host) ---
+# --- Intel (CPU + WGPU remote host) ---
 INTEL_HOST := 192.168.50.100
 INTEL_REALIZAR := http://$(INTEL_HOST):8081
 INTEL_OLLAMA   := http://$(INTEL_HOST):8082
 INTEL_LLAMACPP := http://$(INTEL_HOST):8083
+INTEL_WGPU     := http://$(INTEL_HOST):8081
 
 # --- GPU (localhost, RTX 4090 — deep profiling only, 4090 runs QLoRA full-time) ---
 GPU_HOST := 127.0.0.1
@@ -83,6 +84,7 @@ QWEN_LAYERS := 28
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
         profile-yoga profile-yoga-ci profile-yoga-trace profile-yoga-compare profile-yoga-full \
+        build-wgpu deploy-wgpu start-wgpu test-wgpu stop-wgpu \
         score score-prod score-all score-json score-jetson score-gate \
         contract-lint contract-validate contract-score contract-falsify
 
@@ -115,6 +117,40 @@ load:
 	probador llm load --url $(INTEL_LLAMACPP) --concurrency 4 --duration 60s --runtime-name llamacpp-cpu --output results/llamacpp-cpu-load-$(DATE).json
 
 nightly: deploy health test load report
+
+# ============================================================================
+# Intel WGPU targets (Radeon Pro W5700X, Vulkan)
+# ============================================================================
+
+WGPU_MODEL := /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+
+build-wgpu:  ## Build apr with WGPU feature
+	cd ~/src/aprender && CARGO_TARGET_DIR=/mnt/nvme-raid0/targets/aprender \
+		cargo build --release -p apr-cli --bin apr \
+		--features "apr-cli/inference,apr-cli/wgpu" --no-default-features
+
+deploy-wgpu: build-wgpu  ## Deploy WGPU binary to intel
+	ssh intel 'pkill -f "backend wgpu" 2>/dev/null; sleep 2; true'
+	scp /mnt/nvme-raid0/targets/aprender/release/apr intel:~/.cargo/bin/apr
+
+start-wgpu: deploy-wgpu  ## Start WGPU server on intel
+	ssh intel 'nohup apr serve run $(WGPU_MODEL) --backend wgpu --port 8081 --host 0.0.0.0 > /tmp/wgpu-serve.log 2>&1 &'
+	@echo "Waiting for WGPU startup (model dequant + GPU upload)..."
+	@sleep 18
+	@curl -sf $(INTEL_WGPU)/health >/dev/null && echo "WGPU ready" || echo "WGPU not ready — check /tmp/wgpu-serve.log"
+
+test-wgpu:  ## Correctness test on WGPU endpoint
+	@echo "=== WGPU Correctness ==="
+	@for prompt in "What is 2+2?" "Capital of France?" "Write hello in Python"; do \
+		echo -n "  \"$$prompt\": "; \
+		curl -s --max-time 120 $(INTEL_WGPU)/v1/chat/completions \
+			-H 'Content-Type: application/json' \
+			-d "{\"model\":\"qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"$$prompt\"}],\"max_tokens\":32}" \
+			| python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null || echo "FAIL"; \
+	done
+
+stop-wgpu:  ## Stop WGPU server on intel
+	ssh intel 'pkill -f "backend wgpu" 2>/dev/null; true'
 
 # ============================================================================
 # GPU targets (localhost, RTX 4090)

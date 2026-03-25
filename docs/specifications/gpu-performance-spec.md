@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.81.0
+**Version:** 5.82.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 353 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 354 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.82.0 | 2026-03-25 | **PMAT-354: WGPU Makefile targets.** `make build-wgpu`, `deploy-wgpu`, `start-wgpu`, `test-wgpu`, `stop-wgpu`. WGPU is now a first-class runtime alongside CUDA/ollama/llama.cpp/vLLM. 3/3 correctness tests pass. |
 | 5.81.0 | 2026-03-25 | **PMAT-353: realizr AllImplemented contract enforcement.** Upgraded from WarnOnGaps (Phase 4) to AllImplemented (Phase 5). build.rs now panics on any `not_implemented` binding. 212/212 realizr + 60/60 trueno = **272 provable contracts strictly enforced**. |
 | 5.80.0 | 2026-03-25 | **PMAT-352: GPT-2 BPE detokenizer for WGPU.** Proper byte-level BPE decoding: `Ġ`→space, `Ċ`→newline, `<0xHH>`→byte. Output now clean text. Pushed to aprender main. |
 | 5.79.0 | 2026-03-25 | **PMAT-351: GPU bias-add FALSIFIED.** In-place `data[i]+=bias[i]` WGSL shader produced garbled output. Root cause: stale Cargo cache during testing confused clean vs dirty builds. CPU bias application retained. Readback refactoring (readback_staging helper) ALSO falsified — reverted. Net: no change to forward_layer, 0.72 tok/s confirmed correct from clean build. |
