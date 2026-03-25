@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.70.0
+**Version:** 5.71.0
 **Last Updated:** 2026-03-22
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -4712,7 +4712,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 5.70.0 | 2026-03-25 | **PMAT-343: RoPE in WGPU forward.** NeoX-style RoPE on Q and K (rope_theta=1M). Output now diverse (was repeating Ċ). K readback + K bias added. Needs KV cache for correct multi-token context — last gap for coherent text. |
+| 5.71.0 | 2026-03-25 | **PMAT-344: KV cache — all architectural gaps closed.** Accumulate K/V per layer. Scaled dot-product attention over full cached sequence with GQA. Complete pipeline: WGSL shaders + dequant + BPE + biases + RoPE + KV cache + attention + LM head + HTTP. Output quality needs numerical debugging. |
+| 5.70.0 | 2026-03-25 | **PMAT-343: RoPE.** NeoX-style. Output diverse (was Ċ). |
 | 5.69.0 | 2026-03-24 | **PMAT-342: Attention + QKV biases.** Hybrid GPU/CPU. GQA expansion. |
 | 5.68.0 | 2026-03-24 | **PMAT-341: BPE tokenizer.** 151387 merge rules. 26 prompt tokens. |
 | 5.67.0 | 2026-03-24 | **PMAT-340: WGPU vocab + greedy tokenizer.** 151936 tokens. Chat template. |
