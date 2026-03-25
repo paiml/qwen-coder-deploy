@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.75.0
+**Version:** 5.76.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 347 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 348 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.76.0 | 2026-03-25 | **PMAT-348: Provable contracts for WGPU bugs.** `wgpu-forward-pass-v1.yaml` v2.0.0: `gemv_params_safety`, `buffer_size_safety`, `weight_transpose` equations. trueno binding.yaml 56→59 bindings, AllImplemented. `#[contract]` on `new()` and `upload_weight_transposed()`. |
 | 5.75.0 | 2026-03-25 | **PMAT-347: GPU LM head with weight transpose.** `upload_weight_transposed()` transposes `[N,K]` to `[K,N]` at init. GPU tiled GEMM for LM head (vocab=151936). +36% tok/s (0.7 to 0.95). Extracted WGSL shaders to separate file (732 lines, was 782). |
 | 5.74.0 | 2026-03-25 | **PMAT-346: WGPU output quality fixed — two critical bugs.** **GEMV params**: shader `Params{n,k}` received `[m=1,k,n,0]` so only row 0 computed (1535 outputs garbage). **SiLU buffer overflow**: `attn_out_buf` sized to hidden_dim=1536 but SiLU writes intermediate_dim=8960, corrupting GPU memory. Both fixed. WGPU now produces correct output ("2+2=4" matches CPU). LM head reverted to CPU (matmul shader expects [K,N] but weights are [N,K]) |
 | 5.72.0 | 2026-03-25 | **PMAT-345: Weight layout analysis.** GGUF `data[i0+i1*ne0]` for `[ne0,ne1]` IS row-major `[out,in]` — no transpose needed. Incorrect transpose reverted. Output still garbled — root cause under investigation (not layout). |
