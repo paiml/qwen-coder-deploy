@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.79.0
+**Version:** 5.80.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 351 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 352 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.80.0 | 2026-03-25 | **PMAT-352: GPT-2 BPE detokenizer for WGPU.** Proper byte-level BPE decoding: `Ġ`→space, `Ċ`→newline, `<0xHH>`→byte. Output now clean text. Pushed to aprender main. |
 | 5.79.0 | 2026-03-25 | **PMAT-351: GPU bias-add FALSIFIED.** In-place `data[i]+=bias[i]` WGSL shader produced garbled output. Root cause: stale Cargo cache during testing confused clean vs dirty builds. CPU bias application retained. Readback refactoring (readback_staging helper) ALSO falsified — reverted. Net: no change to forward_layer, 0.72 tok/s confirmed correct from clean build. |
 | 5.78.0 | 2026-03-25 | **PMAT-350: Cross-backend factual parity verified.** WGPU/CPU: 1/3 token-match, 3/3 factual-correct. "Capital of France?" exact match. "2+2?" both correct, different wording (tokenizer difference). `factual_match` contract bound. trueno 60/60, realizr 212/212 = **272 provable contracts**. CLAUDE.md updated with WGPU architecture. |
 | 5.77.0 | 2026-03-25 | **PMAT-349: realizr dequant_correctness contract.** `#[contract]` on `dequant_model_weights()`. Fixed stale "transposed" log. realizr 212/212 bindings. trueno 59/59 bindings. Total cross-repo: 271 provable contract bindings AllImplemented. |
