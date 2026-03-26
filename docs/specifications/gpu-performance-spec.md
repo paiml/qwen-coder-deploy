@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.96.0
+**Version:** 5.97.0
 **Last Updated:** 2026-03-26
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 368 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 369 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.97.0 | 2026-03-26 | **PMAT-369: Yoga benchmark — CUDA regression found.** Latest trueno-gpu (commit `63a976ff` PtxOp::MulWide) causes `CUDA_ERROR_ILLEGAL_ADDRESS` (700) on sm_89. Context poisoning: c=4 worked briefly (320.8 tok/s — matches PMAT-296 baseline), then c=8 crashed, server dead. **Action: revert PtxOp::MulWide or pin trueno-gpu to pre-regression version.** |
 | 5.96.0 | 2026-03-26 | **PMAT-368: WGPU feature-complete verification.** Final test: 3/3 non-streaming + streaming all pass. CLAUDE.md updated with Makefile targets + Q4K docs. Memory file updated. 275 provable contracts, 10/10 WGPU equations. 22 PMAT items (346→367) from garbled output to production-ready with Q4K compute + streaming SSE. |
 | 5.95.0 | 2026-03-26 | **PMAT-367: WGPU_Q4K opt-in mode.** `WGPU_Q4K=1` enables Q4K fused GEMV: 626 MB VRAM (10× savings), 0.24 tok/s. Default F32: 6175 MB, 0.74 tok/s (3× faster). Q4K ALU-heavy on dispatch-bound GPU — correct for VRAM-constrained scenarios (larger models, smaller GPUs). |
 | 5.94.0 | 2026-03-26 | **PMAT-366: All WGPU contracts implemented.** 10/10 equations (was 9+1 partial). q4k_fused_gemv now implemented. trueno 63/63 + realizr 212/212 = **275 provable contracts AllImplemented**. wgpu-forward-pass-v1 v3.0.0 complete. |
