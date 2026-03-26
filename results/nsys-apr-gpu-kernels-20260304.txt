@@ -1,0 +1,16 @@
+Generating SQLite file /home/noah/src/qwen-coder-deploy/results/nsys-apr-gpu-20260304.sqlite from /home/noah/src/qwen-coder-deploy/results/nsys-apr-gpu-20260304.nsys-rep
+Processing [/home/noah/src/qwen-coder-deploy/results/nsys-apr-gpu-20260304.sqlite] with [/usr/lib/x86_64-linux-gnu/nsight-systems/target-linux-x64/reports/cuda_gpu_kern_sum.py]... 
+
+ ** CUDA GPU Kernel Summary (cuda_gpu_kern_sum):
+
+ Time (%)  Total Time (ns)  Instances  Avg (ns)  Med (ns)  Min (ns)  Max (ns)   StdDev (ns)              Name             
+ --------  ---------------  ---------  --------  --------  --------  ---------  -----------  -----------------------------
+     46.0      528,677,665     53,592   9,864.9   4,480.0     2,336  1,317,957     20,373.8  mwv_q4k_gemv                 
+     31.9      367,376,628      9,251  39,712.1  39,169.0     6,368  1,824,552     90,599.0  q6k_gemv_warp_reduce         
+      9.3      107,069,239      8,932  11,987.2  11,168.0     1,760  1,271,333     25,463.6  multi_warp_attention_indirect
+      5.3       60,834,437     18,183   3,345.7   3,136.0     3,008  1,287,237     10,885.4  rmsnorm_vectorized           
+      3.8       43,302,045     44,660     969.6     960.0       800  1,191,909      5,825.7  residual_add                 
+      1.7       19,633,258     17,864   1,099.0     992.0       960  1,277,158      9,890.3  rope_neox_indirect           
+      1.3       15,276,374     17,864     855.1     864.0       800      3,200         29.6  kv_cache_scatter_indirect    
+      0.7        8,137,919      8,932     911.1     896.0       864      6,400         82.8  fused_swiglu                 
+

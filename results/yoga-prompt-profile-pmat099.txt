@@ -1,0 +1,36 @@
+# PMAT-099: Prompt Profile Baseline (yoga RTX 4060L, 1900MHz, 30s, streaming)
+# Date: 2026-03-12
+# Purpose: Establish medium/long prompt baselines to motivate chunked prefill
+
+## c=1 Comparison
+| Profile | realizr TTFT | llama.cpp TTFT | Ratio | realizr Decode | llama.cpp Decode |
+|---------|-------------|---------------|-------|---------------|-----------------|
+| short (23 tok) | 14.0ms | 10.2ms | 1.37x | 148.9 | 161.2 |
+| medium (~100 tok) | 19.9ms | 11.0ms | 1.81x | 148.1 | 159.2 |
+| long (~280 tok) | 41.4ms | 10.7ms | 3.87x | 146.7 | 157.6 |
+
+## c=4 Comparison
+| Profile | realizr TTFT | llama.cpp TTFT | Ratio | realizr Agg | llama.cpp Agg | Agg Ratio |
+|---------|-------------|---------------|-------|-------------|---------------|-----------|
+| short (23 tok) | 39.8ms | 25.1ms | 1.59x | 266.7 | 347.9 | 0.77x |
+| medium (~100 tok) | 79.0ms | 19.7ms | 4.01x | 246.5 | 368.8 | 0.67x |
+| long (~280 tok) | 179.2ms | 17.4ms | 10.3x | 207.4 | 362.4 | 0.57x |
+
+## Key Finding
+llama.cpp TTFT is FLAT across prompt lengths at c=4 (chunked prefill).
+realizr TTFT scales linearly (sequential prefill blocks decode).
+Gap widens from 1.59x (short) to 10.3x (long) at c=4.
+
+## c=1 Prefill tok/s
+| Profile | realizr | llama.cpp | Ratio |
+|---------|---------|-----------|-------|
+| short | 1,645 | 2,245 | 0.73x |
+| medium | 5,127 | 9,284 | 0.55x |
+| long | 6,764 | 26,113 | 0.26x |
+
+## c=4 ITL P50
+| Profile | realizr | llama.cpp | Ratio |
+|---------|---------|-----------|-------|
+| short | 14.5ms | 11.2ms | 1.29x |
+| medium | 15.7ms | 10.8ms | 1.45x |
+| long | 18.0ms | 10.9ms | 1.65x |

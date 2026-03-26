@@ -1,0 +1,11 @@
+Health check passed: http://192.168.50.38:8081
+  basic_math ... PASS (158ms)
+  python_fibonacci ... PASS (317ms)
+  rust_hello ... PASS (140ms)
+  explain_code ... ERROR: API error 500: {"error":"Operation 'forward_gpu_resident_to_token_id' not supported: forward_graphed_replay_to_token_id failed: CUDA stream synchronization failed: CUDA driver error: CUDA_ERROR_ILLEGAL_ADDRESS (code: 700)"}
+  json_output ... ERROR: API error 500: {"error":"Operation 'prefill_all_layers_gpu' not supported: Batched prefill failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_ILLEGAL_ADDRESS (code: 700)"}
+  sql_query ... ERROR: API error 500: {"error":"Operation 'prefill_all_layers_gpu' not supported: Batched prefill failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_ILLEGAL_ADDRESS (code: 700)"}
+
+Results: 3/6 passed, 3 failed
+Results written to results/correctness-013-c1-20260310.json
+Error: 3 test(s) failed

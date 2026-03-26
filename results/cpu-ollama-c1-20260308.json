@@ -1,0 +1,19 @@
+Load testing http://192.168.50.100:8082 (concurrency=1, duration=60s, warmup=5s, runtime=unknown)
+Health check passed
+
+--- Load Test Results ---
+Runtime:      unknown
+Requests:     11 (11 ok, 0 failed)
+Throughput:   0.2 req/s
+Latency P50:  5854.9 ms
+Latency P95:  5963.1 ms
+Latency P99:  5963.4 ms
+TTFT P50:     262.3 ms
+Tokens/sec:   21.8
+Avg tok/req:  128.0
+Prefill tok/s:388.9
+Decode tok/s: 22.7
+ITL P50:      44.0 ms
+TPOT P50:     44.0 ms
+Output tok:   [128, 128, 128, 128] (min/p50/p90/max)
+Warning: 100% of responses truncated by max_tokens — increase max_tokens or use longer prompts

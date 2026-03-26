@@ -136,12 +136,37 @@ case "$MODE" in
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
         run_benchmark "gpu" "127.0.0.1" "forjar-gpu.yaml"
         ;;
+    wgpu)
+        # PMAT-376: WGPU correctness gate on intel/W5700X
+        INTEL_HOST="192.168.50.100"
+        echo "--- [wgpu] Starting WGPU on intel ---"
+        ssh "$INTEL_HOST" 'pkill -f "backend wgpu" 2>/dev/null; true' || true
+        sleep 2
+        ssh "$INTEL_HOST" 'nohup apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --backend wgpu --port 8081 --host 0.0.0.0 > /tmp/wgpu-serve.log 2>&1 & echo started'
+        echo "Waiting for WGPU startup..."
+        sleep 20
+        echo "--- [wgpu] Correctness ---"
+        for prompt in "What is 2+2?" "Capital of France?" "Write hello in Python"; do
+            echo -n "  \"$prompt\": "
+            result=$(curl -s --max-time 120 "http://$INTEL_HOST:8081/v1/chat/completions" \
+                -H 'Content-Type: application/json' \
+                -d "{\"model\":\"qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"max_tokens\":32}" \
+                | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null)
+            echo "$result"
+            [[ -z "$result" ]] && echo "FAIL: empty response" >&2
+        done
+        echo "--- [wgpu] Streaming test ---"
+        curl -s --max-time 120 -N "http://$INTEL_HOST:8081/v1/chat/completions" \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"qwen","messages":[{"role":"user","content":"Count to 3"}],"max_tokens":8,"stream":true}' \
+            | grep -c "delta" | xargs -I{} echo "  {} SSE chunks received"
+        ;;
     all)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
         run_yoga_serial
         ;;
     *)
-        echo "Usage: nightly.sh [cpu|gpu|yoga|both|all]"
+        echo "Usage: nightly.sh [cpu|gpu|yoga|wgpu|both|all]"
         exit 1
         ;;
 esac

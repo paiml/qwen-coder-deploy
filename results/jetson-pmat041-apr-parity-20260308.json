@@ -1,0 +1,40 @@
+{
+  "test": "PMAT-041: APR Q4K vs GGUF prefill parity verification",
+  "date": "2026-03-08",
+  "device": "Jetson Orin Nano Super (8 SMs, sm_87)",
+  "concurrency": 1,
+  "stream": false,
+  "model_gguf": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+  "model_apr": "qwen2.5-coder-1.5b-instruct-q4k.apr",
+  "env": "SKIP_PARITY_GATE=1, jetson_clocks=locked, isolated",
+  "prompt": "Write a Python function that calculates the factorial of a number using recursion. Include error handling for negative numbers and non-integer inputs.",
+  "max_tokens": 128,
+  "warmup_requests": 5,
+  "measure_requests": 5,
+  "results": {
+    "sgemm": {
+      "gguf_avg_ms": 5240,
+      "gguf_prompt_tokens": 37,
+      "apr_avg_ms": 5303,
+      "apr_prompt_tokens": 34,
+      "gap_pct": 1.2,
+      "note": "HGEMM_PREFILL=0 (per-request dequant + cuBLAS SGEMM)"
+    },
+    "hgemm": {
+      "gguf_avg_ms": 4839,
+      "gguf_prompt_tokens": 37,
+      "gguf_warmup1_ms": 16736,
+      "apr_avg_ms": 4908,
+      "apr_prompt_tokens": 34,
+      "apr_warmup1_ms": 6456,
+      "gap_pct": 1.4,
+      "note": "Default HGEMM with FP16 weight cache. First warmup includes cache priming."
+    }
+  },
+  "conclusion": {
+    "verdict": "PARITY CONFIRMED — APR and GGUF use identical HGEMM/SGEMM paths",
+    "gap_cause": "Original 1.39x gap was measurement artifact from probador (different prompt profiles generating different token counts across benchmark runs)",
+    "token_difference": "GGUF tokenizer: 37 tokens, APR tokenizer: 34 tokens for same prompt (different tokenizer metadata)",
+    "fix_applied": "transformer_layer_batched workspace batch_size check changed from != to < (allows reuse of oversized workspace)"
+  }
+}

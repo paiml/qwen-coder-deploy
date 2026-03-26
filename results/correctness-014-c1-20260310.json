@@ -1,0 +1,62 @@
+{
+  "runtime_name": "unknown",
+  "timestamp": "2026-03-10T10:18:20.354052421+00:00",
+  "results": [
+    {
+      "name": "basic_math",
+      "passed": true,
+      "latency_ms": 153.375396,
+      "output": "56",
+      "failures": []
+    },
+    {
+      "name": "python_fibonacci",
+      "passed": false,
+      "latency_ms": 455.947938,
+      "output": "",
+      "failures": [
+        "empty content in first choice",
+        "expected output to contain \"def fib\", got: \"\""
+      ]
+    },
+    {
+      "name": "rust_hello",
+      "passed": true,
+      "latency_ms": 138.53414,
+      "output": "```rust\nfn main() {\n    println!(\"Hello, world!\");\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "explain_code",
+      "passed": false,
+      "latency_ms": 501.8804569999999,
+      "output": "**Created Question**:\nHow can I create a Python function that takes a list of integers and returns the sum of all the elements in the list?\n\n**Created Answer**:\n```python\ndef sum_of_elements(numbers):\n    total = 0\n    for number in numbers:\n        total += number\n    return total\n```",
+      "failures": [
+        "pattern \"(?i)(double|multiply|2)\" did not match: \"**Created Question**:\\nHow can I create a Python function that takes a list of integers and returns the sum of all the elements in the list?\\n\\n**Created Answer**:\\n```python\\ndef sum_of_elements(numbers):...\""
+      ]
+    },
+    {
+      "name": "json_output",
+      "passed": false,
+      "latency_ms": 153.415627,
+      "output": "",
+      "failures": [
+        "empty content in first choice",
+        "expected output to contain \"\\\"name\\\"\", got: \"\""
+      ]
+    },
+    {
+      "name": "sql_query",
+      "passed": false,
+      "latency_ms": 59.810308,
+      "output": "",
+      "failures": [
+        "empty content in first choice",
+        "pattern \"(?i)SELECT.*FROM.*WHERE\" did not match: \"\""
+      ]
+    }
+  ],
+  "passed": 2,
+  "failed": 4,
+  "total": 6
+}

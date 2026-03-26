@@ -1,0 +1,77 @@
+{
+  "total_requests": 4,
+  "successful": 4,
+  "failed": 0,
+  "throughput_rps": 0.06420976285216218,
+  "latency_p50_ms": 16089.2661635,
+  "latency_p95_ms": 17185.537798999998,
+  "latency_p99_ms": 17251.233183799995,
+  "ttft_p50_ms": 7754.622265,
+  "tokens_per_sec": 2.0547124112691897,
+  "avg_tok_per_req": 32.0,
+  "itl_p50_ms": 268.85928351612904,
+  "decode_tok_per_sec": 3.7194177821276884,
+  "prefill_tok_per_sec": 2.9733719471159707,
+  "timestamp": "2026-03-08T18:43:55.823605250+00:00",
+  "runtime_name": "realizr-cpu-c1",
+  "elapsed_secs": 62.295822665,
+  "concurrency": 1,
+  "ttft_p90_ms": 8311.9501517,
+  "ttft_p95_ms": 8348.48506235,
+  "ttft_p99_ms": 8377.71299087,
+  "tpot_p50_ms": 268.85928351612904,
+  "tpot_p90_ms": 283.5955205774194,
+  "tpot_p95_ms": 285.0659752080645,
+  "tpot_p99_ms": 286.2423389125807,
+  "latency_min_ms": 12849.563644,
+  "latency_max_ms": 17267.65703,
+  "latency_stddev_ms": 1967.9235796885303,
+  "error_rate": 0.0,
+  "prompt_tokens_total": 92,
+  "completion_tokens_total": 128,
+  "truncated_pct": 0.0,
+  "sse_batch_ratio": 1.0,
+  "goodput_pct": 0.0,
+  "output_tokens_dist": [
+    32.0,
+    32.0,
+    32.0,
+    32.0
+  ],
+  "decode_us_per_layer": 9602.11726843318,
+  "num_layers": 28,
+  "request_details": [
+    {
+      "latency_ms": 15458.336836999999,
+      "ttft_ms": 7367.790628,
+      "completion_tokens": 32,
+      "prompt_tokens": 23,
+      "itl_ms": 260.98516806451613,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 12849.563644,
+      "ttft_ms": 6260.253610000001,
+      "completion_tokens": 32,
+      "prompt_tokens": 23,
+      "itl_ms": 212.55818141935484,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 16720.195490000002,
+      "ttft_ms": 8141.453902,
+      "completion_tokens": 32,
+      "prompt_tokens": 23,
+      "itl_ms": 276.73339896774195,
+      "finish_reason": "stop"
+    },
+    {
+      "latency_ms": 17267.65703,
+      "ttft_ms": 8385.019973,
+      "completion_tokens": 32,
+      "prompt_tokens": 23,
+      "itl_ms": 286.5364298387097,
+      "finish_reason": "stop"
+    }
+  ]
+}

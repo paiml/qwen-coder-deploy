@@ -1,0 +1,57 @@
+{
+  "runtime_name": "unknown",
+  "timestamp": "2026-03-10T10:10:53.659512046+00:00",
+  "results": [
+    {
+      "name": "basic_math",
+      "passed": true,
+      "latency_ms": 227.38247,
+      "output": "56",
+      "failures": []
+    },
+    {
+      "name": "python_fibonacci",
+      "passed": true,
+      "latency_ms": 335.74965299999997,
+      "output": "```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n```",
+      "failures": []
+    },
+    {
+      "name": "rust_hello",
+      "passed": true,
+      "latency_ms": 186.741166,
+      "output": "```rust\nfn main() {\n    println!(\"Hello, world!\");\n}\n```",
+      "failures": []
+    },
+    {
+      "name": "explain_code",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'forward_gpu_resident_to_token_id' not supported: forward_graphed_replay_to_token_id failed: CUDA stream synchronization failed: CUDA driver error: CUDA_ERROR_ILLEGAL_ADDRESS (code: 700)\"}"
+      ]
+    },
+    {
+      "name": "json_output",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'prefill_all_layers_gpu' not supported: Batched prefill failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_ILLEGAL_ADDRESS (code: 700)\"}"
+      ]
+    },
+    {
+      "name": "sql_query",
+      "passed": false,
+      "latency_ms": 0.0,
+      "output": "",
+      "failures": [
+        "API error 500: {\"error\":\"Operation 'prefill_all_layers_gpu' not supported: Batched prefill failed: GPU memory allocation failed: CUDA driver error: CUDA_ERROR_ILLEGAL_ADDRESS (code: 700)\"}"
+      ]
+    }
+  ],
+  "passed": 3,
+  "failed": 3,
+  "total": 6
+}
