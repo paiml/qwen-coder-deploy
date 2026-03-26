@@ -99,6 +99,7 @@ make score-gate        # CI gate: fail if any runtime below C
 - `forjar-jetson.yaml` / `forjar-jetson-teardown.yaml` — Jetson Orin deployment
 - `forjar-gpu.yaml` / `forjar-gpu-teardown.yaml` — 4090 deep profiling
 - `forjar.yaml` / `forjar-teardown.yaml` — CPU deployment (intel host, SSH)
+- `forjar-intel-wgpu.yaml` — WGPU deployment (intel host, Radeon Pro W5700X)
 
 ## Testing
 

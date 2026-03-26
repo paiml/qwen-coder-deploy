@@ -1,0 +1,71 @@
+version: "1.0"
+name: qwen-coder-deploy-intel-wgpu
+description: "Deploy realizr WGPU inference on Intel host (Radeon Pro W5700X, Vulkan)"
+
+params:
+  gguf_model: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+  wgpu_port: "8081"
+  apr_bin: "/home/noah/.cargo/bin/apr"
+
+machines:
+  build:
+    hostname: build
+    addr: 127.0.0.1
+    user: noah
+    arch: x86_64
+    transport: local
+
+  intel:
+    hostname: intel
+    addr: 192.168.50.100
+    user: noah
+    arch: x86_64
+    transport: ssh
+
+resources:
+  # ── Build ────────────────────────────────────────────────
+
+  build-wgpu:
+    type: task
+    machine: build
+    command: |
+      cd ~/src/aprender &&
+      CARGO_TARGET_DIR=/mnt/nvme-raid0/targets/aprender \
+      cargo build --release -p apr-cli --bin apr \
+        --features "apr-cli/inference,apr-cli/wgpu" --no-default-features
+    completion_check: "test -x /mnt/nvme-raid0/targets/aprender/release/apr"
+    timeout: 600
+
+  # ── Deploy ───────────────────────────────────────────────
+
+  stop-wgpu:
+    type: task
+    machine: intel
+    command: "pkill -f 'backend wgpu' 2>/dev/null || true; sleep 2; true"
+    completion_check: "! pgrep -f 'backend wgpu' >/dev/null 2>&1"
+
+  deploy-wgpu:
+    type: task
+    machine: build
+    command: "scp /mnt/nvme-raid0/targets/aprender/release/apr noah@192.168.50.100:~/.cargo/bin/apr"
+    completion_check: "ssh noah@192.168.50.100 'test -x ~/.cargo/bin/apr'"
+    depends_on: [build-wgpu, stop-wgpu]
+    timeout: 120
+
+  # ── Start ────────────────────────────────────────────────
+
+  start-wgpu:
+    type: task
+    machine: intel
+    command: |
+      nohup apr serve run {{params.gguf_model}} \
+        --backend wgpu --port {{params.wgpu_port}} --host 0.0.0.0 \
+        > /tmp/wgpu-serve.log 2>&1 &
+      sleep 20
+      curl -sf http://127.0.0.1:{{params.wgpu_port}}/health >/dev/null
+    completion_check: "curl -sf http://127.0.0.1:{{params.wgpu_port}}/health 2>/dev/null | grep -q healthy"
+    depends_on: [deploy-wgpu]
+
+policy:
+  failure: stop_on_first
+  lock_file: true
