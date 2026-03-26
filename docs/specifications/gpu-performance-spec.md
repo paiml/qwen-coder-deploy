@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.93.0
+**Version:** 5.94.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 365 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 366 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.94.0 | 2026-03-26 | **PMAT-366: All WGPU contracts implemented.** 10/10 equations (was 9+1 partial). q4k_fused_gemv now implemented. trueno 63/63 + realizr 212/212 = **275 provable contracts AllImplemented**. wgpu-forward-pass-v1 v3.0.0 complete. |
 | 5.93.0 | 2026-03-26 | **PMAT-365: Q4K fused GEMV WORKS.** Fixed 12-byte packed scale extraction: `sc_byte()` accessor, `get_scale_min()` matching CPU. Low nibbles d1/dm1, high nibbles d2/dm2. 168 Q4K weights (625.5 MB raw) vs 6175 MB F32 = **10× VRAM reduction**. Output correct: "2 + 2 equals 4." 0.74 tok/s. |
 | 5.92.0 | 2026-03-26 | **PMAT-364: Q4K fused GEMV wiring.** `encode_matmul` prefers Q4K when available. `raw_q4k_weights()` extracts 168 Q4K tensors (625.5 MB raw vs 6175 MB F32 = 10× compression). **DISABLED**: shader produces "bbebbe" — scale extraction bug in Q4K superblock nibble/scale packing. Infrastructure complete across 3 repos. |
 | 5.91.0 | 2026-03-26 | **PMAT-363: Q4K fused dequant+GEMV shader.** `Q4K_GEMV_SHADER`: on-the-fly dequant from raw Q4K bytes. 144B/superblock (256 elements) = 0.5625 bytes/element vs 4 bytes/element F32 (7.1× compression). `upload_q4k_weight()` + pipeline ready. VRAM projection: 6175MB F32 → ~869MB Q4K. Contract partial (shader ready, not wired to forward_layer). |
