@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.91.0
+**Version:** 5.92.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 363 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 364 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.92.0 | 2026-03-26 | **PMAT-364: Q4K fused GEMV wiring.** `encode_matmul` prefers Q4K when available. `raw_q4k_weights()` extracts 168 Q4K tensors (625.5 MB raw vs 6175 MB F32 = 10× compression). **DISABLED**: shader produces "bbebbe" — scale extraction bug in Q4K superblock nibble/scale packing. Infrastructure complete across 3 repos. |
 | 5.91.0 | 2026-03-26 | **PMAT-363: Q4K fused dequant+GEMV shader.** `Q4K_GEMV_SHADER`: on-the-fly dequant from raw Q4K bytes. 144B/superblock (256 elements) = 0.5625 bytes/element vs 4 bytes/element F32 (7.1× compression). `upload_q4k_weight()` + pipeline ready. VRAM projection: 6175MB F32 → ~869MB Q4K. Contract partial (shader ready, not wired to forward_layer). |
 | 5.90.0 | 2026-03-26 | **PMAT-362: gpu_attention contract.** 9/9 WGPU equations bound. trueno 62/62 + realizr 212/212 = **274 provable contracts**. wgpu-forward-pass-v1 complete: rmsnorm, gemv_dispatch, gemv_params_safety, buffer_size_safety, weight_transpose, dequant_correctness, gpu_bias_rope_order, vec4_alignment, gpu_attention. |
 | 5.89.0 | 2026-03-26 | **PMAT-361: GPU attention shader — single-submit forward_layer.** WGSL attention kernel with per-head Q·K softmax, GQA, KV cache on GPU (pre-allocated 2048×kv_dim per layer). Forward_layer reduced from 2 submits to 1. Entire pipeline GPU-resident: RMSNorm→QKV→bias→RoPE→KV append→attention→O proj→FFN→readback. 0.72 tok/s (perf neutral — dispatch overhead offsets readback savings). 3/3 correctness tests pass. |
