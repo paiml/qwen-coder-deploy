@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.4.0
+**Version:** 6.5.0
 **Last Updated:** 2026-03-26
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 376 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 377 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.5.0 | 2026-03-26 | **PMAT-377: WGPU 7B Q4K model on AMD GPU.** Qwen2.5-Coder-7B-Instruct on Radeon Pro W5700X. 28 layers, hidden=3584, 168 Q4K weights (3121 MB), 3906 MB VRAM total. LM head (2.18 GB) exceeds WGPU 2 GB buffer limit — CPU fallback. Correct: "2+2=4", "Paris", Python prime checker. **7B model runs on 8 GB AMD GPU with Q4K — would need ~28 GB F32.** |
 | 6.4.0 | 2026-03-26 | **PMAT-376: Nightly WGPU + Yoga c=32 verified.** `scripts/nightly.sh wgpu` mode: 3/3 correctness + 8 SSE chunks. Yoga c=32: **1621 tok/s** (graph disabled, best result ever). c=16: 950. Full scoring runs. |
 | 6.3.0 | 2026-03-26 | **PMAT-375: WGPU 3B Q4K model verified.** Qwen2.5-Coder-3B-Instruct on Radeon Pro W5700X. 36 layers, hidden=2048, 216 Q4K weights (1327 MB), total 2907 MB VRAM. Correct: "2+2=4", "Paris", generates Python code. Streaming works. 0.13-0.42 tok/s. **Without Q4K would need ~12 GB — doesn't fit. Q4K makes 3B viable on 8 GB AMD GPUs.** |
 | 6.2.0 | 2026-03-26 | **PMAT-374: CUDA graph capture disabled by default.** Graph capture poisons CUDA context on 590.48.01 (error 901). Changed from opt-OUT (`CUDA_GRAPH_DISABLE=1`) to opt-IN (`CUDA_GRAPH_ENABLE=1`). **No env vars needed for correct operation.** 6/6 correctness, c=1:137/c=4:320/c=8:534. Also: ThreadLocal capture mode, stream sync on failure. `SKIP_CUDA_GRAPH` removed from forjar config. |
