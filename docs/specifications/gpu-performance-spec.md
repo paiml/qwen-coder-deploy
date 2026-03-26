@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.88.0
+**Version:** 5.89.0
 **Last Updated:** 2026-03-25
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 360 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 361 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.89.0 | 2026-03-26 | **PMAT-361: GPU attention shader — single-submit forward_layer.** WGSL attention kernel with per-head Q·K softmax, GQA, KV cache on GPU (pre-allocated 2048×kv_dim per layer). Forward_layer reduced from 2 submits to 1. Entire pipeline GPU-resident: RMSNorm→QKV→bias→RoPE→KV append→attention→O proj→FFN→readback. 0.72 tok/s (perf neutral — dispatch overhead offsets readback savings). 3/3 correctness tests pass. |
 | 5.88.0 | 2026-03-26 | **PMAT-360: WGPU maturity assessment.** 14 PMAT items (346→359) delivered: correct output, streaming SSE, GPU bias+RoPE, 273 contracts, Makefile automation. 0.72 tok/s on W5700X. Remaining: GPU attention (+readback elimination, ~2×) and Q4K compute (4× BW). Both multi-day with diminishing ROI for demo target. WGPU path declared PRODUCTION-READY for AMD GPU demonstration. |
 | 5.87.0 | 2026-03-25 | **PMAT-359: gpu_bias_rope_order contract bound.** `#[contract]` on `forward_layer()`. trueno 61/61, realizr 212/212 = **273 provable contracts**. wgpu-forward-pass-v1 v3.0.0: 8 equations, all bound. |
 | 5.86.0 | 2026-03-25 | **PMAT-358: GPU-side bias+RoPE.** QKV bias and RoPE now on GPU in same command encoder as GEMV. CPU bias+RoPE removed. 5 fewer CPU ops per layer. Foundation for single-submit forward_layer. 0.72 tok/s (net neutral perf — GPU dispatch overhead offsets CPU savings at this scale). All 3 correctness tests pass. |
