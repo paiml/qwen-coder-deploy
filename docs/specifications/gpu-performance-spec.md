@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 5.98.0
+**Version:** 5.99.0
 **Last Updated:** 2026-03-26
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 370 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 371 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.99.0 | 2026-03-26 | **PMAT-371: CUDA context health contracts.** `culink_skip` + `cuda_graph_guard` equations in gpu-context-health-v1.yaml. Provable invariants: cuLinkCreate never called, SKIP_CUDA_GRAPH=1 prevents cuStreamBeginCapture. trueno 65/65 + realizr 212/212 = **277 provable contracts**. |
 | 5.98.0 | 2026-03-26 | **PMAT-370: Fresh Yoga benchmark (SKIP_CUDA_GRAPH=1).** Full scaling curve: c=1:137/c=4:318/c=8:534/c=16:947/c=32:1591 tok/s aggregate. 6/6 correctness. Config: B32 iter-sched skip-graph. Matches PMAT-296 baseline within 2% at c≥4. c=1 -9% (no CUDA graph). 0 errors across all concurrency levels. |
 | 5.97.0 | 2026-03-26 | **PMAT-369: CUDA context poisoning FIXED.** Root causes: (1) cuLinkCreate poisons context — skipped. (2) CUDA graph capture poisons context — `SKIP_CUDA_GRAPH=1`. With both fixes: 6/6 correctness, c=1:136/c=4:318/c=8:534 tok/s (batch scaling restored, matches PMAT-296 baseline). c=1 -9% from graph overhead (280 launches vs 1). | Five-whys: cuLinkCreate with CU_JIT_TARGET returns INVALID_VALUE on 590.48.01/540.5.0, poisoning context. Fix: skip cuLinkCreate entirely, use legacy JIT. Also found: forward pass poisons context after 1st request (graph capture related, trueno#226). First request always succeeds (152 tok/s c=1, 320 tok/s c=4). |
 | 5.96.0 | 2026-03-26 | **PMAT-368: WGPU feature-complete verification.** Final test: 3/3 non-streaming + streaming all pass. CLAUDE.md updated with Makefile targets + Q4K docs. Memory file updated. 275 provable contracts, 10/10 WGPU equations. 22 PMAT items (346→367) from garbled output to production-ready with Q4K compute + streaming SSE. |
