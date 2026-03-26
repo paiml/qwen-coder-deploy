@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.2.0
+**Version:** 6.3.0
 **Last Updated:** 2026-03-26
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 374 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 375 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.3.0 | 2026-03-26 | **PMAT-375: WGPU 3B Q4K model verified.** Qwen2.5-Coder-3B-Instruct on Radeon Pro W5700X. 36 layers, hidden=2048, 216 Q4K weights (1327 MB), total 2907 MB VRAM. Correct: "2+2=4", "Paris", generates Python code. Streaming works. 0.13-0.42 tok/s. **Without Q4K would need ~12 GB — doesn't fit. Q4K makes 3B viable on 8 GB AMD GPUs.** |
 | 6.2.0 | 2026-03-26 | **PMAT-374: CUDA graph capture disabled by default.** Graph capture poisons CUDA context on 590.48.01 (error 901). Changed from opt-OUT (`CUDA_GRAPH_DISABLE=1`) to opt-IN (`CUDA_GRAPH_ENABLE=1`). **No env vars needed for correct operation.** 6/6 correctness, c=1:137/c=4:320/c=8:534. Also: ThreadLocal capture mode, stream sync on failure. `SKIP_CUDA_GRAPH` removed from forjar config. |
 | 6.1.0 | 2026-03-26 | **PMAT-373: Multi-backend parity + BPE contracts.** `gpu-multi-backend-parity-v1`: backend_priority + multi_backend_parity bound. `bpe-tokenization-v1`: encode + decode bound to realizr. trueno 67/67 + realizr 214/214 = **281 provable contracts**. |
 | 6.0.0 | 2026-03-26 | **PMAT-372: Forjar WGPU config + SKIP_CUDA_GRAPH in Yoga config.** `forjar-intel-wgpu.yaml`: build→deploy→start WGPU on intel. `forjar-yoga-realizr.yaml`: added `SKIP_CUDA_GRAPH=1` to production config. CLAUDE.md updated. **Spec milestone v6.0.0: 5 runtimes (CUDA+WGPU+ollama+llama.cpp+vLLM), 277 provable contracts, Q4K compute.** |
