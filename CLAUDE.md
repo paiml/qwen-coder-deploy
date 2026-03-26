@@ -62,10 +62,13 @@ make load              # Load tests
 make teardown          # Stop services
 
 # WGPU deployment (intel host, Radeon Pro W5700X)
-# Build: cd ~/src/aprender && CARGO_TARGET_DIR=/mnt/nvme-raid0/targets/aprender cargo build --release -p apr-cli --bin apr --features "apr-cli/inference,apr-cli/wgpu" --no-default-features
-# Deploy: scp /mnt/nvme-raid0/targets/aprender/release/apr intel:~/.cargo/bin/apr
-# Start: ssh intel 'apr serve run ~/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --backend wgpu --port 8081 --host 0.0.0.0'
-# Test: curl http://192.168.50.100:8081/v1/chat/completions -d '{"model":"qwen","messages":[{"role":"user","content":"2+2?"}],"max_tokens":8}'
+make build-wgpu        # Build apr with WGPU feature
+make deploy-wgpu       # Deploy to intel
+make start-wgpu        # Start server (F32 mode, 0.74 tok/s, 6175 MB VRAM)
+make test-wgpu         # 3 correctness tests
+make stop-wgpu         # Stop server
+# Q4K mode: WGPU_Q4K=1 — 10× VRAM savings (626 MB), 3× slower (0.24 tok/s)
+# Streaming: curl -N http://192.168.50.100:8081/v1/chat/completions -d '{"stream":true,...}'
 
 # Reports
 make report            # Generate performance.md + update README
