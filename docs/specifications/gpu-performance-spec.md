@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.7.0
+**Version:** 6.8.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 379 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 380 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.8.0 | 2026-03-27 | **PMAT-380: CPU compute contracts.** avx2-fma-dot-v1 (dot_product, fma_accumulation) + cpu-q4k-activation-quant-v1 (current_path) bound to realizr. trueno 68 + realizr 216 = **284 provable contracts**. |
 | 6.7.0 | 2026-03-27 | **PMAT-379: Streaming TPOT contract + graph investigation.** streaming-tpot-v1/tpot_definition bound to wgpu_chat_completion. **282 provable contracts** (trueno 68 + realizr 214). Graph capture investigation: ThreadLocal prevents crash but forward_workspace_captured corrupts workspace. Root cause: captured kernels modify KV cache positions. Fix requires separate workspace for capture — deferred. |
 | 6.6.0 | 2026-03-27 | **PMAT-378: Streaming SSE usage chunk.** Stop event now includes `usage` (prompt_tokens, completion_tokens, total_tokens) and `x_wgpu_tok_s`. OpenAI-compatible. Combined PRs created: qwen-coder-deploy#91, trueno#228, realizar#165. |
 | 6.5.0 | 2026-03-26 | **PMAT-377: WGPU 7B Q4K model on AMD GPU.** Qwen2.5-Coder-7B-Instruct on Radeon Pro W5700X. 28 layers, hidden=3584, 168 Q4K weights (3121 MB), 3906 MB VRAM total. LM head (2.18 GB) exceeds WGPU 2 GB buffer limit — CPU fallback. Correct: "2+2=4", "Paris", Python prime checker. **7B model runs on 8 GB AMD GPU with Q4K — would need ~28 GB F32.** |
