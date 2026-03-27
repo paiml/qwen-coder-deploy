@@ -48,6 +48,13 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 | 3B | -- | 0.31 tok/s | 2,907 MB |
 | 7B | -- | 0.07 tok/s | 3,906 MB |
 
+**Blackwell GB10 — Grace ARM + sm_121, 120 GB unified (Mar 27, PMAT-390/394):**
+
+| Model | c=1 | c=8 | c=32 | HumanEval |
+|-------|-----|-----|------|-----------|
+| 1.5B | 92 tok/s | 413 | 851 | -- |
+| 7B | 29 tok/s | 154 | 197 | 84.76% |
+
 ### Quality Scores
 
 | c | realizr | llama.cpp | vLLM | ollama |

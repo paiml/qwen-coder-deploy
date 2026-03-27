@@ -50,6 +50,16 @@ Performance specification for the realizar GPU inference engine, covering autore
 
 **WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 284 provable contracts (68 trueno + 216 realizr).
 
+**Blackwell GB10 (PMAT-390→394):** Grace ARM + sm_121, CUDA 13.0, 120 GB unified memory. First realizr on Blackwell. 6/6 correctness.
+
+| Model | c=1 | c=4 | c=8 | c=16 | c=32 | Ceiling |
+|-------|-----|-----|-----|------|------|---------|
+| 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
+| 7B | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated) |
+| 32B | OOM | — | — | — | — | `cuMemAllocManaged` eager alloc, needs driver fix |
+
+HumanEval pass@1 = **84.76%** (139/164) on 7B Q4K APR (batch eval, PMAT-389).
+
 **Step 2: Why is realizr 0.54x vLLM at c=4?** Because ~400 kernel launches per decode step cost ~5ms of CPU dispatch time. Graph dispatch (PMAT-291) improved from 0.50x to 0.54x. 16 kernel fusion approaches tested and falsified — the 2-kernel Q8+DP4A pattern is optimal.
 
 **CPU parity (PMAT-297-312):** realizr CPU decode: 32.6 tok/s (+91% from 17.1). Gap vs llama.cpp: 1.81x. 20 optimization approaches tested, 7 confirmed: thread pool +49%, deep prefetch +13%, hugepage +2%, lean pointer dispatch +3.6%, QKV workspace +0.6%, raw inner dot +1.6%, adaptive parallelism +4%. 13 falsified including AVX-512 VNNI (-16%), PGO (0%), inline F16C (-47%), direct FP32 (-17%). Root cause: perf stat IPC 1.59 vs llama.cpp 1.01 — Rust abstraction overhead between DRAM loads. The GPU kernels themselves are within 8% of vLLM (7.4ms vs 6.8ms at M=4). We know this because:
