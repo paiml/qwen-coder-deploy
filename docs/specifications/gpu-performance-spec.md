@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.18.0
+**Version:** 6.19.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 391 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 392 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4731,6 +4731,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.19.0 | 2026-03-27 | **PMAT-392: 32B on GB10 — OOM crash.** Loading 32B (19 GB GGUF) while 7B eval running caused OOM — system unresponsive. Five-whys: explicit `cuMemAlloc` + `cuMemcpyHtoD` doubles footprint on unified memory (32B dequant ~40 GB + 7B eval ~15 GB > 120 GB with workspace). **Fix: `cuMemAllocManaged` for Grace Blackwell** — zero-copy via NVLink-C2C, no duplication. |
 | 6.18.0 | 2026-03-27 | **PMAT-391: gx10 infrastructure.** `forjar-gx10.yaml`, `make bench-gx10`, `make test-gx10`. 6/6 correctness on 7B Q4K (sm_121). 32B GGUF downloading (~19 GB). |
 | 6.17.0 | 2026-03-27 | **PMAT-390: Blackwell GB10 inference benchmarks.** First realizr on sm_121/CUDA 13.0. 1.5B: c=1:92/c=4:247/c=8:413/c=16:495/c=32:851 tok/s (0.53-0.77× Yoga 4060L). **7B: c=1:28.8/c=4:92/c=8:154 tok/s — first 7B CUDA inference.** 120 GB unified memory, power-efficient Blackwell. |
 | 6.16.0 | 2026-03-27 | **PMAT-388: Spec sweep (exec summary, roadmap, falsification, README, contracts).** PMAT-389: **HumanEval pass@1 = 84.76%** (139/164) on Blackwell GB10 with Qwen2.5-Coder-7B-Instruct Q4K APR. Completed eval copied. Running eval: 48/164 in progress. BigCodeBench 0% (sandbox issue). |
