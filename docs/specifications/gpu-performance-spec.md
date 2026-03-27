@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.13.0
+**Version:** 6.14.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 385 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 386 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.14.0 | 2026-03-27 | **PMAT-386: Nightly parity gate + session final.** `nightly.sh wgpu` now includes parity gate (starts CPU backend, runs `make parity-wgpu`). Session PMAT-346→385: 40 items, 284 contracts, 7B on AMD, Q4K 1.9× vec4, CUDA zero-config 1621 tok/s. |
 | 6.13.0 | 2026-03-27 | **PMAT-385: `make parity-wgpu` — cross-backend parity gate.** Automated WGPU vs CPU comparison for factual prompts. 1/2 exact match (Paris), 1/2 factual-correct but differ (tokenizer). Implements `gpu-multi-backend-parity-v1` contract operationally. |
 | 6.12.0 | 2026-03-27 | **PMAT-384: #[contract] macro coverage expanded.** Added macros on `encode_matmul` (gemv_params_safety), `matmul_cached` (gemv_dispatch), `wgpu_chat_completion` (tpot_definition). 7 macros in trueno (was 4), 1 in aprender (new). provable-contracts-macros added as aprender dependency. |
 | 6.11.0 | 2026-03-27 | **PMAT-383: Precomputed Q4K scales — no perf change.** 3 u32 reads + upfront extraction replaces 24 sc_byte() calls. Same perf (L1 cached). Q4K optimization ceiling reached at 0.46 tok/s (1.5B) / 0.31 (3B). Remaining 1.6× gap vs F32 is architectural: nibble ALU + scale multiply overhead. |

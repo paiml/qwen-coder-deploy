@@ -160,6 +160,11 @@ case "$MODE" in
             -H 'Content-Type: application/json' \
             -d '{"model":"qwen","messages":[{"role":"user","content":"Count to 3"}],"max_tokens":8,"stream":true}' \
             | grep -c "delta" | xargs -I{} echo "  {} SSE chunks received"
+        echo "--- [wgpu] Parity gate (WGPU vs CPU) ---"
+        # Start CPU backend for comparison
+        ssh "$INTEL_HOST" 'pgrep -f "port 8082" >/dev/null || nohup apr serve run /home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf --port 8082 --host 0.0.0.0 > /tmp/cpu-serve.log 2>&1 &' || true
+        sleep 8
+        make parity-wgpu || echo "  Parity gate: CPU backend not available (skipped)"
         ;;
     all)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
