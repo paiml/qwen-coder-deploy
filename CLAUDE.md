@@ -107,6 +107,7 @@ make score-gate        # CI gate: fail if any runtime below C
 - `forjar-gpu.yaml` / `forjar-gpu-teardown.yaml` — 4090 deep profiling
 - `forjar.yaml` / `forjar-teardown.yaml` — CPU deployment (intel host, SSH)
 - `forjar-intel-wgpu.yaml` — WGPU deployment (intel host, Radeon Pro W5700X)
+- `forjar-gx10.yaml` — Grace Blackwell GB10 deployment (sm_121, 120 GB unified)
 
 ## Testing
 

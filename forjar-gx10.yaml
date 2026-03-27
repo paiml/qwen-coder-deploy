@@ -1,0 +1,38 @@
+version: "1.0"
+name: qwen-coder-deploy-gx10
+description: "Deploy realizr on Grace Blackwell GB10 (sm_121, CUDA 13.0, 120 GB unified)"
+
+params:
+  gguf_model_1_5b: "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+  gguf_model_7b: "/home/noah/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+  gguf_model_32b: "/home/noah/models/qwen2.5-coder-32b-instruct-q4_k_m.gguf"
+  port: "8081"
+
+machines:
+  gx10:
+    hostname: gx10
+    addr: gx10
+    user: noah
+    arch: aarch64
+    transport: ssh
+
+resources:
+  stop-gx10:
+    type: task
+    machine: gx10
+    command: "screen -S apr -X quit 2>/dev/null || true; pkill -f 'serve run' 2>/dev/null || true; sleep 2; true"
+    completion_check: "! pgrep -f 'serve run' >/dev/null 2>&1"
+
+  start-gx10-7b:
+    type: task
+    machine: gx10
+    command: |
+      screen -dmS apr bash -c "cd ~/src/aprender && SKIP_PARITY_GATE=1 CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 ./target/release/apr serve run {{params.gguf_model_7b}} --gpu --host 0.0.0.0 --port {{params.port}} > /tmp/apr-gx10.log 2>&1"
+      sleep 25
+      curl -sf http://127.0.0.1:{{params.port}}/health >/dev/null
+    completion_check: "curl -sf http://127.0.0.1:{{params.port}}/health 2>/dev/null | grep -q healthy"
+    depends_on: [stop-gx10]
+
+policy:
+  failure: stop_on_first
+  lock_file: true

@@ -40,6 +40,9 @@ INTEL_OLLAMA   := http://$(INTEL_HOST):8082
 INTEL_LLAMACPP := http://$(INTEL_HOST):8083
 INTEL_WGPU     := http://$(INTEL_HOST):8081
 
+# --- gx10 (Grace Blackwell GB10, sm_121, 120 GB unified) ---
+GX10_REALIZR := http://127.0.0.1:9081
+
 # --- GPU (localhost, RTX 4090 — deep profiling only, 4090 runs QLoRA full-time) ---
 GPU_HOST := 127.0.0.1
 GPU_REALIZAR := http://$(GPU_HOST):8081
@@ -85,6 +88,7 @@ QWEN_LAYERS := 28
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
         profile-yoga profile-yoga-ci profile-yoga-trace profile-yoga-compare profile-yoga-full \
         build-wgpu deploy-wgpu start-wgpu test-wgpu parity-wgpu stop-wgpu \
+        bench-gx10 test-gx10 \
         score score-prod score-all score-json score-jetson score-gate \
         contract-lint contract-validate contract-score contract-falsify
 
@@ -171,6 +175,25 @@ parity-wgpu:  ## PMAT-385: Cross-backend parity gate (WGPU vs CPU)
 
 stop-wgpu:  ## Stop WGPU server on intel
 	ssh intel 'pkill -f "backend wgpu" 2>/dev/null; true'
+
+# ============================================================================
+# gx10 targets (Grace Blackwell GB10, via SSH tunnel)
+# ============================================================================
+
+bench-gx10:  ## Benchmark realizr on GB10 (requires SSH tunnel: ssh -fNL 9081:127.0.0.1:8081 gx10)
+	@echo "=== GB10 Benchmark (via tunnel localhost:9081) ==="
+	@for c in 1 4 8; do \
+		echo "  c=$$c..."; \
+		probador llm load --url $(GX10_REALIZR) --concurrency $$c --duration 60 --warmup 5 \
+			--max-tokens-distribution uniform:16,256 --stream true \
+			--runtime-name realizr-gb10 --prompt-profile medium \
+			-o results/gb10-realizr-c$${c}-$$(date +%Y%m%d).json 2>/dev/null; \
+	done
+	@echo "Done. Results in results/gb10-realizr-c*"
+
+test-gx10:  ## Correctness test on GB10
+	@echo "=== GB10 Correctness ==="
+	@probador llm test --config prompts/correctness.yaml --url $(GX10_REALIZR) --runtime-name realizr-gb10
 
 # ============================================================================
 # GPU targets (localhost, RTX 4090)
