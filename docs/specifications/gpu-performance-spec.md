@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.20.0
+**Version:** 6.21.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 393 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 394 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4753,6 +4753,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.21.0 | 2026-03-27 | **PMAT-394: `cuMemAllocManaged` implemented for Grace Blackwell.** `GpuBuffer::new_managed()` in trueno-gpu, `allocate_buffer()` auto-selects when `cc>=120`. 32B model loading on GB10: 35 GB used, 83 GB available (was OOM at 50 GB). PTX compilation in progress (~640 modules for 64 layers). |
 | 6.20.0 | 2026-03-27 | **PMAT-393: Weight loading research — PyTorch/llama.cpp/vLLM strategies.** Cross-codebase analysis: PyTorch uses `mmap=True` demand-paging; llama.cpp wraps mmap as Metal buffer on Apple Silicon (zero-copy unified); vLLM streams tensors via generator. realizr uses `cuMemAlloc` (doubles footprint). Fix: `cuMemAllocManaged` for GB10. Spec §2 updated with loading strategy table and five-whys. gx10 rebooted, 116 GB free. |
 | 6.19.0 | 2026-03-27 | **PMAT-392: 32B on GB10 — OOM crash.** Loading 32B (19 GB GGUF) while 7B eval running caused OOM — system unresponsive. Five-whys: explicit `cuMemAlloc` + `cuMemcpyHtoD` doubles footprint on unified memory (32B dequant ~40 GB + 7B eval ~15 GB > 120 GB with workspace). **Fix: `cuMemAllocManaged` for Grace Blackwell** — zero-copy via NVLink-C2C, no duplication. |
 | 6.18.0 | 2026-03-27 | **PMAT-391: gx10 infrastructure.** `forjar-gx10.yaml`, `make bench-gx10`, `make test-gx10`. 6/6 correctness on 7B Q4K (sm_121). 32B GGUF downloading (~19 GB). |
