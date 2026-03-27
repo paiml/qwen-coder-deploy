@@ -84,7 +84,7 @@ QWEN_LAYERS := 28
         gpu-util full-gpu install \
         nsys-gpu ncu-gpu nsys-ollama nsys-llamacpp \
         profile-yoga profile-yoga-ci profile-yoga-trace profile-yoga-compare profile-yoga-full \
-        build-wgpu deploy-wgpu start-wgpu test-wgpu stop-wgpu \
+        build-wgpu deploy-wgpu start-wgpu test-wgpu parity-wgpu stop-wgpu \
         score score-prod score-all score-json score-jetson score-gate \
         contract-lint contract-validate contract-score contract-falsify
 
@@ -148,6 +148,26 @@ test-wgpu:  ## Correctness test on WGPU endpoint
 			-d "{\"model\":\"qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"$$prompt\"}],\"max_tokens\":32}" \
 			| python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null || echo "FAIL"; \
 	done
+
+parity-wgpu:  ## PMAT-385: Cross-backend parity gate (WGPU vs CPU)
+	@echo "=== WGPU/CPU Parity Gate ==="
+	@PASS=0; FAIL=0; \
+	for prompt in "What is 2+2?" "What is the capital of France?"; do \
+		wgpu=$$(curl -s --max-time 120 $(INTEL_WGPU)/v1/chat/completions \
+			-H 'Content-Type: application/json' \
+			-d "{\"model\":\"qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"$$prompt\"}],\"max_tokens\":16}" \
+			| python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null); \
+		cpu=$$(curl -s --max-time 30 http://$(INTEL_HOST):8082/v1/chat/completions \
+			-H 'Content-Type: application/json' \
+			-d "{\"model\":\"qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"$$prompt\"}],\"max_tokens\":16}" \
+			| python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null); \
+		if [ "$$wgpu" = "$$cpu" ]; then \
+			echo "  MATCH: $$prompt → $$wgpu"; PASS=$$((PASS+1)); \
+		else \
+			echo "  DIFFER: $$prompt"; echo "    WGPU: $$wgpu"; echo "    CPU:  $$cpu"; FAIL=$$((FAIL+1)); \
+		fi; \
+	done; \
+	echo "$$PASS match, $$FAIL differ"
 
 stop-wgpu:  ## Stop WGPU server on intel
 	ssh intel 'pkill -f "backend wgpu" 2>/dev/null; true'
