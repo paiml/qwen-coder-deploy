@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.19.0
+**Version:** 6.20.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 392 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 393 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -324,9 +324,31 @@ Cross-platform GPU inference via WGPU/Vulkan. Targets AMD, Intel, and Apple GPUs
 | Models verified | 1.5B (0.74), 3B (0.31), 7B (0.07 tok/s) | 375, 377 |
 | Provable contracts | 10/10 wgpu-forward-pass-v1 equations bound | 362 |
 
+### Weight Loading Strategies (PMAT-392, cross-codebase research)
+
+| Codebase | CPU Path | GPU Path | Unified Memory |
+|----------|----------|----------|----------------|
+| **PyTorch** | `mmap=True` → `UntypedStorage.from_file()` → demand-paged | mmap to host → `restore_location` copies to CUDA | No special support |
+| **llama.cpp** | `mmap(MAP_SHARED\|MAP_POPULATE)` → `buffer_from_host_ptr` (zero-copy) | mmap host → `cudaMemcpy` to device (or 4×64MB pinned async) | **Apple Silicon**: `buffer_from_host_ptr` wraps mmap as Metal buffer (zero-copy GPU) |
+| **vLLM** | N/A (CUDA-focused) | Generator yields tensors one-at-a-time from `safe_open(mmap)` | No |
+| **realizr** | mmap GGUF | `cuMemAlloc` + `cuMemcpyHtoD` (explicit, doubles footprint) | **Not implemented** (PMAT-392) |
+
+**Key insight: llama.cpp's Apple Silicon path is the template for GB10.** It wraps the mmap'd file region directly as a GPU buffer via `buffer_from_host_ptr`, achieving zero-copy unified memory access. On Grace Blackwell, the equivalent is `cuMemAllocManaged` or `cuMemHostRegister` with `CU_MEMHOSTREGISTER_DEVICEMAP`.
+
+**Five-whys (PMAT-392 OOM):**
+1. Why OOM on 32B? `cuMemAlloc` (19 GB) + mmap (19 GB) + workspace = ~50 GB, plus 7B eval running
+2. Why double allocation? Discrete GPU pattern: separate host and device memory
+3. Why not unified? `GpuBuffer::new()` always calls `cuMemAlloc` (`trueno-gpu/src/driver/memory/buffer.rs:95`)
+4. Why not detect unified memory? No `cuDeviceGetAttribute(CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING)` check
+5. Why does llama.cpp work on Apple? `buffer_from_host_ptr` maps mmap directly — same physical memory for CPU and GPU
+
+**Fix (PMAT-393):** Add `GpuBuffer::new_managed()` that uses `cuMemAllocManaged(CU_MEM_ATTACH_GLOBAL)` when `compute_capability >= 12.0` (Grace Blackwell). Weights reside in system memory, accessed by GPU via NVLink-C2C (900 GB/s). No duplication.
+
+**Provable contract:** `gpu-weight-residency-v1.yaml` mandates "all weights resident after startup, zero PCIe during inference." For unified memory, the invariant becomes: "all weights accessible by GPU after startup" (mmap + managed = accessible without explicit copy).
+
 ### Scope Boundaries
 
-**IN:** M=1 GEMV, memory coalescing, GPU transfer elimination, async serving, quantized KV cache, **WGPU/Vulkan cross-platform inference**
+**IN:** M=1 GEMV, memory coalescing, GPU transfer elimination, async serving, quantized KV cache, **WGPU/Vulkan cross-platform inference**, **unified memory (Grace Blackwell)**
 **OUT:** Prefill-phase GEMM [Patel24], multi-GPU distribution, training
 
 ### Deployment Topology
@@ -4731,6 +4753,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.20.0 | 2026-03-27 | **PMAT-393: Weight loading research — PyTorch/llama.cpp/vLLM strategies.** Cross-codebase analysis: PyTorch uses `mmap=True` demand-paging; llama.cpp wraps mmap as Metal buffer on Apple Silicon (zero-copy unified); vLLM streams tensors via generator. realizr uses `cuMemAlloc` (doubles footprint). Fix: `cuMemAllocManaged` for GB10. Spec §2 updated with loading strategy table and five-whys. gx10 rebooted, 116 GB free. |
 | 6.19.0 | 2026-03-27 | **PMAT-392: 32B on GB10 — OOM crash.** Loading 32B (19 GB GGUF) while 7B eval running caused OOM — system unresponsive. Five-whys: explicit `cuMemAlloc` + `cuMemcpyHtoD` doubles footprint on unified memory (32B dequant ~40 GB + 7B eval ~15 GB > 120 GB with workspace). **Fix: `cuMemAllocManaged` for Grace Blackwell** — zero-copy via NVLink-C2C, no duplication. |
 | 6.18.0 | 2026-03-27 | **PMAT-391: gx10 infrastructure.** `forjar-gx10.yaml`, `make bench-gx10`, `make test-gx10`. 6/6 correctness on 7B Q4K (sm_121). 32B GGUF downloading (~19 GB). |
 | 6.17.0 | 2026-03-27 | **PMAT-390: Blackwell GB10 inference benchmarks.** First realizr on sm_121/CUDA 13.0. 1.5B: c=1:92/c=4:247/c=8:413/c=16:495/c=32:851 tok/s (0.53-0.77× Yoga 4060L). **7B: c=1:28.8/c=4:92/c=8:154 tok/s — first 7B CUDA inference.** 120 GB unified memory, power-efficient Blackwell. |
