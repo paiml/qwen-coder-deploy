@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.10.0
+**Version:** 6.11.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 382 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 383 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.11.0 | 2026-03-27 | **PMAT-383: Precomputed Q4K scales — no perf change.** 3 u32 reads + upfront extraction replaces 24 sc_byte() calls. Same perf (L1 cached). Q4K optimization ceiling reached at 0.46 tok/s (1.5B) / 0.31 (3B). Remaining 1.6× gap vs F32 is architectural: nibble ALU + scale multiply overhead. |
 | 6.10.0 | 2026-03-27 | **PMAT-382: Vec4 x loads FALSIFIED.** `array<vec4<f32>>` for Q4K input: 0.44 vs 0.46 — no improvement. W5700X coalesces scalar reads. Bottleneck is `get_scale_min` (3-6 byte reads per block), not input bandwidth. Q4K vec4 nibble extraction (PMAT-381) remains the best optimization. |
 | 6.9.0 | 2026-03-27 | **PMAT-381: Q4K vec4 optimization — 1.9× faster.** Vec4 dot product for nibble extraction: 4 values per iteration instead of 1. Q4K: 0.24→**0.46 tok/s** (1.9×). Gap vs F32 narrowed from 3.1× to 1.6×. Output correct. |
 | 6.8.0 | 2026-03-27 | **PMAT-380: CPU compute contracts.** avx2-fma-dot-v1 (dot_product, fma_accumulation) + cpu-q4k-activation-quant-v1 (current_path) bound to realizr. trueno 68 + realizr 216 = **284 provable contracts**. |
