@@ -3606,16 +3606,17 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 
 ## 6. Optimization Roadmap
 
-### Tier Summary (Updated Mar 15 2026 — PMAT-180 phase projections)
+### Tier Summary (Updated Mar 27 2026 — PMAT-370/374/387 revisions)
 
 | Tier | Items | Status |
 |------|-------|--------|
 | T0: Decode parity | Fixes 1-6, GH-173/176, PMAT-040 (flash decode) | ✅ 0.94x llama.cpp (c=1) |
 | T0: Prefill parity | PMAT-023/024/026, FP8 pipeline (PMAT-053b→086) | ✅ 1.29x llama.cpp (PASS < 2x) |
-| T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **357.2 aggregate c=4 (0.98x PARITY, 78 B > llama.cpp 75 B)** |
+| T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **320 aggregate c=4 (PMAT-370)** |
 | ~~T1: W4A16 tensor core~~ | ~~Marlin-style INT4→FP16 GEMM~~ | **FALSIFIED** (PMAT-091, 054B) — WMMA 87.5% waste at M=4 |
-| **T1a: Per-M graph + event sync 🔑** | Per-M CUDA graph capture, event-based sync, CPU-GPU pipelining | **PMAT-267: enables serving/GPU overlap. 0.66-0.79× vLLM (50-80% overlap). Highest-value single change** |
-| **T1b: Dynamo Phase 1** | PMAT-052 paged KV, PMAT-053 paged attention, continuous batching | **Scheduling+batch cap fix. Graph+CB → 0.68-0.81× vLLM. With kernel fusion: 0.85-1.00×** |
+| ~~T1a: Per-M graph + event sync~~ | ~~CUDA graph capture, event sync~~ | **FALSIFIED** (PMAT-285 -32%, PMAT-283 0% ROI, PMAT-374 graph poisons context on 590.48.01). Graph opt-IN only |
+| **T1a: WGPU cross-platform 🆕** | PMAT-321→387: AMD/Intel/Apple GPU inference | ✅ **7B on W5700X, Q4K 10× VRAM, 284 provable contracts** |
+| **T1b: Dynamo Phase 1** | PMAT-052 paged KV, PMAT-053 paged attention, continuous batching | **Scheduling+batch cap fix. CB → 0.68-0.81× vLLM. With kernel fusion: 0.85-1.00×** |
 | *T1b: Dynamo Phase 0* | *PMAT-054 fused Q4K, PMAT-141 AgentHints, PMAT-142 WSPT* | *Optional — c=1 latency only. Zero throughput impact once CB present (PMAT-180)* |
 | **T2: Dynamo Phase 2** | PMAT-145 frequency eviction, PMAT-146 radix tree, PMAT-147 CPU offload, PMAT-148 TTL | Planned — cache intelligence, multi-turn TTFT → 0 |
 | **T3: Dynamo Phase 3** | PMAT-149 stream disagg, PMAT-150 speculative prefill | Planned — prefill never blocks decode |
