@@ -4,7 +4,7 @@
   <img src="docs/assets/architecture.svg" alt="Architecture" width="720"/>
 </p>
 
-Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across four inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador).
+Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 284 provable contracts enforced by build.rs.
 
 ## Quick Start
 
@@ -16,26 +16,37 @@ make teardown-yoga           # Stop all services
 
 ## Runtimes
 
-| Runtime | Port | Format | Quantization |
-|---------|------|--------|-------------|
-| [realizar](https://github.com/paiml/realizar) | 8081 | GGUF | Q4_K_M (DP4A + FP8) |
-| ollama | 8082 | GGUF | Q4_K_M |
-| llama.cpp | 8083 | GGUF | Q4_K_M |
-| vLLM | 8084 | AWQ | INT4 (CUTLASS) |
+| Runtime | Port | Format | Quantization | GPU |
+|---------|------|--------|-------------|-----|
+| [realizar](https://github.com/paiml/realizar) | 8081 | GGUF | Q4_K_M (DP4A + FP8) | CUDA |
+| ollama | 8082 | GGUF | Q4_K_M | CUDA |
+| llama.cpp | 8083 | GGUF | Q4_K_M | CUDA |
+| vLLM | 8084 | AWQ | INT4 (CUTLASS) | CUDA |
+| **realizar-wgpu** | 8081 | GGUF | Q4_K_M→F32 (or Q4K fused) | **WGPU/Vulkan** |
 
 ## Performance
 
 RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform output, streaming, 60s).
 
-### Throughput (tok/s aggregate, Mar 21)
+### Throughput (tok/s aggregate)
+
+**CUDA — Yoga RTX 4060L (Mar 26, PMAT-370):**
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 149 | 160 | 154 | 163 |
-| 4 | 325 | 351 | 598 | 635 |
-| 8 | **525** | 419 | 1,142 | -- |
-| 16 | **931** | 912 | 2,037 | -- |
-| 32 | 1,600 | **1,949** | 2,998 | -- |
+| 1 | 137 | 160 | 154 | 163 |
+| 4 | 320 | 351 | 598 | 635 |
+| 8 | **534** | 419 | 1,142 | -- |
+| 16 | **950** | 912 | 2,037 | -- |
+| 32 | **1,621** | 1,949 | 2,998 | -- |
+
+**WGPU — Intel Radeon Pro W5700X (Mar 26, PMAT-375/377):**
+
+| Model | F32 | Q4K | VRAM (Q4K) |
+|-------|-----|-----|------------|
+| 1.5B | 0.74 tok/s | 0.46 tok/s | 626 MB |
+| 3B | -- | 0.31 tok/s | 2,907 MB |
+| 7B | -- | 0.07 tok/s | 3,906 MB |
 
 ### Quality Scores
 
