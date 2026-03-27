@@ -4,7 +4,7 @@
 **Version:** 6.15.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
-**Date:** 2026-03-22
+**Date:** 2026-03-27
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -38,15 +38,17 @@ Performance specification for the realizar GPU inference engine, covering autore
 
 ### Chain of Reasoning
 
-**Step 1: Where are we?** All 4 runtimes benchmarked same-session, serial isolated, RTX 4060L @ 1900MHz, production methodology (medium prompt, uniform:16,256 output, streaming, 60s). Updated Mar 21 with PMAT-291 graph dispatch + PMAT-294 Q8 cache:
+**Step 1: Where are we?** Yoga RTX 4060L @ 1900MHz, production methodology (medium prompt, uniform:16,256 output, streaming, 60s). **CUDA graph disabled by default** (PMAT-374: poisons context on driver 590.48.01). PMAT-370 benchmark (Mar 26):
 
-| c | realizr | llama.cpp | vLLM | ollama |
-|---|---------|-----------|------|--------|
-| 1 | 149 | 160 | 154 | 163 |
-| 4 | 325 | 351 | 598 | 635 |
-| 8 | **525** | 419 | 1,142 | -- |
-| 16 | **931** | 912 | 2,037 | -- |
-| 32 | 1,600 | **1,949** | 2,998 | -- |
+| c | realizr (PMAT-370) | realizr (PMAT-296) | vLLM | notes |
+|---|-------------------|-------------------|------|-------|
+| 1 | 137 | 149 | 154 | -9% from graph disable (280 launches vs 1) |
+| 4 | 320 | 325 | 598 | within 2% |
+| 8 | 534 | 529 | 1,142 | +1% |
+| 16 | 950 | 931 | 2,037 | +2% |
+| 32 | **1,621** | 1,600 | 2,998 | **+1.3%, best ever** |
+
+**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 284 provable contracts (68 trueno + 216 realizr).
 
 **Step 2: Why is realizr 0.54x vLLM at c=4?** Because ~400 kernel launches per decode step cost ~5ms of CPU dispatch time. Graph dispatch (PMAT-291) improved from 0.50x to 0.54x. 16 kernel fusion approaches tested and falsified — the 2-kernel Q8+DP4A pattern is optimal.
 
