@@ -67,7 +67,8 @@ make deploy-wgpu       # Deploy to intel
 make start-wgpu        # Start server (F32 mode, 0.74 tok/s, 6175 MB VRAM)
 make test-wgpu         # 3 correctness tests
 make stop-wgpu         # Stop server
-# Q4K mode: WGPU_Q4K=1 — 10× VRAM savings (626 MB), 3× slower (0.24 tok/s)
+# Q4K mode: WGPU_Q4K=1 — 10× VRAM savings (626 MB), 0.46 tok/s (vec4 optimized)
+# Parity gate: make parity-wgpu (WGPU vs CPU factual comparison)
 # Streaming: curl -N http://192.168.50.100:8081/v1/chat/completions -d '{"stream":true,...}'
 
 # Reports

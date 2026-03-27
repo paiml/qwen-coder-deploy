@@ -311,9 +311,22 @@ Token → Embedding → [RMSNorm → Attention → Residual → RMSNorm → FFN 
                      All GPU-resident after Fixes 1-6 (zero PCIe transfers)
 ```
 
+### WGPU Backend (PMAT-321→387)
+
+Cross-platform GPU inference via WGPU/Vulkan. Targets AMD, Intel, and Apple GPUs where CUDA is unavailable.
+
+| Feature | Status | PMAT |
+|---------|--------|------|
+| WGSL shaders (7) | RMSNorm, GEMV, SiLU, RoPE, bias_add, attention, Q4K | 324-365 |
+| Single-submit forward_layer | GPU attention + KV cache, 1 submit/layer | 361 |
+| Q4K fused dequant+GEMV | 10× VRAM (626 MB vs 6175 MB), vec4 optimized | 365, 381 |
+| Streaming SSE | OpenAI-compatible delta format + usage chunk | 355, 378 |
+| Models verified | 1.5B (0.74), 3B (0.31), 7B (0.07 tok/s) | 375, 377 |
+| Provable contracts | 10/10 wgpu-forward-pass-v1 equations bound | 362 |
+
 ### Scope Boundaries
 
-**IN:** M=1 GEMV, memory coalescing, GPU transfer elimination, async serving, quantized KV cache
+**IN:** M=1 GEMV, memory coalescing, GPU transfer elimination, async serving, quantized KV cache, **WGPU/Vulkan cross-platform inference**
 **OUT:** Prefill-phase GEMM [Patel24], multi-GPU distribution, training
 
 ### Deployment Topology
