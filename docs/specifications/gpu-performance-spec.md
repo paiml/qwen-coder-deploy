@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.8.0
+**Version:** 6.9.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-22
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 380 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 381 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.9.0 | 2026-03-27 | **PMAT-381: Q4K vec4 optimization — 1.9× faster.** Vec4 dot product for nibble extraction: 4 values per iteration instead of 1. Q4K: 0.24→**0.46 tok/s** (1.9×). Gap vs F32 narrowed from 3.1× to 1.6×. Output correct. |
 | 6.8.0 | 2026-03-27 | **PMAT-380: CPU compute contracts.** avx2-fma-dot-v1 (dot_product, fma_accumulation) + cpu-q4k-activation-quant-v1 (current_path) bound to realizr. trueno 68 + realizr 216 = **284 provable contracts**. |
 | 6.7.0 | 2026-03-27 | **PMAT-379: Streaming TPOT contract + graph investigation.** streaming-tpot-v1/tpot_definition bound to wgpu_chat_completion. **282 provable contracts** (trueno 68 + realizr 214). Graph capture investigation: ThreadLocal prevents crash but forward_workspace_captured corrupts workspace. Root cause: captured kernels modify KV cache positions. Fix requires separate workspace for capture — deferred. |
 | 6.6.0 | 2026-03-27 | **PMAT-378: Streaming SSE usage chunk.** Stop event now includes `usage` (prompt_tokens, completion_tokens, total_tokens) and `x_wgpu_tok_s`. OpenAI-compatible. Combined PRs created: qwen-coder-deploy#91, trueno#228, realizar#165. |
