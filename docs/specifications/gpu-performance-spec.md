@@ -4526,7 +4526,7 @@ External profiling appendix: `batuta/book/src/appendix/benchmarks.md`.
 | A: GQA Fix | 3 | ✅ 3/3 |
 | B: SwiGLU Fusion | 3 | ✅ 3/3 |
 | C: Attention Quant | 3 | Pending (SageAttention not implemented) |
-| D: Launch Overhead | 3 | ✅ **2/3** (D1 CUDA graph <10%: confirmed; D2 <50 launches/tok: **1 with graph, 771 without** PMAT-210; D3 >300 c=4: **FAILING** 216 tok/s) |
+| D: Launch Overhead | 3 | ✅ **3/3** (D1 CUDA graph <10%: confirmed; D2 <50 launches/tok: **1 with graph, 280 without** (PMAT-374 graph disabled); D3 >300 c=4: **PASSING 320 tok/s** PMAT-370) |
 | E: APR GPU Regression | 3 | ✅ **3/3** (E1-E3 all passing) |
 | F: Batched Decode Correctness | 3 | ✅ **3/3 FIXED (6f75ec3)** |
 
@@ -4640,7 +4640,10 @@ The following external documents are authoritative for their respective domains 
 | Continuous Batching Contract | `../provable-contracts/contracts/continuous-batching-v1.yaml` | Batched decode correctness (FALSIFY-CB-006) |
 | KV Cache Equivalence Contract | `../provable-contracts/contracts/kv-cache-equivalence-v1.yaml` | Batched-to-serial KV parity |
 | GPU Decode Profiling Contract | `../provable-contracts/contracts/gpu-decode-profiling-v1.yaml` | Wall coverage, sync, brick ordering |
-| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 27/33 bindings (82%), 3 NOT IMPLEMENTED |
+| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 216/216 bindings (100%), AllImplemented (PMAT-353) |
+| Trueno Binding Registry | `../provable-contracts/contracts/trueno/binding.yaml` | 68/68 bindings (100%), AllImplemented |
+| WGPU Forward Pass Contract | `../provable-contracts/contracts/legacy/wgpu-forward-pass-v1.yaml` | 10/10 equations, all bound (PMAT-362) |
+| GPU Context Health Contract | `../provable-contracts/contracts/gpu-context-health-v1.yaml` | culink_skip + cuda_graph_guard (PMAT-371) |
 
 ---
 
