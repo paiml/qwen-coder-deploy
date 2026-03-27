@@ -1,8 +1,8 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.5.0
-**Last Updated:** 2026-03-26
+**Version:** 6.6.0
+**Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-22
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 377 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 378 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4712,6 +4712,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.6.0 | 2026-03-27 | **PMAT-378: Streaming SSE usage chunk.** Stop event now includes `usage` (prompt_tokens, completion_tokens, total_tokens) and `x_wgpu_tok_s`. OpenAI-compatible. Combined PRs created: qwen-coder-deploy#91, trueno#228, realizar#165. |
 | 6.5.0 | 2026-03-26 | **PMAT-377: WGPU 7B Q4K model on AMD GPU.** Qwen2.5-Coder-7B-Instruct on Radeon Pro W5700X. 28 layers, hidden=3584, 168 Q4K weights (3121 MB), 3906 MB VRAM total. LM head (2.18 GB) exceeds WGPU 2 GB buffer limit — CPU fallback. Correct: "2+2=4", "Paris", Python prime checker. **7B model runs on 8 GB AMD GPU with Q4K — would need ~28 GB F32.** |
 | 6.4.0 | 2026-03-26 | **PMAT-376: Nightly WGPU + Yoga c=32 verified.** `scripts/nightly.sh wgpu` mode: 3/3 correctness + 8 SSE chunks. Yoga c=32: **1621 tok/s** (graph disabled, best result ever). c=16: 950. Full scoring runs. |
 | 6.3.0 | 2026-03-26 | **PMAT-375: WGPU 3B Q4K model verified.** Qwen2.5-Coder-3B-Instruct on Radeon Pro W5700X. 36 layers, hidden=2048, 216 Q4K weights (1327 MB), total 2907 MB VRAM. Correct: "2+2=4", "Paris", generates Python code. Streaming works. 0.13-0.42 tok/s. **Without Q4K would need ~12 GB — doesn't fit. Q4K makes 3B viable on 8 GB AMD GPUs.** |
