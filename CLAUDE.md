@@ -26,6 +26,12 @@ Jetson Orin (secondary load testing)     Intel (192.168.50.100, WGPU + CPU)
 ├── ollama     :8082  (GGUF, CUDA)       │   Radeon Pro W5700X (Navi 10, 8GB)
 ├── llama.cpp  :8083  (GGUF, CUDA)       ├── realizr-cpu  :8082  (GGUF, AVX2)
 └── 8 SMs, sm_87, 8GB unified           └── llama.cpp    :8083  (GGUF, CPU)
+
+gx10 (Grace Blackwell GB10)
+├── realizr    :8081  (GGUF, CUDA sm_121)
+├── 120 GB unified memory
+├── CUDA 13.0, compute 12.1
+└── HumanEval: 84.76% pass@1 (7B Q4K)
 ```
 
 ## Commands
