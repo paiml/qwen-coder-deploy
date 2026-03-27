@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.15.0
+**Version:** 6.16.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 388 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 389 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4731,6 +4731,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.16.0 | 2026-03-27 | **PMAT-388: Spec sweep (exec summary, roadmap, falsification, README, contracts).** PMAT-389: **HumanEval pass@1 = 84.76%** (139/164) on Blackwell GB10 with Qwen2.5-Coder-7B-Instruct Q4K APR. Completed eval copied. Running eval: 48/164 in progress. BigCodeBench 0% (sandbox issue). |
 | 6.15.0 | 2026-03-27 | **PMAT-387: CUDA graph KV restore FALSIFIED.** Saving/restoring `kv_cache_lengths` after failed capture: no crash (ThreadLocal), but output still garbled. Root cause: `forward_workspace_captured` corrupts GPU workspace buffers (hidden_buf, attention output) — not just KV metadata. Full state snapshot impractical. **CUDA graph on driver 590.48.01 is unfixable without driver update.** Opt-IN (PMAT-374) confirmed as correct permanent solution. |
 | 6.14.0 | 2026-03-27 | **PMAT-386: Nightly parity gate + session final.** `nightly.sh wgpu` now includes parity gate (starts CPU backend, runs `make parity-wgpu`). Session PMAT-346→385: 40 items, 284 contracts, 7B on AMD, Q4K 1.9× vec4, CUDA zero-config 1621 tok/s. |
 | 6.13.0 | 2026-03-27 | **PMAT-385: `make parity-wgpu` — cross-backend parity gate.** Automated WGPU vs CPU comparison for factual prompts. 1/2 exact match (Paris), 1/2 factual-correct but differ (tokenizer). Implements `gpu-multi-backend-parity-v1` contract operationally. |
