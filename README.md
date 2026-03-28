@@ -103,7 +103,7 @@ realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at
 - **3B model format parity (PMAT-314)**: SafeTensors→Q4K 91.6 tok/s (+13% vs GGUF 80.9). Fixed sharded SafeTensors loading
 - **Qwen2.5-Coder-3B-Instruct (PMAT-319)**: 6/6 correctness, 81.9 tok/s. Single-user quality mode
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v6.28.0, 402 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v6.29.0, 406 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
@@ -114,7 +114,7 @@ Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spe
 | `forjar.yaml` | CPU deployment (intel host) |
 | `prompts/correctness.yaml` | 6-prompt correctness suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance spec v6.28.0 |
+| `docs/specifications/gpu-performance-spec.md` | Performance spec v6.29.0 |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Testing

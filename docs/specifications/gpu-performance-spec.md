@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.28.0
+**Version:** 6.29.0
 **Last Updated:** 2026-03-28
 **Status:** ACTIVE
 **Date:** 2026-03-28
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 402 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 406 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -3657,7 +3657,7 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | T0: Continuous batching | PMAT-072→074, 088a-d, **105** (LmHead FP8) | ✅ **320 aggregate c=4 (PMAT-370)** |
 | ~~T1: W4A16 tensor core~~ | ~~Marlin-style INT4→FP16 GEMM~~ | **FALSIFIED** (PMAT-091, 054B) — WMMA 87.5% waste at M=4 |
 | ~~T1a: Per-M graph + event sync~~ | ~~CUDA graph capture, event sync~~ | **FALSIFIED** (PMAT-285 -32%, PMAT-283 0% ROI, PMAT-374 graph poisons context on 590.48.01). Graph opt-IN only |
-| **T1a: WGPU cross-platform 🆕** | PMAT-321→387: AMD/Intel/Apple GPU inference | ✅ **7B on W5700X, Q4K 10× VRAM, 284 provable contracts** |
+| **T1a: WGPU cross-platform 🆕** | PMAT-321→387: AMD/Intel/Apple GPU inference | ✅ **7B on W5700X, Q4K 10× VRAM, 123 provable contract bindings** |
 | **T1b: Dynamo Phase 1** | PMAT-052 paged KV, PMAT-053 paged attention, continuous batching | **Scheduling+batch cap fix. CB → 0.68-0.81× vLLM. With kernel fusion: 0.85-1.00×** |
 | *T1b: Dynamo Phase 0* | *PMAT-054 fused Q4K, PMAT-141 AgentHints, PMAT-142 WSPT* | *Optional — c=1 latency only. Zero throughput impact once CB present (PMAT-180)* |
 | **T2: Dynamo Phase 2** | PMAT-145 frequency eviction, PMAT-146 radix tree, PMAT-147 CPU offload, PMAT-148 TTL | Planned — cache intelligence, multi-turn TTFT → 0 |
@@ -4773,6 +4773,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.29.0 | 2026-03-28 | **PMAT-403→406: Contract binding expansion.** 88→123 bindings (+40%): gpu-decode-profiling (9), gpu-context-health (4), gpu-weight-residency (2), continuous-batching (2), inference-pipeline (4), q4k-superblock (4), roofline (3), format-parity (2), backend-dispatch (3), kv-cache-equiv (1). Roadmap T1a contract count corrected. 406 PMAT items. |
 | 6.28.0 | 2026-03-28 | **PMAT-402: Spec sweep — stale data fixed.** 32B exec summary updated: c=4 22.2 tok/s, 53 GB memory, HumanEval 90.85% (149/164). Memory gap table updated (was OOM, now 53 GB). PMAT-389 "running" → completed. PMAT-396 "in progress" → completed. README updated (v5.45.0→v6.28.0, 319→402 items, 32B results). 402 PMAT items. |
 | 6.27.0 | 2026-03-28 | **PMAT-399/400: Auto-size + 32B OOM again.** `compute_max_batch_for_memory()` implemented but 32B still OOMs — workspace allocations (KV cache, prefill buffers) use `cuMemAlloc` not `from_host_registered`. On unified memory, `cuMemAlloc` consumes from the same pool as mmap. Need ALL allocations on zero-copy path. **llama.cpp confirmed: 32B c=4 at 36.3 tok/s, 55 GB, stable.** Design gap: realizr's allocation model assumes discrete GPU with separate VRAM. |
 | 6.26.0 | 2026-03-28 | **PMAT-398: llama.cpp 32B on GB10 — realizr design flaw exposed.** llama.cpp: 10.7 tok/s c=1, 36.3 tok/s c=4, 55 GB memory. realizr: 7.5 tok/s c=1, OOM c=4, 119 GB. Root cause: realizr pre-allocates KV cache for CUDA_MAX_BATCH=8 slots (~80 GB for 32B). llama.cpp allocates 32 GB for 4 slots. **Fix: dynamic KV allocation or reduce batch to model-appropriate size.** |
