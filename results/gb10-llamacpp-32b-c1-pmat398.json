@@ -1,0 +1,161 @@
+{
+  "total_requests": 23,
+  "successful": 12,
+  "failed": 11,
+  "throughput_rps": 0.19901704215802982,
+  "latency_p50_ms": 3791.0962149999996,
+  "latency_p95_ms": 9808.20119995,
+  "latency_p99_ms": 10119.640042390001,
+  "ttft_p50_ms": 98.69680350000002,
+  "tokens_per_sec": 10.663996508967765,
+  "avg_tok_per_req": 53.583333333333336,
+  "itl_p50_ms": 93.5098492801724,
+  "decode_tok_per_sec": 10.694060654550082,
+  "prefill_tok_per_sec": 1033.4697609919006,
+  "timestamp": "2026-03-28T10:27:44.588059540+00:00",
+  "runtime_name": "llamacpp-gb10-32b",
+  "elapsed_secs": 60.29634382,
+  "concurrency": 1,
+  "ttft_p90_ms": 100.6923825,
+  "ttft_p95_ms": 117.90828174999997,
+  "ttft_p99_ms": 134.61715635000002,
+  "tpot_p50_ms": 93.5098492801724,
+  "tpot_p90_ms": 93.70087210833333,
+  "tpot_p95_ms": 93.97954501880952,
+  "tpot_p99_ms": 94.23771822661905,
+  "latency_min_ms": 1687.0179520000002,
+  "latency_max_ms": 10197.499753,
+  "latency_stddev_ms": 3006.579254969378,
+  "error_rate": 0.4782608695652174,
+  "prompt_tokens_total": 1224,
+  "completion_tokens_total": 643,
+  "truncated_pct": 100.0,
+  "sse_batch_ratio": 1.0,
+  "goodput_pct": 0.0,
+  "output_tokens_dist": [
+    18.0,
+    40.5,
+    99.4,
+    109.0
+  ],
+  "request_details": [
+    {
+      "latency_ms": 9489.684201999999,
+      "ttft_ms": 138.794375,
+      "completion_tokens": 101,
+      "prompt_tokens": 102,
+      "itl_ms": 93.50882125,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 3370.489322,
+      "ttft_ms": 98.18127799999999,
+      "completion_tokens": 36,
+      "prompt_tokens": 102,
+      "itl_ms": 93.4942998,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 6455.913009,
+      "ttft_ms": 99.542098,
+      "completion_tokens": 69,
+      "prompt_tokens": 102,
+      "itl_ms": 93.47592823529412,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 7958.391899,
+      "ttft_ms": 98.57245,
+      "completion_tokens": 85,
+      "prompt_tokens": 102,
+      "itl_ms": 93.5691829404762,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 10197.499753,
+      "ttft_ms": 99.546885,
+      "completion_tokens": 109,
+      "prompt_tokens": 102,
+      "itl_ms": 93.49950573148148,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 6699.987897,
+      "ttft_ms": 98.82115700000001,
+      "completion_tokens": 71,
+      "prompt_tokens": 102,
+      "itl_ms": 94.30226152857144,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 2065.265452,
+      "ttft_ms": 97.232642,
+      "completion_tokens": 22,
+      "prompt_tokens": 102,
+      "itl_ms": 93.71550423809524,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 4211.703108,
+      "ttft_ms": 97.355748,
+      "completion_tokens": 45,
+      "prompt_tokens": 102,
+      "itl_ms": 93.50772134090909,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 2810.021157,
+      "ttft_ms": 98.19766200000001,
+      "completion_tokens": 30,
+      "prompt_tokens": 102,
+      "itl_ms": 93.51087731034481,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 2717.345178,
+      "ttft_ms": 98.537867,
+      "completion_tokens": 29,
+      "prompt_tokens": 102,
+      "itl_ms": 93.52862257142858,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 1687.0179520000002,
+      "ttft_ms": 98.913635,
+      "completion_tokens": 18,
+      "prompt_tokens": 102,
+      "itl_ms": 93.41748211764707,
+      "finish_reason": "length"
+    },
+    {
+      "latency_ms": 2625.778997,
+      "ttft_ms": 100.81966,
+      "completion_tokens": 28,
+      "prompt_tokens": 102,
+      "itl_ms": 93.51673055555557,
+      "finish_reason": "length"
+    }
+  ],
+  "tail_analysis": {
+    "itl_p999_ms": 94.2958071983762,
+    "itl_p9999_ms": 94.3016160955519,
+    "ttft_p999_ms": 138.37665313500003,
+    "ttft_p9999_ms": 138.75260281350003,
+    "latency_p999_ms": 10189.713781939001,
+    "latency_p9999_ms": 10196.721155893902,
+    "tail_ratio_itl": 1.007783874661864,
+    "tail_ratio_ttft": 1.3639464661081957,
+    "tail_ratio_latency": 2.6693176507497323,
+    "jitter": {
+      "itl_cv": 0.0025209544228376375,
+      "itl_iqr_ms": 0.04055841507938851,
+      "spike_count": 0,
+      "spike_threshold_ms": 467.549246400862
+    },
+    "drift": {
+      "itl_slope_ms_per_min": 0.5281513608139002,
+      "ttft_slope_ms_per_min": 21.231260601398603,
+      "degradation_detected": false
+    }
+  }
+}
