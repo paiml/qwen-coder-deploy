@@ -56,7 +56,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 |-------|-----|-----|-----|------|------|---------|
 | 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
 | 7B | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated) |
-| 32B | OOM | — | — | — | — | `cuMemAllocManaged` eager alloc, needs driver fix |
+| **32B** | **7.5** | — | — | — | — | **WORKING via `cuMemHostRegister` zero-copy (PMAT-396)** |
 
 HumanEval pass@1 = **84.76%** (139/164) on 7B Q4K APR (batch eval, PMAT-389).
 

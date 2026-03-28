@@ -54,6 +54,7 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 |-------|-----|-----|------|-----------|
 | 1.5B | 92 tok/s | 413 | 851 | -- |
 | 7B | 29 tok/s | 154 | 197 | 84.76% |
+| **32B** | **7.5 tok/s** | -- | -- | -- (zero-copy `cuMemHostRegister`) |
 
 ### Quality Scores
 
