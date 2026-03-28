@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.23.0
+**Version:** 6.24.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 396 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 397 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4763,6 +4763,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.24.0 | 2026-03-28 | **PMAT-396: Zero-copy weight loading wired to realizr.** `load_weights` + `load_quantized_weights_with_type` use `from_host_registered` when `cc>=120`. mmap'd GGUF pages registered for GPU access — no alloc, no copy. 32B test in progress on GB10 (10 min PTX compilation). |
 | 6.23.0 | 2026-03-28 | **PMAT-396: `GpuBuffer::from_host_registered` for zero-copy GPU access.** `cuMemHostRegister(CU_MEMHOSTREGISTER_DEVICEMAP)` + `cuMemHostGetDevicePointer` + `cuMemHostUnregister`. Registers mmap'd GGUF pages for GPU access without new allocation. Drop dispatches unregister (not free). Next: wire to realizr weight loading for 32B on GB10. |
 | 6.22.0 | 2026-03-27 | **PMAT-394 final: GB10 tables in exec summary + README.** 6 platforms documented. 1.5B/7B benchmarked (851/197 tok/s ceiling). 32B blocked by cuMemAllocManaged eager alloc. Next: cuMemHostRegister on mmap'd pages (llama.cpp Apple Silicon pattern ported to CUDA). gpu-weight-residency-v1.yaml updated with unified memory finding. |
 | 6.21.0 | 2026-03-27 | **PMAT-394: `cuMemAllocManaged` PARTIALLY FALSIFIED on GB10.** `GpuBuffer::new_managed()` implemented, `MANAGED_MEMORY=1` env var. 32B still OOM (150 GB VM, Xid 31 MMU fault). `cuMemAllocManaged` eagerly allocates on CUDA 13.0/GB10 — does NOT lazy-page as expected. 7B works without managed (28 GB model fits). **32B on GB10 requires mmap-based approach (llama.cpp pattern) or CUDA 13.1 driver with lazy managed pages.** |
