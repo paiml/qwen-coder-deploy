@@ -55,7 +55,8 @@ Performance specification for the realizar GPU inference engine, covering autore
 | Model | c=1 | c=4 | c=8 | c=16 | c=32 | Ceiling |
 |-------|-----|-----|-----|------|------|---------|
 | 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
-| 7B | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated) |
+| 7B (PMAT-394) | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated, old config) |
+| **7B v2 (PMAT-407)** | **29** | **55** | **168** | **181** | **330** | **+68% at c=32 (B32 iter sched)** |
 | **32B** | **8.4** | **22.2** | — | — | — | **53 GB (FP16 cache skip + BATCH=4). HumanEval 90.85%.** |
 
 **32B memory gap CLOSED (PMAT-400/401):** Previously OOM'd at 119 GB. Root cause: FP16 weight cache (61 GB) + pre-allocated KV for 8 slots. Fix: skip FP16 cache on cc>=120 + auto-size `CUDA_MAX_BATCH=4`. Now 53 GB (vs llama.cpp 55 GB). c=4: 22.2 tok/s (0.61× llama.cpp's 36.3). HumanEval 90.85% (149/164).
