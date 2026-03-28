@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.30.0
+**Version:** 6.31.0
 **Last Updated:** 2026-03-28
 **Status:** ACTIVE
 **Date:** 2026-03-28
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 408 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 409 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4774,7 +4774,8 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 6.30.0 | 2026-03-28 | **PMAT-407/408: 5 more bindings (fused_qkv, temperature, BPE encode/decode/merge).** 128 total bindings (38 trueno + 90 realizr). GB10 7B re-benchmark pending (build in progress). |
+| 6.31.0 | 2026-03-28 | **PMAT-409: GB10 prefill regression root-caused.** Five-whys: PMAT-400 `skip_fp16_unified` (cc>=120) disables FP16 cache. FP8 warmup also skips on sm_121 (internal cc range check). Prefill falls back to DP4A GEMV: 573→98 tok/s (5.8× regression). Fix: `FORCE_FP16_CACHE=1` env var override. For 7B, FP16 cache is only 2.9 GB on 120 GB unified. c=32 still improved +68% (330 vs 197) — iteration scheduler benefit. |
+| 6.30.0 | 2026-03-28 | **PMAT-407/408: 5 more bindings (fused_qkv, temperature, BPE encode/decode/merge).** 128 total bindings (38 trueno + 90 realizr). GB10 7B v2: c=32 +68% (330 tok/s), c=4 -40% (55 tok/s, prefill regression). |
 | 6.29.0 | 2026-03-28 | **PMAT-403→406: Contract binding expansion.** 88→123 bindings (+40%): gpu-decode-profiling (9), gpu-context-health (4), gpu-weight-residency (2), continuous-batching (2), inference-pipeline (4), q4k-superblock (4), roofline (3), format-parity (2), backend-dispatch (3), kv-cache-equiv (1). Roadmap T1a contract count corrected. 406 PMAT items. |
 | 6.28.0 | 2026-03-28 | **PMAT-402: Spec sweep — stale data fixed.** 32B exec summary updated: c=4 22.2 tok/s, 53 GB memory, HumanEval 90.85% (149/164). Memory gap table updated (was OOM, now 53 GB). PMAT-389 "running" → completed. PMAT-396 "in progress" → completed. README updated (v5.45.0→v6.28.0, 319→402 items, 32B results). 402 PMAT items. |
 | 6.27.0 | 2026-03-28 | **PMAT-399/400: Auto-size + 32B OOM again.** `compute_max_batch_for_memory()` implemented but 32B still OOMs — workspace allocations (KV cache, prefill buffers) use `cuMemAlloc` not `from_host_registered`. On unified memory, `cuMemAlloc` consumes from the same pool as mmap. Need ALL allocations on zero-copy path. **llama.cpp confirmed: 32B c=4 at 36.3 tok/s, 55 GB, stable.** Design gap: realizr's allocation model assumes discrete GPU with separate VRAM. |
