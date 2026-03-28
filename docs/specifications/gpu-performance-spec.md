@@ -48,7 +48,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 | 16 | 950 | 931 | 2,037 | +2% |
 | 32 | **1,621** | 1,600 | 2,998 | **+1.3%, best ever** |
 
-**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 97 provable contract bindings (34 trueno + 63 realizr).
+**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 103 provable contract bindings (36 trueno + 67 realizr).
 
 **Blackwell GB10 (PMAT-390→394):** Grace ARM + sm_121, CUDA 13.0, 120 GB unified memory. First realizr on Blackwell. 6/6 correctness.
 
@@ -4683,8 +4683,8 @@ The following external documents are authoritative for their respective domains 
 | Continuous Batching Contract | `../provable-contracts/contracts/continuous-batching-v1.yaml` | Batched decode correctness (FALSIFY-CB-006) |
 | KV Cache Equivalence Contract | `../provable-contracts/contracts/kv-cache-equivalence-v1.yaml` | Batched-to-serial KV parity |
 | GPU Decode Profiling Contract | `../provable-contracts/contracts/gpu-decode-profiling-v1.yaml` | Wall coverage, sync, brick ordering |
-| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 63/63 bindings (100%), AllImplemented (PMAT-403) |
-| Trueno Binding Registry | `../provable-contracts/contracts/trueno/binding.yaml` | 34/34 bindings (100%), AllImplemented (PMAT-403) |
+| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 67/67 bindings (100%), AllImplemented (PMAT-404) |
+| Trueno Binding Registry | `../provable-contracts/contracts/trueno/binding.yaml` | 36/36 bindings (100%), AllImplemented (PMAT-404) |
 | WGPU Forward Pass Contract | `../provable-contracts/contracts/legacy/wgpu-forward-pass-v1.yaml` | 10/10 equations, all bound (PMAT-362) |
 | GPU Context Health Contract | `../provable-contracts/contracts/gpu-context-health-v1.yaml` | culink_skip + cuda_graph_guard (PMAT-371) |
 
