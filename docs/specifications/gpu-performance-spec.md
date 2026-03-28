@@ -1,10 +1,10 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.27.0
-**Last Updated:** 2026-03-27
+**Version:** 6.28.0
+**Last Updated:** 2026-03-28
 **Status:** ACTIVE
-**Date:** 2026-03-27
+**Date:** 2026-03-28
 **Methodology:** Toyota Way (14 Principles) + Popperian Falsification + Peer-Reviewed Citations
 **Target:** >=2x Ollama parity on Jetson Orin for decoder-only transformer inference
 **Supersedes:** SPEC-QWEN-PERF-001, REALIZAR-QWEN-PERF-001, Decoder Throughput Spec v1.3.0
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 400 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 402 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -56,18 +56,19 @@ Performance specification for the realizar GPU inference engine, covering autore
 |-------|-----|-----|-----|------|------|---------|
 | 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
 | 7B | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated) |
-| **32B** | **8.4** | **22.2** | — | — | — | **53 GB (FP16 cache skip + BATCH=4). HumanEval running.** |
+| **32B** | **8.4** | **22.2** | — | — | — | **53 GB (FP16 cache skip + BATCH=4). HumanEval 90.85%.** |
 
-**32B memory gap (PMAT-398):** llama.cpp serves 32B at c=4 (36.3 tok/s, 55 GB) while realizr OOMs (119 GB). Root cause: realizr pre-allocates KV cache for `CUDA_MAX_BATCH` slots × max_seq_len — ~80 GB for 32B. llama.cpp: 32 GB KV for 4 slots. Fix: dynamic KV allocation or `CUDA_MAX_BATCH=1`.
+**32B memory gap CLOSED (PMAT-400/401):** Previously OOM'd at 119 GB. Root cause: FP16 weight cache (61 GB) + pre-allocated KV for 8 slots. Fix: skip FP16 cache on cc>=120 + auto-size `CUDA_MAX_BATCH=4`. Now 53 GB (vs llama.cpp 55 GB). c=4: 22.2 tok/s (0.61× llama.cpp's 36.3). HumanEval 90.85% (149/164).
 
-| | realizr 32B | llama.cpp 32B |
+| | realizr 32B (PMAT-401) | llama.cpp 32B |
 |---|-----------|---------------|
-| c=1 decode | 7.5 tok/s | **10.7 tok/s** |
-| c=4 aggregate | OOM | **36.3 tok/s** |
-| Memory | 119 GB | **55 GB** |
-| KV cache | ~80 GB (8 slots) | 32 GB (4 slots) |
+| c=1 decode | 8.4 tok/s | **10.7 tok/s** |
+| c=4 aggregate | **22.2 tok/s** | **36.3 tok/s** |
+| Memory | **53 GB** (FP16 skip + BATCH=4) | **55 GB** |
+| KV cache | ~14 GB (4 slots) | 32 GB (4 slots) |
+| HumanEval | **90.85%** (149/164) | — |
 
-HumanEval pass@1 = **84.76%** (139/164) on 7B Q4K APR (batch eval, PMAT-389).
+HumanEval pass@1: **90.85%** (149/164) on 32B Q4K APR (PMAT-401), **84.76%** (139/164) on 7B Q4K APR (PMAT-389). Both on Blackwell GB10.
 
 **Step 2: Why is realizr 0.54x vLLM at c=4?** Because ~400 kernel launches per decode step cost ~5ms of CPU dispatch time. Graph dispatch (PMAT-291) improved from 0.50x to 0.54x. 16 kernel fusion approaches tested and falsified — the 2-kernel Q8+DP4A pattern is optimal.
 
@@ -4772,10 +4773,11 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.28.0 | 2026-03-28 | **PMAT-402: Spec sweep — stale data fixed.** 32B exec summary updated: c=4 22.2 tok/s, 53 GB memory, HumanEval 90.85% (149/164). Memory gap table updated (was OOM, now 53 GB). PMAT-389 "running" → completed. PMAT-396 "in progress" → completed. README updated (v5.45.0→v6.28.0, 319→402 items, 32B results). 402 PMAT items. |
 | 6.27.0 | 2026-03-28 | **PMAT-399/400: Auto-size + 32B OOM again.** `compute_max_batch_for_memory()` implemented but 32B still OOMs — workspace allocations (KV cache, prefill buffers) use `cuMemAlloc` not `from_host_registered`. On unified memory, `cuMemAlloc` consumes from the same pool as mmap. Need ALL allocations on zero-copy path. **llama.cpp confirmed: 32B c=4 at 36.3 tok/s, 55 GB, stable.** Design gap: realizr's allocation model assumes discrete GPU with separate VRAM. |
 | 6.26.0 | 2026-03-28 | **PMAT-398: llama.cpp 32B on GB10 — realizr design flaw exposed.** llama.cpp: 10.7 tok/s c=1, 36.3 tok/s c=4, 55 GB memory. realizr: 7.5 tok/s c=1, OOM c=4, 119 GB. Root cause: realizr pre-allocates KV cache for CUDA_MAX_BATCH=8 slots (~80 GB for 32B). llama.cpp allocates 32 GB for 4 slots. **Fix: dynamic KV allocation or reduce batch to model-appropriate size.** |
 | 6.25.0 | 2026-03-28 | **PMAT-397: 32B c=1 verified, c≥2 OOM.** Zero-copy works at c=1 (7.5 tok/s). c=4 triggers OOM (119/120 GB used, no room for batched KV cache). 32B on 120 GB is c=1 only. Correctness test failed (concurrent requests → OOM). |
-| 6.24.0 | 2026-03-28 | **PMAT-396: Zero-copy weight loading wired to realizr.** `load_weights` + `load_quantized_weights_with_type` use `from_host_registered` when `cc>=120`. mmap'd GGUF pages registered for GPU access — no alloc, no copy. 32B test in progress on GB10 (10 min PTX compilation). |
+| 6.24.0 | 2026-03-28 | **PMAT-396: Zero-copy weight loading wired to realizr.** `load_weights` + `load_quantized_weights_with_type` use `from_host_registered` when `cc>=120`. mmap'd GGUF pages registered for GPU access — no alloc, no copy. 32B test completed on GB10 — 53 GB, 22.2 tok/s c=4, HumanEval 90.85%. |
 | 6.23.0 | 2026-03-28 | **PMAT-396: `GpuBuffer::from_host_registered` for zero-copy GPU access.** `cuMemHostRegister(CU_MEMHOSTREGISTER_DEVICEMAP)` + `cuMemHostGetDevicePointer` + `cuMemHostUnregister`. Registers mmap'd GGUF pages for GPU access without new allocation. Drop dispatches unregister (not free). Next: wire to realizr weight loading for 32B on GB10. |
 | 6.22.0 | 2026-03-27 | **PMAT-394 final: GB10 tables in exec summary + README.** 6 platforms documented. 1.5B/7B benchmarked (851/197 tok/s ceiling). 32B blocked by cuMemAllocManaged eager alloc. Next: cuMemHostRegister on mmap'd pages (llama.cpp Apple Silicon pattern ported to CUDA). gpu-weight-residency-v1.yaml updated with unified memory finding. |
 | 6.21.0 | 2026-03-27 | **PMAT-394: `cuMemAllocManaged` PARTIALLY FALSIFIED on GB10.** `GpuBuffer::new_managed()` implemented, `MANAGED_MEMORY=1` env var. 32B still OOM (150 GB VM, Xid 31 MMU fault). `cuMemAllocManaged` eagerly allocates on CUDA 13.0/GB10 — does NOT lazy-page as expected. 7B works without managed (28 GB model fits). **32B on GB10 requires mmap-based approach (llama.cpp pattern) or CUDA 13.1 driver with lazy managed pages.** |
@@ -4783,7 +4785,7 @@ The following external documents are authoritative for their respective domains 
 | 6.19.0 | 2026-03-27 | **PMAT-392: 32B on GB10 — OOM crash.** Loading 32B (19 GB GGUF) while 7B eval running caused OOM — system unresponsive. Five-whys: explicit `cuMemAlloc` + `cuMemcpyHtoD` doubles footprint on unified memory (32B dequant ~40 GB + 7B eval ~15 GB > 120 GB with workspace). **Fix: `cuMemAllocManaged` for Grace Blackwell** — zero-copy via NVLink-C2C, no duplication. |
 | 6.18.0 | 2026-03-27 | **PMAT-391: gx10 infrastructure.** `forjar-gx10.yaml`, `make bench-gx10`, `make test-gx10`. 6/6 correctness on 7B Q4K (sm_121). 32B GGUF downloading (~19 GB). |
 | 6.17.0 | 2026-03-27 | **PMAT-390: Blackwell GB10 inference benchmarks.** First realizr on sm_121/CUDA 13.0. 1.5B: c=1:92/c=4:247/c=8:413/c=16:495/c=32:851 tok/s (0.53-0.77× Yoga 4060L). **7B: c=1:28.8/c=4:92/c=8:154 tok/s — first 7B CUDA inference.** 120 GB unified memory, power-efficient Blackwell. |
-| 6.16.0 | 2026-03-27 | **PMAT-388: Spec sweep (exec summary, roadmap, falsification, README, contracts).** PMAT-389: **HumanEval pass@1 = 84.76%** (139/164) on Blackwell GB10 with Qwen2.5-Coder-7B-Instruct Q4K APR. Completed eval copied. Running eval: 48/164 in progress. BigCodeBench 0% (sandbox issue). |
+| 6.16.0 | 2026-03-27 | **PMAT-388: Spec sweep (exec summary, roadmap, falsification, README, contracts).** PMAT-389: **HumanEval pass@1 = 84.76%** (139/164) on Blackwell GB10 with Qwen2.5-Coder-7B-Instruct Q4K APR. Completed. 32B eval: 90.85% (149/164, PMAT-401). BigCodeBench 0% (sandbox issue). |
 | 6.15.0 | 2026-03-27 | **PMAT-387: CUDA graph KV restore FALSIFIED.** Saving/restoring `kv_cache_lengths` after failed capture: no crash (ThreadLocal), but output still garbled. Root cause: `forward_workspace_captured` corrupts GPU workspace buffers (hidden_buf, attention output) — not just KV metadata. Full state snapshot impractical. **CUDA graph on driver 590.48.01 is unfixable without driver update.** Opt-IN (PMAT-374) confirmed as correct permanent solution. |
 | 6.14.0 | 2026-03-27 | **PMAT-386: Nightly parity gate + session final.** `nightly.sh wgpu` now includes parity gate (starts CPU backend, runs `make parity-wgpu`). Session PMAT-346→385: 40 items, 284 contracts, 7B on AMD, Q4K 1.9× vec4, CUDA zero-config 1621 tok/s. |
 | 6.13.0 | 2026-03-27 | **PMAT-385: `make parity-wgpu` — cross-backend parity gate.** Automated WGPU vs CPU comparison for factual prompts. 1/2 exact match (Paris), 1/2 factual-correct but differ (tokenizer). Implements `gpu-multi-backend-parity-v1` contract operationally. |

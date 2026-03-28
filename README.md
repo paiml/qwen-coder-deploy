@@ -4,7 +4,7 @@
   <img src="docs/assets/architecture.svg" alt="Architecture" width="720"/>
 </p>
 
-Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 284 provable contracts enforced by build.rs.
+Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 88 provable contract bindings (30 trueno + 58 realizr) enforced by build.rs.
 
 ## Quick Start
 
@@ -54,7 +54,7 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 |-------|-----|-----|------|-----------|
 | 1.5B | 92 tok/s | 413 | 851 | -- |
 | 7B | 29 tok/s | 154 | 197 | 84.76% |
-| **32B** | **7.5 tok/s** | -- | -- | -- (zero-copy `cuMemHostRegister`) |
+| **32B** | **8.4 tok/s** | **22.2** | -- | **90.85%** (149/164, PMAT-401) |
 
 ### Quality Scores
 
@@ -103,7 +103,7 @@ realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at
 - **3B model format parity (PMAT-314)**: SafeTensors→Q4K 91.6 tok/s (+13% vs GGUF 80.9). Fixed sharded SafeTensors loading
 - **Qwen2.5-Coder-3B-Instruct (PMAT-319)**: 6/6 correctness, 81.9 tok/s. Single-user quality mode
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v5.45.0, 319 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v6.28.0, 402 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
@@ -114,7 +114,7 @@ Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spe
 | `forjar.yaml` | CPU deployment (intel host) |
 | `prompts/correctness.yaml` | 6-prompt correctness suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance spec v5.40.0 |
+| `docs/specifications/gpu-performance-spec.md` | Performance spec v6.28.0 |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Testing
