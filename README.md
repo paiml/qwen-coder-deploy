@@ -4,7 +4,7 @@
   <img src="docs/assets/architecture.svg" alt="Architecture" width="720"/>
 </p>
 
-Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 88 provable contract bindings (30 trueno + 58 realizr) enforced by build.rs.
+Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 123 provable contract bindings (38 trueno + 85 realizr) enforced by build.rs.
 
 ## Quick Start
 
