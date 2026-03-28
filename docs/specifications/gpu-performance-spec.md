@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.26.0
+**Version:** 6.27.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 399 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 400 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -4772,6 +4772,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.27.0 | 2026-03-28 | **PMAT-399: Auto-size CUDA_MAX_BATCH from free memory.** `compute_max_batch_for_memory()` queries `cuMemGetInfo` after weight loading, computes KV cache per slot (2×kv_heads×max_len×head_dim×4×layers), clamps to available minus 2 GB reserve. Auto-sets env var when not explicit. 32B test in progress. |
 | 6.26.0 | 2026-03-28 | **PMAT-398: llama.cpp 32B on GB10 — realizr design flaw exposed.** llama.cpp: 10.7 tok/s c=1, 36.3 tok/s c=4, 55 GB memory. realizr: 7.5 tok/s c=1, OOM c=4, 119 GB. Root cause: realizr pre-allocates KV cache for CUDA_MAX_BATCH=8 slots (~80 GB for 32B). llama.cpp allocates 32 GB for 4 slots. **Fix: dynamic KV allocation or reduce batch to model-appropriate size.** |
 | 6.25.0 | 2026-03-28 | **PMAT-397: 32B c=1 verified, c≥2 OOM.** Zero-copy works at c=1 (7.5 tok/s). c=4 triggers OOM (119/120 GB used, no room for batched KV cache). 32B on 120 GB is c=1 only. Correctness test failed (concurrent requests → OOM). |
 | 6.24.0 | 2026-03-28 | **PMAT-396: Zero-copy weight loading wired to realizr.** `load_weights` + `load_quantized_weights_with_type` use `from_host_registered` when `cc>=120`. mmap'd GGUF pages registered for GPU access — no alloc, no copy. 32B test in progress on GB10 (10 min PTX compilation). |
