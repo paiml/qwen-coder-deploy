@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.24.0
+**Version:** 6.25.0
 **Last Updated:** 2026-03-27
 **Status:** ACTIVE
 **Date:** 2026-03-27
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 397 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 398 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -56,7 +56,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 |-------|-----|-----|-----|------|------|---------|
 | 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
 | 7B | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated) |
-| **32B** | **7.5** | — | — | — | — | **WORKING via `cuMemHostRegister` zero-copy (PMAT-396)** |
+| **32B** | **7.5** | OOM | OOM | OOM | OOM | **c=1 only (119/120 GB, no room for batched KV)** |
 
 HumanEval pass@1 = **84.76%** (139/164) on 7B Q4K APR (batch eval, PMAT-389).
 
@@ -4763,6 +4763,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.25.0 | 2026-03-28 | **PMAT-397: 32B c=1 verified, c≥2 OOM.** Zero-copy works at c=1 (7.5 tok/s). c=4 triggers OOM (119/120 GB used, no room for batched KV cache). 32B on 120 GB is c=1 only. Correctness test failed (concurrent requests → OOM). |
 | 6.24.0 | 2026-03-28 | **PMAT-396: Zero-copy weight loading wired to realizr.** `load_weights` + `load_quantized_weights_with_type` use `from_host_registered` when `cc>=120`. mmap'd GGUF pages registered for GPU access — no alloc, no copy. 32B test in progress on GB10 (10 min PTX compilation). |
 | 6.23.0 | 2026-03-28 | **PMAT-396: `GpuBuffer::from_host_registered` for zero-copy GPU access.** `cuMemHostRegister(CU_MEMHOSTREGISTER_DEVICEMAP)` + `cuMemHostGetDevicePointer` + `cuMemHostUnregister`. Registers mmap'd GGUF pages for GPU access without new allocation. Drop dispatches unregister (not free). Next: wire to realizr weight loading for 32B on GB10. |
 | 6.22.0 | 2026-03-27 | **PMAT-394 final: GB10 tables in exec summary + README.** 6 platforms documented. 1.5B/7B benchmarked (851/197 tok/s ceiling). 32B blocked by cuMemAllocManaged eager alloc. Next: cuMemHostRegister on mmap'd pages (llama.cpp Apple Silicon pattern ported to CUDA). gpu-weight-residency-v1.yaml updated with unified memory finding. |
