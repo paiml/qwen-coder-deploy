@@ -56,7 +56,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 |-------|-----|-----|-----|------|------|---------|
 | 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
 | 7B | 29 | 92 | 154 | 197 | 197 | ~197 (BW saturated) |
-| **32B** | **7.5** | OOM | OOM | OOM | OOM | **KV cache over-allocation (see below)** |
+| **32B** | **8.4** | **22.2** | — | — | — | **53 GB (FP16 cache skip + BATCH=4). HumanEval running.** |
 
 **32B memory gap (PMAT-398):** llama.cpp serves 32B at c=4 (36.3 tok/s, 55 GB) while realizr OOMs (119 GB). Root cause: realizr pre-allocates KV cache for `CUDA_MAX_BATCH` slots × max_seq_len — ~80 GB for 32B. llama.cpp: 32 GB KV for 4 slots. Fix: dynamic KV allocation or `CUDA_MAX_BATCH=1`.
 
