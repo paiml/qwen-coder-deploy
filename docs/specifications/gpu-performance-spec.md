@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.29.0
+**Version:** 6.30.0
 **Last Updated:** 2026-03-28
 **Status:** ACTIVE
 **Date:** 2026-03-28
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 406 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 408 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -48,7 +48,7 @@ Performance specification for the realizar GPU inference engine, covering autore
 | 16 | 950 | 931 | 2,037 | +2% |
 | 32 | **1,621** | 1,600 | 2,998 | **+1.3%, best ever** |
 
-**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 123 provable contract bindings (38 trueno + 85 realizr).
+**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 128 provable contract bindings (38 trueno + 90 realizr).
 
 **Blackwell GB10 (PMAT-390→394):** Grace ARM + sm_121, CUDA 13.0, 120 GB unified memory. First realizr on Blackwell. 6/6 correctness.
 
@@ -4683,7 +4683,7 @@ The following external documents are authoritative for their respective domains 
 | Continuous Batching Contract | `../provable-contracts/contracts/continuous-batching-v1.yaml` | Batched decode correctness (FALSIFY-CB-006) |
 | KV Cache Equivalence Contract | `../provable-contracts/contracts/kv-cache-equivalence-v1.yaml` | Batched-to-serial KV parity |
 | GPU Decode Profiling Contract | `../provable-contracts/contracts/gpu-decode-profiling-v1.yaml` | Wall coverage, sync, brick ordering |
-| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 85/85 bindings (100%), AllImplemented (PMAT-405) |
+| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 90/90 bindings (100%), AllImplemented (PMAT-408) |
 | Trueno Binding Registry | `../provable-contracts/contracts/trueno/binding.yaml` | 38/38 bindings (100%), AllImplemented (PMAT-405) |
 | WGPU Forward Pass Contract | `../provable-contracts/contracts/legacy/wgpu-forward-pass-v1.yaml` | 10/10 equations, all bound (PMAT-362) |
 | GPU Context Health Contract | `../provable-contracts/contracts/gpu-context-health-v1.yaml` | culink_skip + cuda_graph_guard (PMAT-371) |
@@ -4773,6 +4773,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.30.0 | 2026-03-28 | **PMAT-407/408: 5 more bindings (fused_qkv, temperature, BPE encode/decode/merge).** 128 total bindings (38 trueno + 90 realizr). GB10 7B re-benchmark pending (build in progress). |
 | 6.29.0 | 2026-03-28 | **PMAT-403→406: Contract binding expansion.** 88→123 bindings (+40%): gpu-decode-profiling (9), gpu-context-health (4), gpu-weight-residency (2), continuous-batching (2), inference-pipeline (4), q4k-superblock (4), roofline (3), format-parity (2), backend-dispatch (3), kv-cache-equiv (1). Roadmap T1a contract count corrected. 406 PMAT items. |
 | 6.28.0 | 2026-03-28 | **PMAT-402: Spec sweep — stale data fixed.** 32B exec summary updated: c=4 22.2 tok/s, 53 GB memory, HumanEval 90.85% (149/164). Memory gap table updated (was OOM, now 53 GB). PMAT-389 "running" → completed. PMAT-396 "in progress" → completed. README updated (v5.45.0→v6.28.0, 319→402 items, 32B results). 402 PMAT items. |
 | 6.27.0 | 2026-03-28 | **PMAT-399/400: Auto-size + 32B OOM again.** `compute_max_batch_for_memory()` implemented but 32B still OOMs — workspace allocations (KV cache, prefill buffers) use `cuMemAlloc` not `from_host_registered`. On unified memory, `cuMemAlloc` consumes from the same pool as mmap. Need ALL allocations on zero-copy path. **llama.cpp confirmed: 32B c=4 at 36.3 tok/s, 55 GB, stable.** Design gap: realizr's allocation model assumes discrete GPU with separate VRAM. |
