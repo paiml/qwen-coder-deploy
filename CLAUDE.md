@@ -31,7 +31,9 @@ gx10 (Grace Blackwell GB10)
 ├── realizr    :8081  (GGUF, CUDA sm_121)
 ├── 120 GB unified memory
 ├── CUDA 13.0, compute 12.1
-└── HumanEval: 84.76% pass@1 (7B Q4K)
+├── HumanEval: 90.85% pass@1 (32B Q4K), 84.76% (7B Q4K)
+├── FORCE_FP16_CACHE=1 needed for 7B (PMAT-409: prefill 5.8x without)
+└── 32B: CUDA_MAX_BATCH=4, 53 GB memory
 ```
 
 ## Commands
