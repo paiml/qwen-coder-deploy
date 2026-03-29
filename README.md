@@ -30,15 +30,15 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 
 ### Throughput (tok/s aggregate)
 
-**CUDA — Yoga RTX 4060L (Mar 26, PMAT-370):**
+**CUDA — Yoga RTX 4060L (Mar 29, PMAT-413):**
 
 | c | realizr | llama.cpp | vLLM | ollama |
 |---|---------|-----------|------|--------|
-| 1 | 137 | 160 | 154 | 163 |
-| 4 | 320 | 351 | 598 | 635 |
-| 8 | **534** | 419 | 1,142 | -- |
-| 16 | **950** | 912 | 2,037 | -- |
-| 32 | **1,621** | 1,949 | 2,998 | -- |
+| 1 | 136 | 160 | 154 | 163 |
+| 4 | **351** | 351 | 598 | 635 |
+| 8 | **610** | 419 | 1,142 | -- |
+| 16 | **1,072** | 912 | 2,037 | -- |
+| 32 | **1,895** | 1,949 | 2,998 | -- |
 
 **WGPU — Intel Radeon Pro W5700X (Mar 26, PMAT-375/377):**
 

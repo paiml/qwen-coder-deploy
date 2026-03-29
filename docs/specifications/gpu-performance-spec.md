@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.33.0
+**Version:** 6.34.0
 **Last Updated:** 2026-03-28
 **Status:** ACTIVE
 **Date:** 2026-03-28
@@ -34,21 +34,21 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 412 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 414 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
 **Step 1: Where are we?** Yoga RTX 4060L @ 1900MHz, production methodology (medium prompt, uniform:16,256 output, streaming, 60s). **CUDA graph disabled by default** (PMAT-374: poisons context on driver 590.48.01). PMAT-370 benchmark (Mar 26):
 
-| c | realizr (PMAT-370) | realizr (PMAT-296) | vLLM | notes |
+| c | realizr (PMAT-413) | realizr (PMAT-370) | vLLM | notes |
 |---|-------------------|-------------------|------|-------|
-| 1 | 137 | 149 | 154 | -9% from graph disable (280 launches vs 1) |
-| 4 | 320 | 325 | 598 | within 2% |
-| 8 | 534 | 529 | 1,142 | +1% |
-| 16 | 950 | 931 | 2,037 | +2% |
-| 32 | **1,621** | 1,600 | 2,998 | **+1.3%, best ever** |
+| 1 | **136** | 137 | 154 | flat (graph disabled) |
+| 4 | **351** | 320 | 598 | **+10%** |
+| 8 | **610** | 534 | 1,142 | **+14%** |
+| 16 | **1,072** | 950 | 2,037 | **+13%** |
+| 32 | **1,895** | 1,621 | 2,998 | **+17%, all-time best** |
 
-**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 128 provable contract bindings (38 trueno + 90 realizr).
+**WGPU (AMD GPU, PMAT-346→387):** Radeon Pro W5700X via Vulkan. 1.5B/3B/7B models verified correct. Single-submit GPU attention + KV cache. Q4K fused dequant+GEMV (10× VRAM: 626 MB vs 6175 MB F32, vec4 optimized 0.46 tok/s). Streaming SSE. 138 provable contract bindings (38 trueno + 100 realizr).
 
 **Blackwell GB10 (PMAT-390→394):** Grace ARM + sm_121, CUDA 13.0, 120 GB unified memory. First realizr on Blackwell. 6/6 correctness.
 
@@ -4685,7 +4685,7 @@ The following external documents are authoritative for their respective domains 
 | Continuous Batching Contract | `../provable-contracts/contracts/continuous-batching-v1.yaml` | Batched decode correctness (FALSIFY-CB-006) |
 | KV Cache Equivalence Contract | `../provable-contracts/contracts/kv-cache-equivalence-v1.yaml` | Batched-to-serial KV parity |
 | GPU Decode Profiling Contract | `../provable-contracts/contracts/gpu-decode-profiling-v1.yaml` | Wall coverage, sync, brick ordering |
-| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 90/90 bindings (100%), AllImplemented (PMAT-408) |
+| Realizr Binding Registry | `../provable-contracts/contracts/realizar/binding.yaml` | 100/100 bindings (100%), AllImplemented (PMAT-414) |
 | Trueno Binding Registry | `../provable-contracts/contracts/trueno/binding.yaml` | 38/38 bindings (100%), AllImplemented (PMAT-405) |
 | WGPU Forward Pass Contract | `../provable-contracts/contracts/legacy/wgpu-forward-pass-v1.yaml` | 10/10 equations, all bound (PMAT-362) |
 | GPU Context Health Contract | `../provable-contracts/contracts/gpu-context-health-v1.yaml` | culink_skip + cuda_graph_guard (PMAT-371) |
@@ -4775,6 +4775,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.34.0 | 2026-03-29 | **PMAT-413/414: Fresh Yoga benchmark + contract bindings.** Yoga c=1:136/c=4:351/c=8:610/c=16:1072/c=32:1895 (+10-19% vs PMAT-370). Production methodology 60s. All-time best c=32. 10 new contract bindings (138 total = 100 realizr + 38 trueno). |
 | 6.33.0 | 2026-03-29 | **PMAT-411: GB10 1.5B re-benchmark — 1,677 tok/s c=32 (+97%).** FP8 + B32 iter sched: c=1:101/c=4:342/c=8:560/c=16:1010/c=32:1677. Prefill: 2383 tok/s (FP8 cuBLASLt). Decode: 104 tok/s c=1 (+13% vs PMAT-390). Near 2× at c=16-32. |
 | 6.32.0 | 2026-03-29 | **PMAT-410: FP8 restored on Blackwell — 472 tok/s c=32 (+139%).** Removed cc<100 guard from GEMM dispatch; warmup still guarded (crashes). FP8 cuBLASLt works via lazy `get_or_cache_fp8_weight`. 7B: c=1:31/c=4:111/c=8:159/c=16:277/c=32:472. Prefill: 661 tok/s (was 98 without FP8). Decode: 32 tok/s c=1 (+10%). All-time best GB10 numbers. |
 | 6.31.0 | 2026-03-28 | **PMAT-409: GB10 prefill — FP8 was the old fast path, HGEMM FALSIFIED.** Old PMAT-390 (92 tok/s c=4, 573 prefill) used FP8 cuBLASLt (cc>=89 no upper bound). New code: FP8 disabled (cc<100 guard), FP16 cache skipped (cc>=120). HGEMM prefill FALSIFIED on sm_121: 22 tok/s (4.5× slower than DP4A 98). FP16 cache (13.5 GB for 7B) improves decode +65% but kills prefill. Best GB10 7B config: NO FP16 cache, B32 iter sched. c=32: 330 tok/s (+68%). `FORCE_FP16_CACHE=1` added to realizr for override. |
