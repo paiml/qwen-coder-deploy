@@ -136,16 +136,19 @@ run_gx10() {
     local GX10_URL="http://127.0.0.1:9081"
     local concurrencies=(1 4 8 16 32)
     local models=("1.5b:qwen2.5-coder-1.5b-instruct-q4_k_m.gguf" \
-                   "7b:qwen2.5-coder-7b-instruct-q4_k_m.gguf")
+                   "7b:qwen2.5-coder-7b-instruct-q4_k_m.gguf" \
+                   "32b:qwen2.5-coder-32b-instruct-q4_k_m.gguf")
 
     for model_spec in "${models[@]}"; do
         IFS=':' read -r size gguf <<< "$model_spec"
         echo "=== [gx10] ${size} ==="
 
-        # Deploy model
-        echo "  Starting ${size} on gx10..."
+        # Deploy model (32B needs BATCH=4 for memory)
+        local batch=32
+        [[ "$size" == "32b" ]] && batch=4
+        echo "  Starting ${size} on gx10 (BATCH=$batch)..."
         ssh gx10 "pkill apr 2>/dev/null; sleep 2; cd ~/src/aprender && \
-            SKIP_PARITY_GATE=1 CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 \
+            SKIP_PARITY_GATE=1 CUDA_MAX_BATCH=$batch ITERATION_SCHEDULER=1 \
             nohup ./target/release/apr serve run ~/models/${gguf} \
             --gpu --host 0.0.0.0 --port 8081 </dev/null > /tmp/apr-${size}-nightly.log 2>&1 & disown"
 
@@ -164,8 +167,9 @@ run_gx10() {
             --url "$GX10_URL" \
             --runtime-name "realizr-gb10-${size}" || true
 
-        # Load tests at each concurrency level
+        # Load tests at each concurrency level (32B caps at c=4)
         for c in "${concurrencies[@]}"; do
+            [[ "$size" == "32b" && $c -gt 4 ]] && continue
             echo "  Load c=$c..."
             probador llm load \
                 --url "$GX10_URL" \

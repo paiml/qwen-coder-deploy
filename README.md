@@ -4,7 +4,7 @@
   <img src="docs/assets/architecture.svg" alt="Architecture" width="720"/>
 </p>
 
-Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 123 provable contract bindings (38 trueno + 85 realizr) enforced by build.rs.
+Deploy and benchmark Qwen2.5-Coder-1.5B-Instruct across five inference runtimes. Infrastructure via [forjar](https://github.com/paiml/forjar). Scoring via [probador](https://github.com/paiml/probador). 138 provable contract bindings (38 trueno + 100 realizr) enforced by build.rs.
 
 ## Quick Start
 
@@ -48,13 +48,13 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 | 3B | -- | 0.31 tok/s | 2,907 MB |
 | 7B | -- | 0.07 tok/s | 3,906 MB |
 
-**Blackwell GB10 — Grace ARM + sm_121, 120 GB unified (Mar 27, PMAT-390/394):**
+**Blackwell GB10 — Grace ARM + sm_121, 120 GB unified (Mar 29, PMAT-410/411):**
 
-| Model | c=1 | c=8 | c=32 | HumanEval |
-|-------|-----|-----|------|-----------|
-| 1.5B | 101 tok/s | 560 | **1,677** | -- |
-| 7B | 31 tok/s | 159 | **472** | 84.76% |
-| **32B** | **8.4 tok/s** | **22.2** | -- | **90.85%** (149/164, PMAT-401) |
+| Model | c=1 | c=4 | c=8 | c=16 | c=32 | HumanEval |
+|-------|-----|-----|-----|------|------|-----------|
+| 1.5B | 101 | 342 | 560 | 1,010 | **1,677** | -- |
+| 7B | 31 | 111 | 159 | 277 | **472** | 84.76% |
+| **32B** | **8.4** | **22.2** | -- | -- | -- | **90.85%** |
 
 ### Quality Scores
 
@@ -103,7 +103,7 @@ realizr overtakes llama.cpp at c=8 (+25% aggregate) and beats vLLM on quality at
 - **3B model format parity (PMAT-314)**: SafeTensors→Q4K 91.6 tok/s (+13% vs GGUF 80.9). Fixed sharded SafeTensors loading
 - **Qwen2.5-Coder-3B-Instruct (PMAT-319)**: 6/6 correctness, 81.9 tok/s. Single-user quality mode
 
-Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v6.31.0, 409 PMAT items) | [performance.md](performance.md)
+Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spec.md) (v6.34.0, 414 PMAT items) | [performance.md](performance.md)
 
 ## Infrastructure
 
@@ -114,7 +114,7 @@ Full analysis: [gpu-performance-spec.md](docs/specifications/gpu-performance-spe
 | `forjar.yaml` | CPU deployment (intel host) |
 | `prompts/correctness.yaml` | 6-prompt correctness suite |
 | `scripts/nightly.sh` | Automated benchmark pipeline |
-| `docs/specifications/gpu-performance-spec.md` | Performance spec v6.31.0 |
+| `docs/specifications/gpu-performance-spec.md` | Performance spec v6.34.0 |
 | `docs/specifications/scoring.yaml` | Scoring contract v2.0.0 |
 
 ## Testing
