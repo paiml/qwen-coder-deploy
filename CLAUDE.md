@@ -128,7 +128,7 @@ Load tests via `probador llm load` with configurable concurrency and duration.
 - `forjar-gpu.yaml` — 4090 deployment (deep profiling only)
 - `forjar.yaml` — CPU deployment configuration (intel host)
 - `prompts/correctness.yaml` — Correctness test suite
-- `docs/specifications/gpu-performance-spec.md` — Performance specification (v6.29.0, 406 PMAT items)
+- `docs/specifications/gpu-performance-spec.md` — Performance specification (v6.31.0, 409 PMAT items)
 - `docs/specifications/scoring.yaml` — Quantitative scoring contract v2.0.0 (weights, thresholds, grades)
 - `docs/specifications/probador-llm-score-v1.yaml` — Scoring CLI spec + falsification tests
 - `performance.md` — Historical performance data (auto-updated)
