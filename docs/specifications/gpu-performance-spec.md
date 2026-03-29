@@ -3660,8 +3660,8 @@ achieves 11.3ms ITL at M=4 vs our 15.1ms (1.34× slower). Two root causes:
 | ~~T1: W4A16 tensor core~~ | ~~Marlin-style INT4→FP16 GEMM~~ | **FALSIFIED** (PMAT-091, 054B) — WMMA 87.5% waste at M=4 |
 | ~~T1a: Per-M graph + event sync~~ | ~~CUDA graph capture, event sync~~ | **FALSIFIED** (PMAT-285 -32%, PMAT-283 0% ROI, PMAT-374 graph poisons context on 590.48.01). Graph opt-IN only |
 | **T1a: WGPU cross-platform 🆕** | PMAT-321→387: AMD/Intel/Apple GPU inference | ✅ **7B on W5700X, Q4K 10× VRAM, 123 provable contract bindings** |
-| **T1b: Dynamo Phase 1** | PMAT-052 paged KV, PMAT-053 paged attention, continuous batching | **Scheduling+batch cap fix. CB → 0.68-0.81× vLLM. With kernel fusion: 0.85-1.00×** |
-| *T1b: Dynamo Phase 0* | *PMAT-054 fused Q4K, PMAT-141 AgentHints, PMAT-142 WSPT* | *Optional — c=1 latency only. Zero throughput impact once CB present (PMAT-180)* |
+| **T1b: Phase 0 — Fused Q4K GEMM** | PMAT-054: 430→150 kernel launches. Fused Q4K prefill GEMM + cooperative Q8+DP4A decode + 6-node graph | **~1,750 LOC, 3-4 weeks. TTFT 35→15ms. +38% decode via graph replay. Gate: TTFT ≤ 1.5× llama.cpp** |
+| **T1c: Phase 1 — Paged KV Cache** | PMAT-052/053: GPU block pool, paged attention, dynamic batch | **~3,050 LOC, 5-7 weeks. Heterogeneity 7-11%→0-3%. batch=64+ on 8GB. Gate: 0.79× vLLM c=32** |
 | **T2: Dynamo Phase 2** | PMAT-145 frequency eviction, PMAT-146 radix tree, PMAT-147 CPU offload, PMAT-148 TTL | Planned — cache intelligence, multi-turn TTFT → 0 |
 | **T3: Dynamo Phase 3** | PMAT-149 stream disagg, PMAT-150 speculative prefill | Planned — prefill never blocks decode |
 | T4: EAGLE speculative | Draft-then-verify 2-3x | Planned |
