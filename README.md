@@ -53,7 +53,7 @@ RTX 4060 Laptop, 1900MHz locked, production methodology (medium prompt, uniform 
 | Model | c=1 | c=8 | c=32 | HumanEval |
 |-------|-----|-----|------|-----------|
 | 1.5B | 92 tok/s | 413 | 851 | -- |
-| 7B | 29 tok/s | 154 | 197 | 84.76% |
+| 7B | 31 tok/s | 159 | **472** | 84.76% |
 | **32B** | **8.4 tok/s** | **22.2** | -- | **90.85%** (149/164, PMAT-401) |
 
 ### Quality Scores
