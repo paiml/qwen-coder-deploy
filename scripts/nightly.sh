@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: nightly.sh [cpu|gpu|yoga|both|all]
+# Usage: nightly.sh [cpu|gpu|yoga|gx10|wgpu|both|all]
 MODE="${1:-gpu}"
 DATE=$(date +%Y%m%d)
 YOGA_HOST="192.168.50.38"
@@ -122,6 +122,74 @@ run_yoga_serial() {
         --fail-on-grade C 2>&1 || true
 }
 
+# PMAT-412: GB10 Blackwell benchmark — 1.5B + 7B models, SSH tunnel
+run_gx10() {
+    echo "--- [gx10] Grace Blackwell GB10 benchmarks ---"
+
+    # Ensure SSH tunnel
+    if ! curl -sf http://127.0.0.1:9081/health >/dev/null 2>&1; then
+        echo "  Setting up SSH tunnel to gx10..."
+        ssh -f -N -L 9081:localhost:8081 gx10 || { echo "SSH tunnel failed"; return 1; }
+        sleep 2
+    fi
+
+    local GX10_URL="http://127.0.0.1:9081"
+    local concurrencies=(1 4 8 16 32)
+    local models=("1.5b:qwen2.5-coder-1.5b-instruct-q4_k_m.gguf" \
+                   "7b:qwen2.5-coder-7b-instruct-q4_k_m.gguf")
+
+    for model_spec in "${models[@]}"; do
+        IFS=':' read -r size gguf <<< "$model_spec"
+        echo "=== [gx10] ${size} ==="
+
+        # Deploy model
+        echo "  Starting ${size} on gx10..."
+        ssh gx10 "pkill apr 2>/dev/null; sleep 2; cd ~/src/aprender && \
+            SKIP_PARITY_GATE=1 CUDA_MAX_BATCH=32 ITERATION_SCHEDULER=1 \
+            nohup ./target/release/apr serve run ~/models/${gguf} \
+            --gpu --host 0.0.0.0 --port 8081 </dev/null > /tmp/apr-${size}-nightly.log 2>&1 & disown"
+
+        # Wait for health
+        echo -n "  Health check..."
+        timeout 120 bash -c "until curl -sf $GX10_URL/health >/dev/null 2>&1; do sleep 3; done" || {
+            echo " TIMEOUT, skipping ${size}"
+            continue
+        }
+        echo " OK"
+
+        # Correctness
+        echo "  Correctness..."
+        probador llm test \
+            --config prompts/correctness.yaml \
+            --url "$GX10_URL" \
+            --runtime-name "realizr-gb10-${size}" || true
+
+        # Load tests at each concurrency level
+        for c in "${concurrencies[@]}"; do
+            echo "  Load c=$c..."
+            probador llm load \
+                --url "$GX10_URL" \
+                --concurrency "$c" \
+                --duration 60 \
+                --warmup 5 \
+                --stream true \
+                --max-tokens 128 \
+                --runtime-name "realizr-gb10-${size}" \
+                -o "results/gb10-${size}-c${c}-${DATE}.json" || true
+        done
+
+        # Stop model
+        ssh gx10 'pkill apr 2>/dev/null' || true
+        sleep 3
+    done
+
+    echo "--- [gx10] Scoring ---"
+    probador llm score \
+        --results results/ \
+        --platform gb10 \
+        --format table 2>&1 || true
+}
+
 case "$MODE" in
     cpu)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
@@ -131,6 +199,9 @@ case "$MODE" in
         ;;
     yoga)
         run_yoga_serial
+        ;;
+    gx10)
+        run_gx10
         ;;
     both)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
@@ -169,9 +240,10 @@ case "$MODE" in
     all)
         run_benchmark "cpu" "192.168.50.100" "forjar.yaml"
         run_yoga_serial
+        run_gx10
         ;;
     *)
-        echo "Usage: nightly.sh [cpu|gpu|yoga|wgpu|both|all]"
+        echo "Usage: nightly.sh [cpu|gpu|yoga|gx10|wgpu|both|all]"
         exit 1
         ;;
 esac
