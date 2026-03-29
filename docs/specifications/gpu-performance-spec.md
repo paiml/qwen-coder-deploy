@@ -1,7 +1,7 @@
 # GPU Decoder Throughput Performance Specification
 
 **Document ID:** REALIZAR-GPU-PERF-001
-**Version:** 6.32.0
+**Version:** 6.33.0
 **Last Updated:** 2026-03-28
 **Status:** ACTIVE
 **Date:** 2026-03-28
@@ -34,7 +34,7 @@
 
 ### What This Is
 
-Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 410 PMAT work items, Popperian falsification methodology.
+Performance specification for the realizar GPU inference engine, covering autoregressive decode for LLaMA, Mistral, Phi, and Qwen model families. 411 PMAT work items, Popperian falsification methodology.
 
 ### Chain of Reasoning
 
@@ -54,7 +54,8 @@ Performance specification for the realizar GPU inference engine, covering autore
 
 | Model | c=1 | c=4 | c=8 | c=16 | c=32 | Ceiling |
 |-------|-----|-----|-----|------|------|---------|
-| 1.5B | 92 | 247 | 413 | 495 | 851 | ~851 |
+| ~~1.5B (PMAT-390)~~ | ~~92~~ | ~~247~~ | ~~413~~ | ~~495~~ | ~~851~~ | ~~old config~~ |
+| **1.5B (PMAT-411)** | **101** | **342** | **560** | **1,010** | **1,677** | **FP8 + B32 iter sched. +97% c=32** |
 | ~~7B (PMAT-394)~~ | ~~29~~ | ~~92~~ | ~~154~~ | ~~197~~ | ~~197~~ | ~~old config, BW saturated~~ |
 | **7B (PMAT-410)** | **31** | **111** | **159** | **277** | **472** | **FP8 restored + B32 iter sched. +139% c=32** |
 | **32B** | **8.4** | **22.2** | — | — | — | **53 GB (FP16 cache skip + BATCH=4). HumanEval 90.85%.** |
@@ -4774,6 +4775,7 @@ The following external documents are authoritative for their respective domains 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.33.0 | 2026-03-29 | **PMAT-411: GB10 1.5B re-benchmark — 1,677 tok/s c=32 (+97%).** FP8 + B32 iter sched: c=1:101/c=4:342/c=8:560/c=16:1010/c=32:1677. Prefill: 2383 tok/s (FP8 cuBLASLt). Decode: 104 tok/s c=1 (+13% vs PMAT-390). Near 2× at c=16-32. |
 | 6.32.0 | 2026-03-29 | **PMAT-410: FP8 restored on Blackwell — 472 tok/s c=32 (+139%).** Removed cc<100 guard from GEMM dispatch; warmup still guarded (crashes). FP8 cuBLASLt works via lazy `get_or_cache_fp8_weight`. 7B: c=1:31/c=4:111/c=8:159/c=16:277/c=32:472. Prefill: 661 tok/s (was 98 without FP8). Decode: 32 tok/s c=1 (+10%). All-time best GB10 numbers. |
 | 6.31.0 | 2026-03-28 | **PMAT-409: GB10 prefill — FP8 was the old fast path, HGEMM FALSIFIED.** Old PMAT-390 (92 tok/s c=4, 573 prefill) used FP8 cuBLASLt (cc>=89 no upper bound). New code: FP8 disabled (cc<100 guard), FP16 cache skipped (cc>=120). HGEMM prefill FALSIFIED on sm_121: 22 tok/s (4.5× slower than DP4A 98). FP16 cache (13.5 GB for 7B) improves decode +65% but kills prefill. Best GB10 7B config: NO FP16 cache, B32 iter sched. c=32: 330 tok/s (+68%). `FORCE_FP16_CACHE=1` added to realizr for override. |
 | 6.30.0 | 2026-03-28 | **PMAT-407/408: 5 more bindings (fused_qkv, temperature, BPE encode/decode/merge).** 128 total bindings (38 trueno + 90 realizr). GB10 7B v2: c=32 +68% (330 tok/s), c=4 -40% (55 tok/s, prefill regression). |
